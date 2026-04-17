@@ -1,0 +1,232 @@
+# ============================================================================
+# SONAR v2 · .gitignore
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Secrets & credentials — NEVER commit
+# ----------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+secrets.yaml
+.secrets/
+*_credentials.*
+
+# ----------------------------------------------------------------------------
+# Data — local only
+# ----------------------------------------------------------------------------
+data/
+!data/.gitkeep
+!data/README.md
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+backups/
+downloads/
+cache/
+
+# ----------------------------------------------------------------------------
+# Python
+# ----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+env.bak/
+venv.bak/
+
+# ----------------------------------------------------------------------------
+# Testing & coverage
+# ----------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.cache/
+nosetests.xml
+
+# ----------------------------------------------------------------------------
+# Type checking
+# ----------------------------------------------------------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# ----------------------------------------------------------------------------
+# Linting
+# ----------------------------------------------------------------------------
+.ruff_cache/
+
+# ----------------------------------------------------------------------------
+# Jupyter
+# ----------------------------------------------------------------------------
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+# Notebook outputs (strip via nbstripout pre-commit)
+# notebooks/**/*.ipynb  # uncomment if using nbstripout
+
+# ----------------------------------------------------------------------------
+# IDEs & editors
+# ----------------------------------------------------------------------------
+.vscode/
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.spyderproject
+.spyproject
+.ropeproject
+
+# ----------------------------------------------------------------------------
+# Logs
+# ----------------------------------------------------------------------------
+logs/
+*.log
+*.log.*
+
+# ----------------------------------------------------------------------------
+# Documentation builds
+# ----------------------------------------------------------------------------
+docs/_build/
+site/
+.sphinx-build/
+
+# ----------------------------------------------------------------------------
+# OS
+# ----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ----------------------------------------------------------------------------
+# Large / binary outputs (preserve only specific artifacts)
+# ----------------------------------------------------------------------------
+*.pdf
+!docs/**/*.pdf          # allow docs PDFs
+*.docx
+!docs/methodology/**/*.docx  # allow methodology manuals
+*.xlsx
+!docs/**/*.xlsx
+*.parquet
+*.h5
+*.hdf5
+*.pickle
+*.pkl
+
+# ----------------------------------------------------------------------------
+# Dashboard outputs
+# ----------------------------------------------------------------------------
+dashboards/.streamlit/secrets.toml
+dashboards/react/node_modules/
+dashboards/react/dist/
+dashboards/react/build/
+
+# ----------------------------------------------------------------------------
+# Package manager lockfiles — commit only the one in use
+# ----------------------------------------------------------------------------
+# pip: requirements.txt is committed, pip-compile output .lock can be
+# Poetry: poetry.lock IS committed
+# uv: uv.lock IS committed
+# Only ignore the ones NOT in use
+
+# ----------------------------------------------------------------------------
+# Secret scanning baseline (commit to repo)
+# ----------------------------------------------------------------------------
+# .secrets.baseline is COMMITTED — don't ignore
+
+# ----------------------------------------------------------------------------
+# Pre-commit
+# ----------------------------------------------------------------------------
+.pre-commit-trash/
+
+# ----------------------------------------------------------------------------
+# Temporary files
+# ----------------------------------------------------------------------------
+*.tmp
+*.temp
+tmp/
+temp/
+.tmp/
+
+# ----------------------------------------------------------------------------
+# Profiling
+# ----------------------------------------------------------------------------
+*.prof
+*.stats
+profile.out
+
+# ----------------------------------------------------------------------------
+# SONAR-specific
+# ----------------------------------------------------------------------------
+# Ephemeral connector cache
+sonar_cache/
+# Generated methodology PDFs
+methodology_pdfs/
+# Editorial angle drafts (keep in separate repo if sensitive)
+editorial_drafts/
+# Backtest results
+backtest_results/
+# Scratch notebooks
+scratch/
+
+# ----------------------------------------------------------------------------
+# Allow-list — ensure these ARE tracked
+# ----------------------------------------------------------------------------
+!.github/
+!.gitignore
+!.gitattributes
+!.pre-commit-config.yaml
+!.env.example
+!Makefile
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!SECURITY.md
+!CHANGELOG.md

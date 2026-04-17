@@ -1,0 +1,67 @@
+# ⚠️ SECURITY NOTICE — IMMEDIATE ACTION REQUIRED
+
+**Date**: April 17, 2026
+**Severity**: HIGH
+
+---
+
+## What happened
+
+A GitHub Personal Access Token starting with `github_pat_11B6PCLC...` was shared in plaintext in a chat conversation with an AI assistant. The token is now potentially compromised.
+
+## What you must do NOW
+
+### 1. Revoke the token — immediately
+
+1. Navigate to: `https://github.com/settings/tokens`
+2. Locate the token starting with `github_pat_11B6PCLC...`
+3. Click **Delete** (or **Revoke**)
+4. Confirm
+
+### 2. Audit repository access
+
+1. Go to `https://github.com/hugocondesa-debug/sonar/settings/security_analysis`
+2. Review recent access logs (Insights → Traffic, Audit log)
+3. Check if there are any unexpected clones, pushes, or API calls from unknown IPs
+
+### 3. Rotate any secrets referenced in repo history
+
+If the repo contained any other secrets committed historically:
+1. Use `git log --all --full-history -p` to scan for accidentally-committed credentials
+2. Rotate any exposed API keys (FRED, Trading Economics, etc.)
+3. Use `git filter-branch` or BFG Repo-Cleaner to purge from history (only if needed — since we're archiving, may be unnecessary)
+
+### 4. Best practices going forward
+
+- **Never share credentials in AI chats**, email, or messaging apps
+- Use **GitHub fine-grained tokens** instead of classic PATs (more restrictive)
+- Store secrets in:
+  - GitHub Actions secrets (for CI/CD)
+  - Local environment files gitignored (`.env`)
+  - Password managers (1Password, Bitwarden) for personal use
+- For AI-assisted development, use:
+  - **Claude Code** (CLI) — authenticates via `gh auth` on your machine
+  - **Claude GitHub connector** (web/app) — managed OAuth, never exposes raw token
+  - Copy/paste specific file contents (not credentials) into chats
+
+### 5. Monitor for suspicious activity
+
+Check for the next 30 days:
+- Unexpected repository changes
+- New collaborators added
+- Forks created (for private repos, this would be alarming)
+- API rate limit changes suggesting external usage
+
+---
+
+## Not using the token
+
+The AI assistant **did not use** the exposed token for any operation. All subsequent work is based on:
+- Public conversation context about the SONAR project scope
+- No repository access was attempted with the compromised credentials
+
+---
+
+## Confirmation
+
+After completing steps 1-3 above, delete or archive this SECURITY_NOTICE.md file. The rest of the bootstrap documentation in this bundle assumes the token has been rotated.

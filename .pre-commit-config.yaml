@@ -1,0 +1,144 @@
+# Pre-commit hooks for SONAR
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+default_language_version:
+  python: python3.11
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Basic hygiene
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]   # allow custom tags (e.g. for mkdocs)
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: debug-statements
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-docstring-first
+
+  # ---------------------------------------------------------------------------
+  # Ruff — lint + format (replaces black, isort, flake8, pylint)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # ---------------------------------------------------------------------------
+  # Type checking
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.6
+          - pydantic-settings
+          - types-requests
+          - types-pyyaml
+          - types-python-dateutil
+          - pandas-stubs
+        args: [--config-file=pyproject.toml]
+        exclude: ^(tests/|scripts/|notebooks/|docs/)
+
+  # ---------------------------------------------------------------------------
+  # Security — secret scanning
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: |
+          (?x)^(
+              package.lock.json|
+              .*\.ipynb|
+              data/.*|
+              backups/.*
+          )$
+
+  # ---------------------------------------------------------------------------
+  # Gitleaks — additional secret detection
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+
+  # ---------------------------------------------------------------------------
+  # Jupyter notebooks — strip outputs
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
+        files: \.ipynb$
+
+  # ---------------------------------------------------------------------------
+  # Markdown
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.41.0
+    hooks:
+      - id: markdownlint
+        args: [--config, .markdownlint.yaml, --ignore, CHANGELOG.md]
+        exclude: ^(docs/methodology/|data/|backups/)
+
+  # ---------------------------------------------------------------------------
+  # TOML — check pyproject.toml validity
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+      - id: taplo-lint
+
+  # ---------------------------------------------------------------------------
+  # Shell scripts
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        files: \.(sh|bash)$
+
+  # ---------------------------------------------------------------------------
+  # Conventional commits (optional — enforces commit message format)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args:
+          - feat
+          - fix
+          - docs
+          - style
+          - refactor
+          - perf
+          - test
+          - build
+          - ci
+          - chore
+          - revert
+
+ci:
+  autofix_commit_msg: "chore(pre-commit): auto-fix from pre-commit hooks"
+  autofix_prs: true
+  autoupdate_branch: "main"
+  autoupdate_commit_msg: "chore(pre-commit): autoupdate hooks"
+  autoupdate_schedule: monthly

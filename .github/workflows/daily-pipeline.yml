@@ -1,0 +1,107 @@
+name: Daily Pipeline
+
+on:
+  schedule:
+    # 06:00 Lisbon (05:00 UTC winter / 05:00 UTC summer ≈ UTC)
+    # Lisbon is UTC in winter, UTC+1 in summer — check seasonality
+    - cron: '0 5 * * 1-5'   # Monday-Friday only (no weekends)
+
+  workflow_dispatch:        # manual trigger
+    inputs:
+      date:
+        description: "Date to run pipeline for (YYYY-MM-DD). Defaults to today."
+        required: false
+        type: string
+      modules:
+        description: "Modules to run (comma-separated). Defaults to all."
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (no DB writes)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: daily-pipeline
+  cancel-in-progress: false  # don't cancel in-flight pipelines
+
+env:
+  PYTHON_VERSION: "3.11"
+  TZ: Europe/Lisbon
+
+jobs:
+  run-pipeline:
+    name: Run SONAR daily pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Install dependencies
+        run: uv pip install --system -e "."
+
+      - name: Download latest DB from cloud backup
+        # TODO: implement once cloud backup decided
+        # env:
+        #   B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+        #   B2_APP_KEY: ${{ secrets.B2_APP_KEY }}
+        # run: scripts/download_latest_backup.sh
+        run: echo "TODO — cloud backup integration"
+
+      - name: Run pipeline
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TRADING_ECONOMICS_KEY: ${{ secrets.TRADING_ECONOMICS_KEY }}
+          # Additional secrets as connectors require
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            ARGS="$ARGS --date=${{ github.event.inputs.date }}"
+          fi
+          if [ -n "${{ github.event.inputs.modules }}" ]; then
+            ARGS="$ARGS --modules=${{ github.event.inputs.modules }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          sonar pipeline daily $ARGS
+
+      - name: Upload DB to cloud backup
+        if: success()
+        # TODO: implement once cloud backup decided
+        run: echo "TODO — cloud backup upload"
+
+      - name: Upload pipeline logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 14
+
+      - name: Upload briefing
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-briefing-${{ github.run_id }}
+          path: outputs/briefing_*.md
+          retention-days: 30
+
+      - name: Notify failure
+        if: failure()
+        # TODO: add Telegram / email notification
+        run: |
+          echo "Pipeline failed — investigate logs"
+          # curl -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+          #   -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+          #   -d "text=⚠️ SONAR daily pipeline failed for ${{ github.run_id }}"

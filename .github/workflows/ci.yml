@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ==========================================================================
+  # Lint & type check — fast, runs on all pushes
+  # ==========================================================================
+  lint:
+    name: Lint + type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Ruff check
+        run: ruff check sonar tests
+
+      - name: Ruff format (check only)
+        run: ruff format --check sonar tests
+
+      - name: MyPy
+        run: mypy sonar
+
+  # ==========================================================================
+  # Unit tests — mocked, fast, per Python version
+  # ==========================================================================
+  test-unit:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: unit
+          fail_ci_if_error: false
+
+  # ==========================================================================
+  # Integration tests — slower, only on PRs to main + main pushes
+  # ==========================================================================
+  test-integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: |
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      github.event_name == 'pull_request' && github.base_ref == 'main'
+    needs: [lint, test-unit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev,api,dashboard]"
+
+      - name: Run integration tests
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: pytest tests/integration/ -v --tb=short
+
+  # ==========================================================================
+  # Security — secrets scanning + dep audit
+  # ==========================================================================
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: pip-audit
+        run: pip-audit --desc --skip-editable
+        continue-on-error: true  # warn, don't fail build (handle via Dependabot)
+
+      - name: detect-secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --baseline .secrets.baseline
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================================================
+  # Docs build — verify Wiki and docs render
+  # ==========================================================================
+  docs-check:
+    name: Documentation check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links in docs
+        uses: lycheeverse/lychee-action@v1
+        with:
+          args: --verbose --no-progress './docs/**/*.md' './wiki/**/*.md' 'README.md'
+          fail: false
+
+  # ==========================================================================
+  # Summary — all required checks passed
+  # ==========================================================================
+  ci-success:
+    name: CI success
+    if: always()
+    needs: [lint, test-unit, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check status
+        run: |
+          if [[ "${{ needs.lint.result }}" != "success" ]] || \
+             [[ "${{ needs.test-unit.result }}" != "success" ]] || \
+             [[ "${{ needs.security.result }}" != "success" ]]; then
+            echo "One or more required checks failed"
+            exit 1
+          fi
+          echo "All required checks passed"
