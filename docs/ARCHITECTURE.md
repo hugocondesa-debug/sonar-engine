@@ -1,574 +1,398 @@
 # SONAR v2 — Architecture
 
-**Document purpose**: definir a arquitetura técnica do SONAR v2 com suficiente detalhe para guiar implementação, mas flexível o suficiente para permitir decisões ainda abertas (ver [BRIEF_FOR_DEBATE.md](../BRIEF_FOR_DEBATE.md)).
+**Status**: v2.0 · Phase 0 specs merged · implementação Phase 1 pendente
+**Maintainer**: Hugo · 7365 Capital
+**Última revisão arquitetural**: 2026-04-18
 
----
+## 1. Propósito e escopo
 
-## 1. Design principles
+SONAR é motor analítico de ciclos macroeconómicos e overlays quantitativos para 7365 Capital. Computa estado cíclico (quatro ciclos agregados em scores compostos), primitivos quantitativos (yield curves NSS, ERP, CRP, rating-spread, expected inflation) e integration cross-country (matriz 4-way, cost-of-capital) num pipeline batch diário.
 
-### 1.1 Layered architecture
+**Portugal-aware by design**: cada overlay e ciclo tem derivação PT first-class. PT yield curve via IGCP; PT CRP daily; PT expected inflation via EA + historical differential synthesis (ausência de linker market doméstico); PT rating consolidado cross-agency; fixtures historical PT (2007 CRP ~20 bps → 2012 peak ~1500 bps → 2026 ~54 bps; 2009 DSR peak; 2012 CCCS distress) são canonical validation anchors.
 
-O SONAR segue arquitetura de cinco layers, hierarchical com feedback loops intencionais:
+**Sucessor de v1**: v1 (2024-2026) arquivado por debt técnico severo — 434 indicadores em 19 connectors sem spec formal, schema drift cross-ciclo, confidence não uniforme. v2 é **greenfield rewrite** com specs-first discipline e 9-layer architecture explícita.
 
-```
-LAYER 0 — Raw data sources (external APIs, scrapes, files)
-     ↓
-LAYER 1 — Sub-models (yield curves, ERP, CRP, rating-spread, expected inflation)
-     ↓
-LAYER 2 — Cycle classification (ECS, CCCS, MSC, FCS + overlays)
-     ↓
-LAYER 3 — Integration (matriz 4-way, four diagnostics, cost-of-capital)
-     ↓
-LAYER 4 — Outputs (API, alerts, editorial pipeline, dashboard)
-```
+**Escopo v2 Phase 0-1** (horizonte actual):
+- Specs L0-L8 merged em `docs/specs/` — 5 overlays + 16 indices + 4 cycles + conventions + pipelines stubs.
+- Implementação Phase 1: connectors (L0) + db schema (L1) + primeiro overlay end-to-end (NSS).
+- SQLite-first; Postgres é Phase 2+ (§10).
 
-**Feedback loops explícitos**:
-- Yield curve slope → MSC (monetary stance)
-- ERP → FCS (financial cycle valuations)
-- CRP → CCCS (credit cycle periphery)
-- Expected inflation → MSC (credibility assessment)
-- Rating → CCCS (sovereign credit)
+## 2. Princípios arquiteturais
 
-Feedback é intencional, não bug — economia moderna funciona assim. Calibration histórica valida consistência.
+Não-negociáveis. Spec, PR ou código que os violar é rejeitado.
 
-### 1.2 Compute, don't consume
+### 2.1 Compute, don't consume
 
-Sub-models são **computed locally** a partir de dados raw, não consumidos de sources agregados:
+Overlays e indices são **calculados localmente** a partir de raw data. Nunca copy-paste de outputs agregados externos.
 
-| ❌ Consume | ✅ Compute |
+| Anti-pattern (consume) | Pattern (compute) |
 |---|---|
-| Damodaran mensal ERP direto | ERP diário via DCF + analyst estimates |
-| Bloomberg CRP | CRP via CDS + vol ratio |
-| Bundesbank fitted curve | NSS fit próprio com Bundesbank como cross-validation |
-| Shiller CAPE published | Download Shiller data, compute CAPE localmente |
+| Damodaran ERP mensal publicado | ERP daily via DCF + Gordon + EY + CAPE (median canonical) |
+| Bloomberg CRP | CRP via CDS + σ_equity/σ_bond vol ratio |
+| Bundesbank Svensson fitted curves | NSS fit próprio (Bundesbank usado como cross-validation target <5 bps) |
+| Shiller CAPE published | Download `ie_data.xls`, compute CAPE rolling 10Y real earnings |
 
-**Cross-validation** de BC-published é continuous (target: Fed GSW <10bps, Bundesbank <5bps).
+Fontes "published" servem como **cross-validation contínua** (`XVAL_DRIFT` flag quando deviation excede target), não input primário.
 
-### 1.3 Separation of concerns
+### 2.2 Specs-first
 
-Cada layer é **isolado**:
+Cada módulo em `sonar/` tem um spec em `docs/specs/` **escrito antes** do código. Spec declara propósito, inputs/outputs tipados, algoritmo com pseudocódigo, dependencies, edge cases, test fixtures, storage DDL, consumers, references. Template canónico em `docs/specs/template.md` (10 secções mandatory + §11 Non-requirements opcional). Toda spec referencia `docs/specs/conventions/` e nunca redefine contratos partilhados.
 
-- Connectors não conhecem schema da base de dados
-- Database layer não conhece sub-models
-- Sub-models não conhecem cycles (mas cycles conhecem sub-models)
-- Outputs consomem, não computam
+Mudança algorítmica → bump `methodology_version` (esquema em `conventions/methodology-versions.md`) **antes** de tocar código.
 
-### 1.4 Idempotency & reproducibility
+### 2.3 Frozen contracts
 
-- Todo pipeline deve ser **idempotent** (rerun com mesmos inputs = mesmos outputs)
-- Historical runs devem ser **reproduzíveis** via version-controlled methodology
-- Database tem methodology_version column para recomputation selective
+`docs/specs/conventions/` é fonte partilhada de verdade para specs e código. Contém quatro ficheiros:
 
-### 1.5 Honest uncertainty
+- **`flags.md`** — catálogo de 100 flags `UPPER_SNAKE_CASE` com owner, trigger, confidence impact. Nenhuma spec emite token não catalogado.
+- **`exceptions.md`** — hierarquia `SonarError` com 15 classes (1 root, 4 branches abstract, 10 leaves). Nenhuma spec redefine nome de exception.
+- **`units.md`** — decimal em storage/compute (yields = `0.0415`, não `4.15`); bps como `int`; datas UTC storage + Europe/Lisbon scheduling; ISO 8601.
+- **`methodology-versions.md`** — formato `{MODULE}_{VARIANT?}_v{MAJOR}.{MINOR}` com bump rules (MINOR = weights/thresholds, MAJOR = schema/formula breaking → full rebackfill).
 
-- Todo output tem **confidence** score explícito
-- Confidence intervals publicadas quando relevante
-- Failure modes documentados per module
-- Silent failures inaceitáveis — tudo logged e flagged
+Alteração destes ficheiros é breaking change cross-spec — PR dedicado, review explícito.
 
----
+### 2.4 Placeholders declarados
 
-## 2. Technology stack
+Todo threshold empiricamente ungrounded (weights, regime bands, calibration intervals) é marcado:
 
-### 2.1 Proposed stack (open para debate)
+> *placeholder — recalibrate after Nm of production data*
 
-| Layer | Technology | Rationale |
+`N` entre 12m (overlays) e 60m (credit phase bands per country). ~40 placeholders inventariados. Backlog de calibração consolidado em `docs/backlog/calibration-tasks.md` (a criar em Bloco 8 Phase 0); GitHub issues abertos ad-hoc quando item entra em execução.
+
+### 2.5 Portugal-aware
+
+PT é first-class em cada camada:
+- L0: IGCP, BPStat, INE como Tier 1 sources.
+- L2: PT CRP computed (não rating-implied quando liquidity permite); PT expected inflation via EA + differential (no domestic linker); PT NSS via IGCP + ECB SDW cross-check.
+- L4: PT tier 3 em coverage mas fixtures historical dedicated.
+- L7: PT CRP trajectory é flagship editorial angle.
+
+## 3. As 9 camadas
+
+Stack layered estritamente hierárquico; dados fluem L0 → L8.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ L8  pipelines/    Orchestration + schedule + backfill strategy      │
+├─────────────────────────────────────────────────────────────────────┤
+│ L7  outputs/      CLI, API, editorial, alerts, dashboard            │
+├─────────────────────────────────────────────────────────────────────┤
+│ L6  integration/  Matriz 4-way, diagnostics, cost-of-capital        │
+├─────────────────────────────────────────────────────────────────────┤
+│ L5  regimes/      Cenários cruzados (Stagflation Trap, Bubble, ...) │ ← Phase 2+
+├─────────────────────────────────────────────────────────────────────┤
+│ L4  cycles/       ECS, CCCS, MSC, FCS (composite + regime)          │
+├─────────────────────────────────────────────────────────────────────┤
+│ L3  indices/      E1-4, L1-4, M1-4, F1-4 (sub-índices normalizados) │
+├─────────────────────────────────────────────────────────────────────┤
+│ L2  overlays/     NSS, ERP, CRP, rating-spread, expected-inflation  │
+├─────────────────────────────────────────────────────────────────────┤
+│ L1  db/           SQLite (v0.1) · tabelas + Alembic migrations      │
+├─────────────────────────────────────────────────────────────────────┤
+│ L0  connectors/   FRED, ECB SDW, BIS, IGCP, Shiller, WGB CDS, …     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### L0 · connectors/
+
+**Propósito**: adapters para data sources externas (APIs, scrapes HTML/PDF, downloads XLS/CSV). Um connector por source ou por família de endpoints coesa.
+
+**I/O**: parâmetros typed (`country_code`, date range, series id) → dict / DataFrame com raw observations + provenance metadata (source, fetched_at, data_as_of, confidence, warnings).
+
+**Exemplos**: `treasury_gov`, `bundesbank`, `boe_yieldcurves`, `mof_japan`, `ecb_sdw`, `igcp`, `bpstat`, `ine`, `shiller`, `wgb_cds`, `factset_insight`, `spdji_buyback`, `fred`, `bis`, rating agency connectors (`sp_ratings`, `moodys_ratings`, `fitch_ratings`, `dbrs_ratings`).
+
+**Estado**: base abstract class `BaseConnector` é primeiro deliverable Phase 1. Data source plans em `docs/data_sources/` (4 ficheiros) são o roadmap — ~50-60 connectors catalogados.
+
+### L1 · db/
+
+**Propósito**: persistência. Único ponto de read/write de todas as camadas downstream. Schema é source of truth — código segue schema, não o contrário.
+
+**I/O**: tabelas SQL com `UNIQUE(country_code, date, methodology_version)` ou equivalente. Foreign keys onde sibling tables partilham correlation UUID (ex: `yield_curves_zero.fit_id → yield_curves_spot.fit_id`). Toda row carrega `methodology_version`, `confidence`, `flags`, `created_at`.
+
+**Exemplos** (especificados nos specs L2-L4): `yield_curves_spot/zero/forwards/real`, `erp_dcf/gordon/ey/cape/canonical`, `economic_cycle_scores`, `credit_cycle_scores`, `monetary_cycle_scores`, `financial_cycle_scores`. ~60 tabelas estimadas quando Phase 1-3 completa.
+
+**Estado**: SQLite v0.1 + SQLAlchemy 2.0 + Alembic. Postgres migration é Phase 2+ (§10).
+
+### L2 · overlays/
+
+**Propósito**: calculadoras quantitativas universais, reutilizáveis cross-cycle. Output contínuo em unidades naturais. Não classificam — produzem números.
+
+**I/O**: connectors (via L1 raw tables) + eventualmente outputs de outros overlays (NSS alimenta ERP risk-free). Uma ou mais tabelas por overlay; `{slug}_id` UUID correlaciona sibling rows.
+
+**5 overlays especificados** — ver §5.
+
+**Estado**: specs merged (P3). Implementação Phase 1 (NSS primeiro, end-to-end).
+
+### L3 · indices/
+
+**Propósito**: síntese ponderada por sub-dimensão de um ciclo. Output normalizado para `[0, 100]` via z-score rescaled — consumível por L4 composite scores.
+
+**I/O**: overlays (L2) + connectors directos (via L1). Exemplo: `E2-leading` consome yield-curve slope de NSS + LEI/OECD CLI de connectors. Output tipado: `score_normalized ∈ [0, 100]`, `score_raw`, `components_json`, `confidence`, `flags`.
+
+**16 indices especificados** (4 por ciclo) — ver §5.
+
+**Lookback window per cycle** — cada README em `docs/specs/indices/` declara a janela canónica e fallback Tier 4:
+
+| Cycle | Canonical | Tier 4 fallback | Rationale |
+|---|---|---|---|
+| Economic | 10Y | 7Y | Cap 15.4 default; cycle médio + buffer |
+| Credit | 20Y | 15Y floor | 80 quarters, BIS WS_TC standard |
+| Financial | 20Y | 10Y | múltiplos cycles + bubble episodes (1998, 2007, 2021) |
+| Monetary | 30Y | 15Y | cobre regime ZLB 2008-2022 (shadow rate, Taylor gap) |
+
+Monetary 30Y é deliberadamente mais longo — ZLB 2008-2022 teve shadow rate ECB −7.56% (2020) e Taylor gap Fed −3.5pp (2022); window curta comprimiria variance dessa cauda. F1 CAPE adicionalmente computa percentile rank 40Y como diagnostic (persistido em `components_json`).
+
+**Estado**: specs merged (P4). Implementação Phase 1-2.
+
+### L4 · cycles/
+
+**Propósito**: classificadores de regime macroeconómico. Consomem indices L3 do próprio ciclo + cross-cycle peers + overlays selectos. Output: score composite contínuo + regime discreto com anti-whipsaw hysteresis.
+
+**I/O**: 4 indices do próprio cycle + cross-cycle dependencies (§6). Output: `score_0_100`, `regime` (enum), `regime_persistence_days`, component scores, effective weights (reflectem re-weighting Policy 1), overlay booleans (Stagflation, Boom, Dilemma, Bubble Warning), `confidence`, `flags`.
+
+**4 cycles especificados** — ver §5.
+
+**Regime transition rule** (universal): `|Δscore| > 5` AND `persistence ≥ 3 business days`. Flags genéricas partilhadas: `REGIME_BOOTSTRAP` (primeira row sem prev state), `REGIME_HYSTERESIS_HOLD` (transição atempted mas rejeitada).
+
+**Estado**: specs merged (P5). Implementação Phase 2.
+
+### L5 · regimes/
+
+**Propósito**: cenários cruzados (dois ou mais ciclos em configurações específicas) reificados como entidades com história, transition probabilities, duration distributions. Exemplos conceptuais: *Stagflation Trap* (ECS RECESSION + CPI >3% + MSC TIGHT), *Bubble Warning medium-term* (FCS EUPHORIA + BIS credit gap >10pp + property gap >20%).
+
+**I/O planeado**: row por `(country, date, regime_scenario)` com `active: bool`, `intensity`, `duration_days`, `transition_prob_json`.
+
+**Estado**: **Phase 2+**. Em v0.1 os overlays equivalentes vivem como colunas booleanas nas tabelas L4 (`stagflation_overlay_active`, `boom_overlay_active`, `dilemma_overlay_active`, `bubble_warning_active`). Sem tabela L5 separada.
+
+### L6 · integration/
+
+**Propósito**: composição cross-country e cross-cycle. Outputs não-single-cycle, não-single-country.
+
+**I/O planeado**:
+- `matriz-4way` — classificação canonical pattern (ECS × CCCS × MSC × FCS → 16 estados canónicos + outliers).
+- `diagnostics/` — bubble-detection composite, minsky-fragility, real-estate-cycle, risk-appetite-regime.
+- `cost-of-capital` — composite `cost_of_equity_country = risk_free_country + β·ERP_mature + CRP_country`.
+
+**Estado**: `docs/specs/integration/` vazio. Specs Phase 2+.
+
+### L7 · outputs/
+
+**Propósito**: consumo humano + máquina. CLI (Typer), API (FastAPI), editorial pipeline (angle detection + briefing generator + markdown templates), alerts (threshold breach, regime shift), dashboard.
+
+**I/O**: leitura via L1 (never recompute); scatter para humanos (editorial briefings, alerts email/Telegram) e máquinas (JSON API).
+
+**Estado**: CLI + JSON exporters são Phase 2. Editorial pipeline Phase 3. Dashboard Phase 4+ (§10).
+
+### L8 · pipelines/
+
+**Propósito**: orchestration. Coordenar execução ordenada L0 → L6 por `(country, date)`, respeitar dependency DAG, isolar falhas per country, persistir atomicamente.
+
+**6 pipelines stub**:
+- `daily-curves` (09:00 Lisbon) · NSS fit all countries.
+- `daily-overlays` (09:30) · ERP, CRP, rating-spread, expected-inflation.
+- `daily-indices` (10:00) · 16 indices (paralelizáveis per cycle).
+- `daily-cycles` (10:15) · 4 composite scores + overlays booleans.
+- `weekly-integration` (Sun 11:00) · rolling recomputes (5Y vol ratios, PT-EA differential, transition probabilities).
+- `backfill-strategy` (on-demand) · historical boot + rebackfill on MAJOR methodology bump.
+
+**Estado**: stubs em `docs/specs/pipelines/`. Detailed specs Phase 2+ (requer decisão orchestrator: APScheduler vs Prefect — `BRIEF_FOR_DEBATE.md` §3).
+
+## 4. Distinções críticas
+
+Três conceitos fáceis de confundir. Definições completas em `docs/GLOSSARY.md` (Bloco futuro); aqui o mínimo para não errar na stack.
+
+### Overlay (L2) vs Index (L3) vs Cycle (L4)
+
+| | Overlay (L2) | Index (L3) | Cycle (L4) |
+|---|---|---|---|
+| **Tipo de output** | Contínuo em unidades naturais (yield decimal, bps, inflation decimal) | Normalizado `[0, 100]` via z-score rescaled | `score_0_100` contínuo + regime discreto (enum) |
+| **Escopo** | Universal, reutilizável cross-cycle | Sub-dimensão de UM ciclo específico | Composite de 4 indices do próprio ciclo + cross-cycle deps |
+| **Exemplo** | NSS yield curve fitted | E2 Leading (yield slope + LEI + PMIs + credit spreads) | ECS composite + regime `EXPANSION/PEAK_ZONE/…` |
+| **Consumido por** | Indices, cycles, integration, outputs | Cycles | Integration, outputs, editorial |
+| **Classifica?** | Não — produz números | Não — normaliza | Sim — regime discreto + overlay booleans |
+| **Transparência** | Algorithmic (NSS fit, DCF root-find) | Aggregation + normalization | Weighted sum + hysteresis state machine |
+
+### Regime (L5) cross-cycle ≠ overlay
+
+"Overlay" tem duas acepções no SONAR — ambiguidade herdada dos manuais v1:
+
+1. **Overlay layer (L2)** — calculadora quantitativa (NSS, ERP, CRP, rating-spread, expected-inflation).
+2. **Cycle overlay** (coluna booleana em L4) — condição activa num ciclo (Stagflation, Boom, Dilemma, Bubble Warning). Em v0.1 é coluna. Em Phase 2+ migra para **L5 regimes** (cenários cruzados com história).
+
+Regra: quando lêres "overlay" no código, vê o namespace. `overlays/nss-curves` é L2. `stagflation_overlay_active` column é semântica L4 (Phase 0-1) / L5 (Phase 2+).
+
+## 5. Inventário actual
+
+Specs merged em main · 3 commits Phase 0 (sessão 2026-04-18): `97ee9ae` conventions + pipelines stubs · `1a66686` overlays + indices + cycles · `95744d3` template + README 9-layer.
+
+### Overlays (L2) · 5 specs
+
+| Slug | Methodology | Spec |
 |---|---|---|
-| Language | **Python 3.11+** | Ecosystem financeiro (pandas, numpy, scipy), ML-ready, team familiar |
-| Database (local) | **SQLite** via SQLAlchemy | Simple, file-based, excellent for single-user research. Port to Postgres later if needed. |
-| Alternative | **DuckDB** | If analytical queries become bottleneck — columnar, optimized for OLAP |
-| Config | **pydantic-settings** | Type-safe environment config |
-| ORM | **SQLAlchemy 2.0** | Mature, supports Core + ORM, migrations via Alembic |
-| Migrations | **Alembic** | Schema versioning |
-| HTTP client | **httpx** | Async-capable, modern |
-| Scraping | **BeautifulSoup4 + lxml** | Standard for HTML scraping |
-| PDF parsing | **pdfplumber** | FactSet reports, Moody's Default Study |
-| Excel | **openpyxl** | Shiller ie_data.xls, Damodaran histimpl.xlsx |
-| NSS fitting | **scipy.optimize** | Standard scientific computing |
-| Testing | **pytest + hypothesis** | Unit + property-based tests |
-| Linting | **ruff** | Fast, comprehensive |
-| Type checking | **mypy** | Static types critical for correctness |
-| Formatting | **ruff format** (or black) | Consistency |
-| CI/CD | **GitHub Actions** | Free for private repos up to limits |
-| Orchestration | **APScheduler** (simple) or **Prefect** (if complex) | Start simple, upgrade if needed |
-| API (future) | **FastAPI** | Modern, type-safe, async |
-| Dashboard (future) | **Streamlit** (MVP) or **React** (v2) | Start with Streamlit for speed |
-| Secrets | **.env** + python-dotenv (local), GitHub Actions secrets (CI) | Standard |
-| Package manager | **uv** or **pip** | uv is faster; pip safer baseline |
+| nss-curves | Nelson-Siegel-Svensson 6-param (4-param fallback) | [specs/overlays/nss-curves.md](specs/overlays/nss-curves.md) |
+| erp-daily | 4 methods paralelos → median canonical | [specs/overlays/erp-daily.md](specs/overlays/erp-daily.md) |
+| crp | CDS → sovereign spread → rating-implied (hierarchy) × vol_ratio | [specs/overlays/crp.md](specs/overlays/crp.md) |
+| rating-spread | Cross-agency consolidation → SONAR scale 0-21 → calibrated spread | [specs/overlays/rating-spread.md](specs/overlays/rating-spread.md) |
+| expected-inflation | BEI → SWAP → DERIVED (PT path) → SURVEY (hierarchy) | [specs/overlays/expected-inflation.md](specs/overlays/expected-inflation.md) |
 
-### 2.2 Things we deliberately don't use (yet)
+### Indices (L3) · 16 specs (4 por ciclo)
 
-- **Kubernetes/Docker Swarm** — overkill for single-user research
-- **Apache Airflow** — too heavy for our orchestration needs
-- **Kafka/RabbitMQ** — no real-time streaming requirements
-- **PostgreSQL** — until scale demands it
-- **TypeScript** — Python is sufficient; add JS only for dashboard v2
-
-## 3. Module architecture
-
-### 3.1 Core package layout
-
-```
-sonar/
-├── __init__.py
-├── settings.py                  # Pydantic settings, env vars
-├── logging_config.py            # Structured logging setup
-│
-├── connectors/                  # Layer 0 — raw data
-│   ├── __init__.py
-│   ├── base.py                  # Abstract connector interface
-│   ├── fred.py                  # FRED API
-│   ├── ecb_sdw.py               # ECB Statistical Data Warehouse
-│   ├── bis.py                   # BIS statistics
-│   ├── igcp.py                  # Portuguese sovereign
-│   ├── treasury_gov.py          # US Treasury daily rates
-│   ├── bundesbank.py            # Bundesbank Svensson curves
-│   ├── boe_yieldcurves.py       # BoE Anderson-Sleath
-│   ├── shiller.py               # Shiller ie_data.xls
-│   ├── damodaran.py             # Damodaran monthly (validation)
-│   ├── wgb_cds.py               # World Government Bonds CDS scrape
-│   ├── factset_insight.py       # FactSet Earnings Insight PDF
-│   ├── spdji_buyback.py         # S&P DJI Buyback
-│   ├── rating_agencies.py       # S&P, Moody's, Fitch, DBRS
-│   ├── spf.py                   # Philly Fed SPF
-│   └── ...
-│
-├── db/                          # Layer 0/1 — persistence
-│   ├── __init__.py
-│   ├── models.py                # SQLAlchemy ORM models
-│   ├── migrations/              # Alembic migrations
-│   │   └── versions/
-│   ├── session.py               # DB session factory
-│   └── schema_v18.sql           # Reference DDL
-│
-├── submodels/                   # Layer 1 — sub-models
-│   ├── __init__.py
-│   ├── yield_curves/
-│   │   ├── __init__.py
-│   │   ├── nss_fitter.py        # NSS methodology
-│   │   ├── bootstrap.py         # Zero curve derivation
-│   │   ├── forwards.py          # Forward curve derivation
-│   │   ├── real_curves.py       # Real yield computation
-│   │   └── orchestrator.py      # Per-country daily pipeline
-│   ├── erp/
-│   │   ├── __init__.py
-│   │   ├── dcf_method.py        # Damodaran DCF
-│   │   ├── gordon_method.py     # Gordon simplified
-│   │   ├── earnings_yield.py    # Simple
-│   │   ├── cape_method.py       # Shiller-based
-│   │   └── orchestrator.py
-│   ├── crp/
-│   │   ├── __init__.py
-│   │   ├── cds_based.py
-│   │   ├── sovereign_spread.py
-│   │   ├── vol_ratio.py
-│   │   └── orchestrator.py
-│   ├── rating_spread/
-│   │   ├── __init__.py
-│   │   ├── agency_scale.py      # Cross-agency conversion
-│   │   ├── calibration.py       # Rating-to-spread table
-│   │   └── orchestrator.py
-│   └── expected_inflation/
-│       ├── __init__.py
-│       ├── breakevens.py        # Market-based
-│       ├── surveys.py           # SPF, ECB SPF, Michigan
-│       ├── derived.py           # Portugal synthesis, EM model-based
-│       ├── forward_derivation.py # 5y5y forward
-│       └── orchestrator.py
-│
-├── cycles/                      # Layer 2 — cycle classification
-│   ├── __init__.py
-│   ├── base.py                  # Abstract cycle class
-│   ├── credit/
-│   │   ├── __init__.py
-│   │   ├── cccs.py              # Credit Cycle Score
-│   │   └── boom_overlay.py
-│   ├── monetary/
-│   │   ├── __init__.py
-│   │   ├── msc.py               # Monetary Stance Composite
-│   │   └── dilemma_overlay.py
-│   ├── economic/
-│   │   ├── __init__.py
-│   │   ├── ecs.py               # Economic Cycle Score
-│   │   └── stagflation_overlay.py
-│   └── financial/
-│       ├── __init__.py
-│       ├── fcs.py               # Financial Cycle Score
-│       └── bubble_warning.py
-│
-├── integration/                 # Layer 3
-│   ├── __init__.py
-│   ├── matriz_4way.py           # Canonical pattern classifier
-│   ├── diagnostics/
-│   │   ├── __init__.py
-│   │   ├── bubble_detection.py
-│   │   ├── risk_appetite.py
-│   │   ├── real_estate.py
-│   │   └── minsky_fragility.py
-│   ├── cost_of_capital.py       # Cross-border framework
-│   └── alerts.py                # Threshold breach detection
-│
-├── outputs/                     # Layer 4
-│   ├── __init__.py
-│   ├── api/                     # FastAPI (future)
-│   ├── cli/                     # Command-line entry points
-│   ├── editorial/               # Angle generation
-│   └── exporters/               # JSON, CSV, markdown
-│
-└── pipelines/                   # Orchestration
-    ├── __init__.py
-    ├── daily.py                 # Daily pipeline
-    ├── weekly.py
-    ├── monthly.py
-    ├── quarterly.py
-    └── event_driven.py          # Rating actions, etc.
-```
-
-### 3.2 Base connector interface
-
-Every data source implements a common interface. Draft (see `templates/connectors/base.py`):
-
-```python
-from abc import ABC, abstractmethod
-from datetime import date
-from typing import Any
-from pydantic import BaseModel
-
-class FetchResult(BaseModel):
-    data: dict[str, Any]
-    source: str
-    fetched_at: datetime
-    data_as_of: date | None
-    confidence: float
-    warnings: list[str] = []
-
-class BaseConnector(ABC):
-    name: str  # "fred", "ecb_sdw", etc.
-    tier: int  # 1, 2, 3
-
-    @abstractmethod
-    def fetch(self, **kwargs) -> FetchResult:
-        """Fetch data from source."""
-        ...
-
-    @abstractmethod
-    def validate(self, result: FetchResult) -> list[str]:
-        """Return warnings/errors about data quality."""
-        ...
-
-    @abstractmethod
-    def store(self, result: FetchResult) -> int:
-        """Persist to database. Return rows affected."""
-        ...
-```
-
-### 3.3 Data flow (canonical day)
-
-Pipeline diário (Lisbon timezone):
-
-```
-06:00 — Morning data refresh
-  connectors/treasury_gov.fetch()
-  connectors/bundesbank.fetch()
-  connectors/boe_yieldcurves.fetch()
-  connectors/mof_japan.fetch()
-  connectors/ecb_sdw.fetch() [EA country yields]
-  connectors/wgb_cds.fetch()
-
-07:00 — Portugal-specific
-  connectors/igcp.fetch()
-  connectors/bpstat.fetch()
-
-08:00 — Supplementary
-  connectors/fred.fetch_daily_series()
-  connectors/multpl.fetch()
-
-09:00 — Sub-model computation
-  submodels/yield_curves/orchestrator.run_all_countries()
-  submodels/erp/orchestrator.run_all_markets()
-  submodels/crp/orchestrator.run_all_countries()
-  submodels/rating_spread/orchestrator.update_if_needed()
-  submodels/expected_inflation/orchestrator.run_all_countries()
-
-10:00 — Cycle classification
-  cycles/credit/cccs.compute()
-  cycles/monetary/msc.compute()
-  cycles/economic/ecs.compute()
-  cycles/financial/fcs.compute()
-  [+ overlays]
-
-10:30 — Integration
-  integration/matriz_4way.classify()
-  integration/diagnostics/*.compute()
-  integration/cost_of_capital.compute_for_countries(TIER_1_2)
-
-11:00 — Outputs
-  outputs/editorial/generate_daily_briefing()
-  integration/alerts.evaluate_and_publish()
-```
-
-### 3.4 Error handling philosophy
-
-- **Fail loud, fail fast** during development
-- **Fail gracefully, log verbose** in production
-- Never silently swallow exceptions
-- Every failure tagged with connector name + timestamp
-- Critical failures (database write fails, core connector down) page operator (email/Telegram)
-- Non-critical failures (one country's CDS missing) flag in output metadata, continue pipeline
-
----
-
-## 4. Database architecture
-
-### 4.1 Schema versioning
-
-Schema migrations gerenciadas via Alembic. Historical versions:
-- v13: credit cycle
-- v14-15: monetary cycle
-- v16: economic cycle
-- v17: financial cycle
-- **v18** (current): sub-models (this is starting point for v2)
-
-### 4.2 Core tables (high-level)
-
-| Table family | Tables | Purpose |
+| Ciclo | Indices | Dir |
 |---|---|---|
-| Raw data | `raw_fred_series`, `raw_ecb_series`, etc. | Audit trail of fetched data |
-| Cycle indicators | `economic_*`, `credit_*`, `monetary_*`, `financial_*` | Per-cycle component indicators |
-| Sub-model outputs | `yield_curves`, `erp_daily`, `country_risk_premium`, `sovereign_ratings`, `rating_spread_mapping`, `expected_inflation`, `cost_of_capital_daily` | Layer 1 outputs |
-| Cycle scores | `economic_cycle_score`, `credit_cycle_score`, `monetary_stance_composite`, `financial_cycle_score` | Layer 2 outputs |
-| Integration | `sonar_integrated_state`, `applied_diagnostics`, `alerts` | Layer 3 outputs |
-| Meta | `connector_runs`, `methodology_versions`, `calibration_history` | Ops & provenance |
+| Economic | E1-activity · E2-leading · E3-labor · E4-sentiment | [specs/indices/economic/](specs/indices/economic/) |
+| Credit | L1-credit-to-gdp-stock · L2-credit-to-gdp-gap · L3-credit-impulse · L4-dsr | [specs/indices/credit/](specs/indices/credit/) |
+| Monetary | M1-effective-rates · M2-taylor-gaps · M3-market-expectations · M4-fci | [specs/indices/monetary/](specs/indices/monetary/) |
+| Financial | F1-valuations · F2-momentum · F3-risk-appetite · F4-positioning | [specs/indices/financial/](specs/indices/financial/) |
 
-### 4.3 Key design patterns
+### Cycles (L4) · 4 specs
 
-**Every table has**:
-- `created_at`, `updated_at` timestamps
-- Source tracking (which connector, which run)
-- Confidence score
-- Methodology version reference
+| Slug | Composite formula (v0.1) | Spec |
+|---|---|---|
+| economic-ecs | `0.35·E1 + 0.25·E2 + 0.25·E3 + 0.15·E4` | [specs/cycles/economic-ecs.md](specs/cycles/economic-ecs.md) |
+| credit-cccs | `0.44·CS + 0.33·LC + 0.22·MS` (QS omitted; CS/LC/MS aggregate L1-L4 + F3/F4) | [specs/cycles/credit-cccs.md](specs/cycles/credit-cccs.md) |
+| monetary-msc | `0.30·M1 + 0.15·M2 + 0.25·M3 + 0.20·M4 + 0.10·CS` (CS direct, not L3) | [specs/cycles/monetary-msc.md](specs/cycles/monetary-msc.md) |
+| financial-fcs | `0.30·F1 + 0.25·F2 + 0.25·F3 + 0.20·F4` (F4 tier-conditional) | [specs/cycles/financial-fcs.md](specs/cycles/financial-fcs.md) |
 
-**Indexes** on `(country_code, date)` for time-series queries.
+Pesos são **placeholders** — recalibrate após 24m + walk-forward backtest (NBER/CEPR para ECS; Pagan-Sossounov para FCS; transition frequencies para MSC/CCCS).
 
-**Views** para common aggregate queries:
-- `v_latest_cycle_states_per_country`
-- `v_matriz_4way_history`
-- `v_cost_of_capital_timeseries`
+## 6. Dependências entre camadas
 
-### 4.4 Backup & retention
-
-- **Local DB**: backup daily via `sqlite3 .backup` to timestamped file
-- **Retention**: full history, no deletion (historical backfill preserved)
-- **Cloud backup** (future): encrypted S3/B2 daily push
-- **Raw data audit**: retained 90 days minimum, then aggregated
-
----
-
-## 5. Observability
-
-### 5.1 Logging
-
-- **Structured logging** via `structlog` or stdlib logging with JSON formatter
-- All log entries include: timestamp, level, module, operation, country/market (if applicable), confidence
-- Log levels:
-  - DEBUG: normal operation detail
-  - INFO: pipeline milestones
-  - WARNING: recoverable issues (stale data, wide confidence intervals)
-  - ERROR: module failures
-  - CRITICAL: pipeline-wide failures
-
-### 5.2 Metrics
-
-Simple metrics initially (just log, no Prometheus):
-- Connector success/failure rates
-- Sub-model computation time
-- Cross-validation deviations (Fed GSW vs SONAR NSS, Damodaran vs SONAR ERP)
-- Database write rates
-
-Future: Prometheus + Grafana if scale demands.
-
-### 5.3 Alerting (for pipeline ops, not market alerts)
-
-- Pipeline failures → email + Telegram
-- Cross-validation drift > threshold → email
-- Missing data from connector > 24h → email
-- Database size alarm → email
-
-Market alerts (ERP compression, regime shifts) são diferentes — são **outputs** editoriais, não ops alerts. Vivem em `integration/alerts.py`.
-
----
-
-## 6. Testing strategy
-
-### 6.1 Three levels
-
-1. **Unit tests** (`tests/unit/`)
-   - Connectors: parser/transformer logic (mocked HTTP)
-   - Sub-models: methodology computation with synthetic inputs
-   - Cycles: score calculation with known inputs
-   - Target coverage: 80%+ for core computation modules
-
-2. **Integration tests** (`tests/integration/`)
-   - End-to-end pipeline with recorded fixtures
-   - Database round-trips
-   - Cross-validation deviations within thresholds
-
-3. **Property tests** (`tests/property/`)
-   - NSS fitter: monotonic zero curves in most cases
-   - ERP: bounded range (1.5%-8.5%)
-   - CRP: vol ratio bounded (1.2-2.5)
-   - Fisher equation consistency
-   - Conservation laws (e.g. matriz 4-way classification sums to 100%)
-
-### 6.2 Fixture strategy
-
-- Use `pytest fixtures` for reusable mock data
-- Record real API responses once, replay in CI (via `pytest-recording` or `vcrpy`)
-- Validation fixtures: known historical dates where answers are well-established
-
-### 6.3 CI strategy
-
-GitHub Actions workflow (`.github/workflows/ci.yml`):
-- On push to any branch: lint + typecheck + unit tests
-- On PR to main: + integration tests
-- On merge to main: + scheduled daily pipeline tests on fixture data
-- Nightly: cross-validation tests against live data
-
----
-
-## 7. Security & secrets
-
-### 7.1 Secrets never committed
-
-Enforced via:
-- `.gitignore` includes `.env`, `*.key`, `credentials.json`
-- Pre-commit hook scans for suspected secrets (detect-secrets, gitleaks)
-- GitHub secret scanning enabled
-- CI fails if secrets detected
-
-### 7.2 API keys
-
-Stored in:
-- Local: `.env` file (gitignored)
-- CI: GitHub Actions encrypted secrets
-- Production (future): cloud provider secrets manager (AWS Secrets Manager, etc.)
-
-### 7.3 Dependency security
-
-- `pip-audit` in CI pipeline
-- Dependabot enabled on GitHub
-- Major version upgrades gated via PR review
-
----
-
-## 8. Deployment scenarios
-
-### 8.1 Local-only (current default)
-
-- Developer's laptop runs daily pipeline
-- SQLite database on disk
-- Scripts run via cron / APScheduler
-- Sufficient for solo use + editorial pipeline
-
-### 8.2 Cloud single-node (mid-term)
-
-- VPS ($20-40/month): DigitalOcean, Hetzner
-- Systemd for pipeline orchestration
-- Automated backups to S3/B2
-- Accessible via SSH tunnel
-- Provides 24/7 uptime if needed
-
-### 8.3 Cloud multi-node (fund scenario)
-
-- Kubernetes or container orchestration
-- Postgres production database
-- Prometheus + Grafana
-- Separate environments (dev, staging, prod)
-- Only justified if fund launches and needs institutional-grade SLAs
-
----
-
-## 9. Extensibility
-
-### 9.1 Adding a new country
-
-1. Add to `config/countries.yaml` (ISO code, tier, currency, etc.)
-2. Ensure relevant connectors support the country
-3. Add specific connector if country has local data source
-4. Update tests to include the new country
-
-### 9.2 Adding a new sub-model
-
-1. Create `sonar/submodels/<new_model>/` directory
-2. Implement orchestrator following pattern
-3. Add database tables via Alembic migration
-4. Wire into daily pipeline
-5. Add to API endpoints
-6. Document methodology in `docs/methodology/`
-
-### 9.3 Adding a new data source
-
-1. Implement `BaseConnector` subclass in `sonar/connectors/`
-2. Add to connector registry
-3. Add unit tests with mocked responses
-4. Add to daily pipeline at appropriate timing
-5. Document in `docs/data_sources/`
-
----
-
-## 10. Key architectural decisions (ADRs)
-
-Architecture Decision Records será armazenado em `docs/architecture/adr/`. Format padrão:
+### DAG canónico (cross-cycle focado)
 
 ```
-docs/architecture/adr/
-├── 0001-use-python-as-primary-language.md
-├── 0002-use-sqlite-for-mvp.md
-├── 0003-nss-over-anderson-sleath.md
-├── 0004-compute-erp-locally.md
-└── 0005-portugal-aware-design.md
+indices L3 ──► cycles L4
+
+  E1 E2 E3 E4
+     └──┬───┘
+        ▼
+       ECS ─────────────────────────────────┐
+                                            ▼
+                               MSC  (lê ECS para Dilemma trigger)
+  M1 M2 M3 M4 ─────────────────► MSC        ▲
+  CS direct (connectors) ───────► MSC ──────┘
+
+  credit/L1 credit/L2 credit/L3 credit/L4
+               └────────┬────────┘
+                        ▼
+                       CCCS ◄──── F3 + F4_margin  (✱ cross-cycle, MS component 22%)
+
+  F1 F2 F3 F4
+       └──┬──┘
+          ▼
+         FCS ◄──── credit/L2-credit-to-gdp-gap   (✱ Bubble Warning condition 2)
+           ▲
+           └────── M4.score         (✱ F3↔M4 divergence diagnostic)
 ```
 
-Algumas ADRs iniciais estão esboçadas em `BRIEF_FOR_DEBATE.md` e devem ser finalizadas antes de code significativo.
+Setas `✱` representam cross-cycle dependencies.
+
+### Call-outs
+
+**L4 não é puramente paralelo** — três cross-cycle dependencies:
+
+1. **CCCS ← `indices/financial/F3` + `indices/financial/F4`**
+   Componente MS (Market Stress, 22% do composite) = `0.70·F3 + 0.30·F4_margin_debt`. CCCS não corre antes dos F indices estarem persistidos. Pipeline `daily-cycles` enforces ordering.
+
+2. **MSC ← ECS via Dilemma overlay trigger**
+   Dilemma overlay triggers com `MSC > 60 + expected-inflation anchor drifting + ECS < 55`. Se ECS row faltar para `(country, date)`, MSC emite `DILEMMA_NO_ECS` flag e suppressa overlay (não falha o cycle). MSC-spec tolerante mas downstream editorial degraded.
+
+3. **FCS ← L2 credit_gap + M4 FCI**
+   Bubble Warning overlay (v0.1 trigger: `FCS > 70 + L2.credit_gap > 10pp + property_gap > 20%`). Cross-cycle read de `indices/credit/L2-credit-to-gdp-gap` (sub-índice, não confundir com camada L2 overlays). M4 FCI consumido como diagnostic — ver call-out seguinte.
+
+**F3 ↔ M4 overlap conceptual**
+`indices/monetary/M4-fci` e `indices/financial/F3-risk-appetite` consomem inputs parcialmente sobrepostos (NFCI Chicago Fed, CISS ECB, VIX). v0.1 **lêem independentemente** com 20Y z-score próprio; FCS emite `F3_M4_DIVERGENCE` como observability signal. FCS computa `f3_m4_divergence = F3_score − (100 − M4_score)` como diagnostic column; `F3_M4_DIVERGENCE` flag quando `|divergence| > 15`. v0.2 candidate: reconciliar para shared source com single normalization.
+
+**CS de MSC consumido directamente, não via L3**
+Communication Signal (dot plot deviation, Fed/ECB/BoE dissent count, NLP hawkish score de statements) é output qualitativo **não normalizável** para um "sub-índice L3" coerente com M1-M4. Consumido directamente por `cycles/monetary-msc` via connectors dedicated (`connectors/central_bank_nlp`, `connectors/fed_dissent`, `connectors/dot_plot` — não speced Phase 1). Em Phase 0-1 `COMM_SIGNAL_MISSING` é expected default; MSC aplica Policy 1 re-weight sem bloquear.
+
+**F4 conditional por tier**
+Positioning data (AAII, CFTC COT, fund flows, margin debt) é sparse fora US. `cycles/financial-fcs` aplica tier policy:
+
+| Tier | Países | F4 handling |
+|---|---|---|
+| 1 | US, DE, UK, JP | F4 required; missing → raise `InsufficientDataError` |
+| 2-3 | FR, IT, ES, CA, AU, PT, IE, NL, SE, CH | best-effort; missing → re-weight F1+F2+F3, flag `F4_COVERAGE_SPARSE`, cap confidence 0.80 |
+| 4 EM | CN, IN, BR, TR, MX, ZA, ID | F4 ignored mesmo se row exists; cap 0.75 |
+
+## 7. Padrões arquiteturais emergidos
+
+Convergência observada durante specs P3-P5. Detalhe em `docs/specs/conventions/patterns.md` (futuro).
+
+**Parallel equals** — múltiplos methods com standing epistémico igual. Canonical = agregação estatística + range como uncertainty signal.
+Exemplo: `erp-daily` → 4 methods (DCF, Gordon, EY, CAPE), canonical = `median_bps`, `range_bps` exposto, `ERP_METHOD_DIVERGENCE` flag quando range > 400 bps.
+
+**Hierarchy best-of** — methods com quality gradient conhecido. Canonical = primeiro disponível na ordem; restantes persistidos lado-a-lado para audit.
+Exemplo: `crp` → CDS > sovereign spread > rating-implied. `expected-inflation` → BEI > SWAP > DERIVED (PT path) > SURVEY.
+
+**Versioning per-table** — múltiplas tabelas relacionadas com cadências de bump divergentes.
+Exemplo: `rating-spread` emite 3 `methodology_version` distintas — `RATING_AGENCY_v0.1` (per-agency raw, bump on lookup table change), `RATING_SPREAD_v0.1` (consolidated, bump on consolidation rule change), `RATING_CALIBRATION_v0.1` (global notch→spread, quarterly recalibration from Moody's + ICE BofA).
+
+**Normalization convergente** (não padrão formal até P4; emergiu convergentemente nas 4 especificações de indices L3, depois adoptado por cycles L4):
+
+```text
+score_0_100 = clip(50 + 16.67·z, 0, 100)
+```
+
+`z` = z-score rolling por country. Range natural `[-3σ, +3σ]` → `[0, 100]`. Indices L3 todos emitem nesta escala → cycles L4 aplicam weighted sum directo sem re-normalization.
+
+## 8. Fail-mode cross-cycle
+
+Uniforme em todos os 4 cycles L4 (Policy 1, aprovada P5):
+
+- Sub-index unavailable → `{INDEX}_MISSING` flag, re-weight proporcional dos restantes: `w'_i = w_i / Σ_{j ∈ available} w_j`.
+- **Require ≥ 3 of 4 indices disponíveis**. Menos: cycle raises `InsufficientDataError` (row não persistida, operator alertado).
+- **Confidence cap 0.75** sempre que re-weight activo.
+
+Exemplo ECS com E4 missing: pesos `(0.35, 0.25, 0.25, 0.0)` → normalizados `(0.412, 0.294, 0.294, 0.0)`. Confidence base `min(e_i.confidence) · 3/4` capped at 0.75.
+
+## 9. Pipeline order canonical
+
+Resumo. Detalhe operacional em `docs/specs/pipelines/` (6 stubs) e `docs/specs/pipelines/README.md` (master schedule).
+
+```
+06:00  Connector refresh (morning batch — eurodata, asia overnight)
+09:00  daily-curves        · NSS fit all countries (paralelo per-country)
+09:30  daily-overlays      · ERP, CRP, rating-spread, expected-inflation
+10:00  daily-indices       · 16 indices (paralelizáveis entre ciclos)
+10:15  daily-cycles        · ECS → MSC · CCCS (needs F3+F4) · FCS (needs L2+M4)
+11:00  (Sun only) weekly-integration · rolling recomputes
+```
+
+**Paralelização possível** onde sem dependência:
+- L2: NSS primeiro (provides risk-free); ERP/CRP/rating-spread/exp-inflation paralelos pós-NSS.
+- L3: 16 indices paralelizáveis cross-cycle (credit tem dep intra `L1 → L2 → L3`).
+- L4: ECS independent. MSC precisa ECS. CCCS espera daily-indices. FCS espera daily-indices + M4 row (daily-cycles).
+
+`daily-cycles` tem ordering interno:
+
+```
+ECS (independent)
+ └─► MSC (lê ECS para Dilemma)
+CCCS (aguarda F3 + F4 de daily-indices)
+FCS (aguarda L2 de daily-indices + M4 de daily-cycles)
+```
+
+## 10. Out-of-scope (Phase 2+ ou posterior)
+
+Decisões explícitas de não fazer agora. Evita scope creep e mantém Phase 0-1 tractable.
+
+**Phase 2+**:
+- **Regimes (L5)** como cenários cruzados com tabelas próprias. v0.1 mantém overlays booleans em colunas L4. Migração exige decisão sobre transition probability model (Markov simples vs HMM vs estimativas empíricas).
+- **Integration (L6)** full. `matriz-4way`, `diagnostics/*`, `cost-of-capital` têm directório em `docs/specs/integration/` vazio. Arranca após L4 estável em produção.
+- **Dashboard (L7)**. Streamlit MVP é Phase 3+. React/TypeScript production Phase 4+. Enquanto isso: CLI + JSON exporters.
+
+**Phase 3+**:
+- **Postgres migration**. SQLite é MVP v0.1 e suporta single-user research + pipeline diário < 10 GB. Migração justificada quando (a) multi-user, (b) concurrent writes, (c) DB > 30 GB, ou (d) deployment cloud 24/7.
+
+**Infraestrutura externa**:
+- **MCP server exposure**. Cloudflared tunnel para expor endpoints SONAR ao Claude/ChatGPT como context provider foi exploratório em v1; desactivado em v2 Phase 0 até L7 outputs implementado. Reactivação condicional a autorização explícita.
+- **Wiki público**. Repo privado em Phase 0-1 enquanto licensing (ver `docs/BRIEF_FOR_DEBATE.md` §5) não decidido. Wiki conteúdo conceptual pode abrir depois sem expor código.
+
+## 11. Decisões formais e governança
+
+Decisões arquiteturais formais são registadas em `docs/adr/` (Architecture Decision Records, template e primeiros ADRs criados no Bloco 5 Phase 0). Governança operacional (workflow, documentação, dados, colaboração AI) em `docs/governance/` (Bloco 6 Phase 0). Template de spec em `docs/specs/template.md`.
 
 ---
 
-## Appendix A — Flow diagram
-
-```
-                      ┌─────────────────────────┐
-                      │   EXTERNAL SOURCES      │
-                      │  FRED, ECB, BIS, etc.   │
-                      └────────────┬────────────┘
-                                   │
-                      ┌────────────▼────────────┐
-                      │     CONNECTORS          │
-                      │   (sonar/connectors/)   │
-                      └────────────┬────────────┘
-                                   │
-                      ┌────────────▼────────────┐
-                      │      DATABASE           │
-                      │   (SQLite + SQLAlchemy) │
-                      └────┬────────────────┬───┘
-                           │                │
-              ┌────────────▼─────┐   ┌──────▼───────────┐
-              │   SUB-MODELS     │   │   CYCLES         │
-              │  (submodels/)    │◄──┤  (cycles/)       │
-              └────────────┬─────┘   └──────┬───────────┘
-                           │                 │
-                      ┌────▼─────────────────▼────┐
-                      │     INTEGRATION            │
-                      │  Matriz 4-way, diagnostics │
-                      │  Cost of capital           │
-                      └────────────┬───────────────┘
-                                   │
-                      ┌────────────▼────────────┐
-                      │       OUTPUTS           │
-                      │  API, CLI, Editorial,   │
-                      │  Dashboard, Alerts      │
-                      └─────────────────────────┘
-```
-
----
-
-*Architecture v0.1 — draft for debate. To be finalized before Phase 1 implementation.*
+*Arquitectura v2.0 · Phase 0 specs merged · revisão completa 2026-04-18 post-P5.*
+*Fonte de verdade operacional: `docs/specs/`. Resumo executivo de alto nível: Claude chat project context (SESSION_CONTEXT.md), externo ao repo.*
