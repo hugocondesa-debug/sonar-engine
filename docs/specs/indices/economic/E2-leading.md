@@ -1,6 +1,8 @@
 # E2 — Leading Indicators — Spec
 
-> Layer L3 · index · cycle: `economic` · slug: `e2-leading` · methodology_version: `E2_LEADING_v0.1`
+> Layer L3 · index · cycle: `economic` · slug: `e2-leading` · methodology_version: `E2_LEADING_v0.2`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
+> v0.2 rationale (breaking): remove `USSLIND` (Philly Fed State Leading Index) como primary LEI source — descontinuado 2020-02 per D2 empirical (2 268d stale vs 2026-04-19). US E2 LEI = GAP actual pending `CAL-023`. Per `conventions/methodology-versions.md` — MINOR bump porque schema inalterado (fallback source swap).
 
 ## 1. Purpose
 
@@ -16,7 +18,7 @@ Compute o sub-índice **Leading** do Economic Cycle Score, agregando 8 indicador
 | `pmi_composite_change` | `float` | MoM change in level | `connectors/spglobal_pmi` |
 | `building_permits_yoy` | `float` | YoY % change, decimal | `connectors/fred` (`PERMIT`) · `connectors/eurostat` (building permits) |
 | `core_capex_orders_yoy` | `float` | YoY % change non-defense capital goods ex-aircraft | `connectors/fred` (`ANDEV`) |
-| `lei_6m_growth` | `float` | 6M annualized % growth Conference Board LEI | `connectors/fred` (`USSLIND`) |
+| `lei_6m_growth` | `float` | 6M annualized % growth Conference Board LEI | **GAP per D2** — `USSLIND` descontinuado 2020 (CAL-023 pending alternative: `USPHCI` Philly Fed ADS, ECRI WLI scrape, ou Conference Board paid). Component marcado `NULL` até resolução; E2 re-weight para 7 components disponíveis. |
 | `oecd_cli_6m_growth` | `float` | 6M change in OECD CLI | `connectors/oecd` (`MEI_CLI`) |
 | `country_code` | `str` | ISO 3166-1 α-2 upper | config |
 | `date` | `date` | month-end | param |
@@ -46,7 +48,7 @@ Uma row por `(country_code, date, methodology_version)`:
 | `lookback_years` | `int` | 7 ou 10 | idem |
 | `confidence` | `float` | `[0, 1]` | idem |
 | `flags` | `str` (CSV) | tokens em `conventions/flags.md` | idem |
-| `methodology_version` | `str` | `E2_LEADING_v0.1` | idem |
+| `methodology_version` | `str` | `E2_LEADING_v0.2` | idem |
 
 **Canonical JSON shape** (`components_json`):
 
@@ -124,6 +126,8 @@ Flags catalog → [`conventions/flags.md`](../../conventions/flags.md). Exceptio
 | Yield curve overlay missing / `confidence < 0.50` | skip yield-curve component; flag `OVERLAY_MISS` | cap 0.60 |
 | Yield curve overlay carries `STALE` flag | inherit `STALE` no E2 row | inherit −0.20 |
 | LEI ausente para non-US (Tier 2/3) | skip; re-weight; flag `E2_PARTIAL_COMPONENTS` | −0.10 |
+| LEI US via proxy (quando CAL-023 resolve) | emit `LEI_US_PROXY` + `PROXY_APPLIED` per `proxies.md` registry | −0.10 (multiplicativo) |
+| LEI US = GAP (estado actual post-D2; USSLIND descontinued) | skip LEI; re-weight E2 por 7 components; flag `E2_PARTIAL_COMPONENTS` até CAL-023 | −0.10 |
 | OECD CLI lag > 90 dias | flag `STALE` | −0.20 |
 | Componente individual com `< lookback_years · 12 · 0.8` obs | flag `INSUFFICIENT_HISTORY` | −0.10 (no componente) |
 | Country tier 4 | `lookback_years=7`; flag `EM_COVERAGE` | cap 0.70 |
@@ -153,7 +157,7 @@ CREATE TABLE idx_economic_e2_leading (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
     country_code             TEXT    NOT NULL,
     date                     DATE    NOT NULL,
-    methodology_version      TEXT    NOT NULL,                 -- 'E2_LEADING_v0.1'
+    methodology_version      TEXT    NOT NULL,                 -- 'E2_LEADING_v0.2'
     score_normalized         REAL    NOT NULL CHECK (score_normalized BETWEEN 0 AND 100),
     score_raw                REAL    NOT NULL,
     components_json          TEXT    NOT NULL,
@@ -181,8 +185,12 @@ CREATE INDEX idx_e2_cd ON idx_economic_e2_leading (country_code, date);
 
 - **Methodology**: [`docs/reference/indices/economic/E2-leading.md`](../../../reference/indices/economic/E2-leading.md) — Cap 8 do manual.
 - **Cycle context**: [`docs/reference/cycles/economic.md`](../../../reference/cycles/economic.md) §15.5 + §15.4 + §15.6.
-- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §4 (E2 series catalog) + §7 (nowcasting context).
-- **Cross-validation**: NY Fed recession probability model (probit on `T10Y3M`); Conference Board LEI 6M growth signal (negative ≥ 3 consecutive months → strong recession warning); OECD CLI turning-point detection (Bry-Boschan).
+- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §4 (E2 series catalog) + §7 (nowcasting context); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 `USSLIND` **STALE 6Y** (2020-02 last update) + OECD CLI via SDMX-JSON 2.0 direct fresh (`OECDLOLITOAASTSAM` FRED mirror stale 2022-11 deprecated).
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (TE primary + native overrides para non-US); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (OECD CLI T1-T2 scope).
+- **Proxies**: [`specs/conventions/proxies.md`](../../conventions/proxies.md) — `LEI_US_PROXY` entry (decision pending CAL-023).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/OECD/ICE BofA attribution).
+- **Backlog**: [`backlog/calibration-tasks.md`](../../../backlog/calibration-tasks.md) `CAL-023` — US E2 LEI alternative source (USPHCI, ECRI WLI, Conference Board scrape).
+- **Cross-validation**: NY Fed recession probability model (probit on `T10Y3M`); **Conference Board LEI 6M growth signal indisponível sem paid subscription** (paywall confirmed D2; proxy path pending); OECD CLI turning-point detection (Bry-Boschan).
 
 ## 11. Non-requirements
 
@@ -199,4 +207,5 @@ Scope boundaries — o que **não** é responsabilidade do E2:
 - Does not refit weights real-time — pesos são static per `methodology_version`.
 - Does not emit partial output quando `< 5` components — raise early.
 - Does not detect curve regime breaks beyond inheriting `nss-curves` flags (`REGIME_BREAK`, `NSS_FAIL`).
+- Does not use `USSLIND` (Philly Fed State Leading Index) como LEI source — **rejected em D2 empirical** (2026-04-18: latest observation 2020-02, 2 268d stale). Per v0.2 bump: LEI US = GAP pending CAL-023 alternative selection (USPHCI, ECRI WLI, Conference Board paid).
 
