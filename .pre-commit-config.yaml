@@ -95,7 +95,7 @@ repos:
     hooks:
       - id: markdownlint
         args: [--config, .markdownlint.yaml, --ignore, CHANGELOG.md]
-        exclude: ^(docs/methodology/|data/|backups/)
+        exclude: ^(docs/reference/|data/|backups/)
 
   # ---------------------------------------------------------------------------
   # TOML — check pyproject.toml validity
