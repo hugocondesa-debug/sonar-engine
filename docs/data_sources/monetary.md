@@ -1,786 +1,475 @@
-# SONAR-Monetary · Plano de Fontes de Dados para Implementação
+# SONAR v2 · Data sources — Monetary cycle (MSC)
 
-> **Documento de referência técnica** · 7365 Capital · Abril 2026
-> Framework: Manual do Ciclo Monetário (6 partes, 20 capítulos)
-> Contexto: documento complementar ao "SONAR Data Sources Implementation Plan" do ciclo de crédito
+> **Layer scope:** L3 indices `M1..M4` + L4 `cycles/monetary-msc` + L2 overlays `nss-curves`, `expected-inflation`.
+> **Phase 0 Bloco D1** — rewrite baseado em `D1_coverage_matrix.csv` (2026-04-18) + D0 audit.
+> **Status:** doc canónico. Substitui v1 monetary.md (786 linhas).
 
----
-
-## Objetivo deste documento
-
-Mapear **todas as fontes de dados** necessárias para operacionalizar o framework SONAR-Monetary descrito no manual. Para cada fonte: o que fornece, como aceder, nível de criticidade, e integração no sistema.
-
-O documento está organizado em **7 camadas funcionais** que espelham a arquitetura M1-M4 + overlays do SONAR-Monetary, seguidas por um plano de implementação em **3 tiers** de prioridade.
-
-**Relação com o plano de crédito**: há sobreposição substancial de fontes (FRED, ECB SDW, BIS, Eurostat, Trading Economics, BPStat). Este documento foca apenas nas fontes **distintivas do monetário** ou nas séries específicas dessas fontes partilhadas que são relevantes para o stance, transmissão e expectations.
+Documento alinhado com:
+- `docs/specs/cycles/monetary-msc.md` (MSC = 0.30·M1 + 0.15·M2 + 0.25·M3 + 0.20·M4 + 0.10·CS).
+- `docs/specs/indices/monetary/{M1..M4}.md`.
+- `docs/specs/overlays/{nss-curves,expected-inflation}.md`.
+- `docs/data_sources/country_tiers.yaml`.
+- `docs/data_sources/D1_coverage_matrix.csv`.
+- `docs/data_sources/D0_audit_report.md`.
 
 ---
 
-## Sumário executivo
+## 1. Overview e hierarquia de fontes
 
-| Aspeto | Conclusão |
-|---|---|
-| Cobertura Tier 1 | **~95% gratuito**, cobre 80% do framework |
-| Chaves adicionais necessárias | FRED API key (partilhada com crédito, já prevista) |
-| Séries premium institucionais | CME futures, Bloomberg speech archive (opcional) |
-| Tempo estimado MVP | 4 semanas (pode correr em paralelo ao connector credit) |
-| Custo Tier 1 | €0 (fontes públicas) |
-| Custo Tier 3 (opcional) | €30-50k/ano (CME data, Bloomberg terminal) |
+### 1.1 Mandato do ciclo
 
----
+O Monetary Stance Score (MSC) mede a orientação da política monetária (0 = ultra-tight, 100 = ultra-loose; Phase 1 usa convenção inversa via z-sign — ver spec §2).
 
-## Camada 1 · Shadow rates — o núcleo do M1
+| Index | Sub-index | Peso MSC | Mandato |
+|-------|-----------|----------|---------|
+| M1-effective-rates | ER | 0.30 | Policy rate + shadow rate (ZLB-aware) |
+| M2-taylor-gaps | TG | 0.15 | Policy gap vs Taylor rule + HLW r* |
+| M3-market-expectations | ME | 0.25 | Forward curves + breakeven inflation + SPF |
+| M4-fci | FCI | 0.20 | Chicago Fed NFCI + ECB CISS + derived |
+| CS (cross-cycle) | — | 0.10 | Communication signal from CB speeches (CCCS produces) |
 
-Esta camada é **específica do monetário** — não tem equivalente no credit cycle. Cobre a métrica central da Parte III Cap 7 do manual.
+**Lookback canónico:** 30Y (monetary moves slowly; secular regime changes pós-1990s Bretton Woods).
 
-### 1.1 Wu-Xia Shadow Rate via Atlanta Fed · `atlantafed.org`
+### 1.2 Hierarquia de fontes (5 níveis)
 
-A série canónica para US shadow rate. Produzida pelo Federal Reserve Bank of Atlanta desde 2014, baseada no paper Wu & Xia (2016).
-
-**Status atual (importante):**
-A Atlanta Fed **suspendeu updates em Abril 2022** quando o Fed saiu do ZLB. Os updates **só retomarão se e quando ZLB retornar**. Quando o target range está acima de 0-0.25%, o shadow rate é "generally close to the effective fed funds rate".
-
-**Implicações operacionais para o SONAR:**
-- Durante períodos não-ZLB (atual): usar fed funds rate directamente como proxy de shadow rate
-- Durante ZLB futuro: retomar ingestão da série Atlanta Fed
-- Histórico 1960-2022 está disponível como Excel/Matlab download
-
-**Acesso técnico:**
-- URL: `atlantafed.org/cqer/research/wu-xia-shadow-federal-funds-rate`
-- Formato: Excel e Matlab download direto
-- Gratuito, sem chave, sem API
-- Histórico desde Janeiro 1960 (Wu-Xia extended back-computed)
-
-**Metodologia:**
-Input data são one-month forward rates em n = 1/4, 1/2, 1, 2, 5, 7 e 10 anos, construídos a partir de Nelson-Siegel-Svensson yield curve parameters do Gurkaynak, Sack & Wright (2006) dataset (GSW). Modelo assume shadow rate como função linear de três factores latentes seguindo VAR(1).
-
-**Criticidade: ESSENCIAL para histórico pré-2022.** Para live monitoring, menos crítico (fed funds = shadow quando acima de ZLB).
-
-### 1.2 Jing Cynthia Wu · site pessoal
-
-Autora primária mantém site pessoal com shadow rates para **US + EA + UK**, com diferentes variantes metodológicas.
-
-**Acesso técnico:**
-- URL: `sites.google.com/view/jingcynthiawu/shadow-rates`
-- Formato: Matlab e Excel download
-- Gratuito
-
-**Séries disponíveis:**
-- **US**: usando método Wu-Xia (JMCB 2016), 1990-2022
-- **EA**: usando método Wu-Xia (2017) que adapta para NIRP regime, 1990-2021
-- **UK**: 1990-2021
-
-**Status atual**: como Atlanta Fed, updates suspensos. Retomarão quando ZLB regressar.
-
-**Criticidade: ESSENCIAL para coverage multi-country do histórico.** EA shadow rate atingiu -7.56% em 2020 (documentado no manual Cap 7.3).
-
-### 1.3 Krippner SSR via LJK Macro Finance Analysis · `ljkmfa.com`
-
-Fonte alternativa dominante. Leo Krippner, ex-RBNZ, mantém site ativo com publicação mensal de múltiplos indicators de monetary stance.
-
-**Vantagem crítica face a Wu-Xia: continua a ser atualizado em 2025-2026.**
-
-**Acesso técnico:**
-- URL: `ljkmfa.com/visitors/`
-- Formato: Excel/PDF download
-- Gratuito, livre para uso com atribuição
-
-**Séries publicadas (Monetary Policy Stance file):**
-- **Shadow Short Rate (SSR)** para 7 economias: US, EA, JP, UK, CA, AU, NZ
-- **Effective Monetary Stimulus (EMS)** — agregado complementar
-- **Expected Time to Lift-off (ETL)** — tempo esperado até primeiro hike
-- Yield curve decompositions
-- Inflation swap decompositions
-
-**Metodologia:**
-Krippner ANSM(2) com estimated lower bound — 2 factors do yield curve + 1 ZLB constraint. Paper de referência: Krippner (2015) Zero Lower Bound Term Structure Modeling.
-
-**Código Python disponível:**
-- GitHub: `github.com/as4456/Leo_Krippner_SSR`
-- Permite replicação local para países adicionais
-- Requires Bloomberg yield curve data para updates próprios
-
-**Criticidade: ESSENCIAL.** É a fonte única de SSR live em 2026, cobrindo 7 dos 10 BCs principais do SONAR. Cobertura em falta: SNB, PBoC, Riksbank (para estes, usar policy rate como proxy).
-
-### 1.4 Laubach-Williams r-star · NY Fed · `newyorkfed.org`
-
-Estimativa oficial da taxa neutral, input crítico para M1 (shadow rate - r*) e M2 (Taylor Rule).
-
-**Acesso técnico:**
-- URL: `newyorkfed.org/research/policy/rstar`
-- Publicação: trimestral
-- Formato: Excel download + paper with methodology
-- Gratuito, sem chave
-
-**Séries disponíveis:**
-- **Laubach-Williams (2003) original** — apenas US
-- **Holston-Laubach-Williams (HLW)** — US, EA, UK, CA (extended methodology)
-- Publicados em múltiplas vintages (original + updates)
-
-**Implicações 2026:**
-- US r* atual (Q4 2024): ~0.85% real (acima da estimativa pré-2023 de ~0.5%)
-- EA r*: ~0.2% real
-- Questão aberta: r* subiu estruturalmente? Controvérsia ativa.
-
-**Criticidade: ESSENCIAL.** r* é input direto do M1_stance_vs_neutral.
-
-### 1.5 Workarounds para Portugal e Cluster 2 EU
-
-Portugal não tem shadow rate ou r* nacional (é ECB-level).
-
-**Workaround 1 — ECB SSR adjusted**:
-Take Krippner EA SSR, ajustar por spread PT sovereign e MIR spread.
 ```
-SSR_PT_approx = SSR_EA + α × (PT_spread_vs_Bund) + β × (MIR_PT - MIR_EA_avg)
+1. PRIMARY          FRED + Central banks nativos
+   └── FRED é hub para most T1 series; ECB SDW / BoE / BoJ / ... directos
+2. OVERRIDE T1      Native central bank quando FRED não mirror
+   └── Bundesbank (Svensson curve), BoE (A-S curve), BoJ, SNB, Riksbank
+3. SECONDARY breadth TE
+   └── policy rates breadth T2-T3 via /country/{c}/indicators Cat=Money
+4. SECONDARY EM     TCMB, BCB, RBI natives
+   └── EM central banks onde TE parcial
+5. TERTIARY         Academic scrapes
+   └── Krippner (shadow rate), Wu-Xia (Atlanta Fed), HLW (NY Fed)
 ```
-Com α, β calibrados empiricamente (~0.3-0.5 each).
 
-**Workaround 2 — Country-level effective policy stance**:
-Construir índice proprietário usando DFR ECB + PT sovereign spread + MIR PT weighted combination. Mais trabalhoso mas mais rigoroso.
-
-**Workaround 3 — PT r* estimation**:
-BdP ocasionalmente publica estimates em Working Papers. Alternativa: usar EA r* + 10-30bps country risk premium.
-
-**Criticidade: ESSENCIAL para análise nacional PT.** Workaround 1 suficiente para v1.
-
----
-
-## Camada 2 · Taylor Rule inputs — M2 layer
-
-Esta camada requer 4 inputs independentes: r* (já coberto), inflation, inflation target, output gap.
-
-### 2.1 Inflation data
-
-Já coberta nos principais datasets:
-- **US PCE core**: FRED série `PCEPILFE` (YoY)
-- **US CPI core**: FRED série `CPILFESL` (YoY)
-- **EA HICP core**: ECB SDW `ICP.M.U2.N.XEF000.4.ANR`
-- **UK CPI**: ONS via FRED `GBRCPIALLMINMEI`
-- **Japan CPI core**: e-Stat Japan ou FRED `JPNCPIALLMINMEI`
-
-**Já presente no plano de crédito** (Eurostat, FRED). Sem trabalho adicional.
-
-### 2.2 Output gap estimates
-
-**Três fontes principais, frequentemente divergentes:**
-
-| Fonte | Acesso | Cobertura | Frequência |
-|---|---|---|---|
-| **IMF WEO** | Free download | Global (190+ países) | Semi-anual (Apr, Oct) |
-| **OECD Economic Outlook** | Free via SDMX | OECD (37 países) | Semi-anual + interim |
-| **CBO** | Free download | US only | Anual + updates |
-| **European Commission AMECO** | Free download | EU + associated | Trimestral |
-
-**Acesso técnico:**
-- **IMF**: `imf.org/en/Publications/WEO/weo-database` — CSV/Excel download
-- **OECD**: SDMX API `sdmx.oecd.org/public/rest/` (já coberto no Tier 2 do plano credit)
-- **CBO**: `cbo.gov/data/budget-economic-data` — Excel download
-- **AMECO**: `ec.europa.eu/economy_finance/ameco/user/serie/SelectSerie.cfm` — CSV
-
-**Problema conhecido** (Cap 8.5 do manual): output gap estimates podem divergir 1-2pp entre fontes. Solução SONAR: usar IMF WEO como primary, OECD como cross-check, flag divergence > 1pp como uncertainty signal.
-
-**Criticidade: ALTA.** Output gap é input crítico mas ruidoso.
-
-### 2.3 NAIRU / potential output adicional
-
-Para refinements da Taylor Rule forward-looking:
-- **CBO potential output**: `cbo.gov/publications` — US
-- **ECB Eurosystem staff projections**: ECB SDW, potential output estimates
-- **OECD potential output**: OECD.Stat
-
-**Criticidade: MÉDIA.** Útil para variantes forward-looking mas não bloqueador.
-
----
-
-## Camada 3 · Market-implied expectations — M3 layer
-
-Esta é a camada **mais dependente de fontes de mercado**. Algumas gratuitas, outras institucionais.
-
-### 3.1 Fed funds futures · CME Group
-
-A fonte primária para US rate expectations até 24 meses.
-
-**Acesso gratuito limitado:**
-- **CME FedWatch Tool**: `cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html` — live probabilities, sem download histórico
-- **CBOT Fed funds futures (ZQ)**: preços end-of-day gratuitos via Investing.com, Yahoo Finance
-- **Histórico completo**: CME Datamine (pago, ~$200-500/mês por dataset)
-
-**Acesso alternativo via FRED:**
-Para estimativas derivadas (não preços directos):
-- `DFEDTAR`, `DFEDTARL`, `DFEDTARU` — Fed funds target rate and bounds
-- `EFFR` — Effective federal funds rate
-
-**Implementação SONAR recomendada:**
-Para MVP, scraper diário do CME FedWatch page captures current implied probabilities sem histórico. Para histórico (requerido para backtest), Quandl/NASDAQ Data Link oferece Fed funds futures end-of-day data gratuitamente ou via plano barato.
-
-**Criticidade: ALTA.** Fed funds futures são o instrumento mais líquido para short-horizon Fed expectations.
-
-### 3.2 OIS curves · €STR, SOFR, SONIA, TONA
-
-OIS curves estendem para 10Y+ — o instrument para medium-term expectations.
-
-**Acesso por moeda:**
-
-**SOFR (US) OIS:**
-- ICE Benchmark Administration publishes SOFR daily
-- SOFR fixing disponível via FRED: `SOFR`
-- SOFR OIS curves (end-of-day): Bloomberg, Refinitiv, ICE Data Services (pago)
-- FRED tem `SOFR30DAYAVG`, `SOFR90DAYAVG`, `SOFR180DAYAVG` — useful partial coverage
-
-**€STR (EA) OIS:**
-- ECB SDW publica €STR directamente: dataset `EST` (daily fixings since Oct 2019)
-- €STR swap curves: ECB SDW `YC` dataset tem yield curves que permitem construção implícita
-- European Commission MMSR data agregado
-
-**SONIA (UK) OIS:**
-- Bank of England publishes SONIA directly: `bankofengland.co.uk/boeapps/database/`
-- BoE series `IUDSOIA` — SONIA daily
-- UK yield curves: BoE publicou UK Yield Curves dataset (nominal + real + inflation)
-
-**TONA (JP) OIS:**
-- Bank of Japan publishes TONA: `boj.or.jp/en/statistics/market/short/index.htm`
-- Menos liquid que outros — dados menos disponíveis
-
-**Recomendação SONAR:**
-Para v1, usar `ECB SDW YC` dataset (gratuito, cobertura EA completa, methodology Nelson-Siegel) para derivar OIS curves via swap spreads. Para SOFR/SONIA/TONA, usar BoE published curves e FRED séries derivadas.
-
-**Criticidade: ALTA.** OIS curves são input directo do EP sub-index.
-
-### 3.3 Inflation swaps e breakevens
-
-Para separação de componente real e inflação.
-
-**Via FRED (gratuito):**
-- `T5YIE` — 5Y breakeven inflation
-- `T10YIE` — 10Y breakeven inflation
-- `T5YIFR` — 5Y 5Y forward inflation expectation rate (chave para SONAR)
-- `DFII5`, `DFII10` — TIPS yields
-
-**Via ECB SDW (EA):**
-- Euro area inflation swaps: `FM.M.U2.EUR.RT.IL.EUR1Y_EA.YLD` e variantes para 2Y, 5Y, 10Y
-
-**Via FRED (EA proxy):**
-- `EUR5Y5Y` não existe oficialmente, mas pode ser computado a partir de swap rates e nominal yields
-
-**Criticidade: ALTA.** 5Y5Y forward inflation expectations é métrica crítica de credibility signal (CS sub-index).
-
-### 3.4 Dot plots e forward guidance — FOMC SEP
-
-Summary of Economic Projections (SEP) — Fed's explicit projections.
-
-**Acesso gratuito:**
-- URL: `federalreserve.gov/monetarypolicy/fomccalendars.htm`
-- Formato: PDF publicado 4x por ano (março, junho, setembro, dezembro)
-- SEP data: `federalreserve.gov/monetarypolicy/fomcprojtabl*.htm`
-
-**Processing necessário:**
-- Scraping de PDF (manual ou via `pdfplumber` Python)
-- Extração: median dot, central tendency, range, individual dots
-- Fields: fed funds rate, PCE inflation, core PCE, GDP growth, unemployment
-
-**Alternativa programmatic:**
-- Philadelphia Fed mantém series históricas parciais no Real-Time Data Research
-- `phil.frb.org/research-and-data/real-time-center/` 
-
-**Criticidade: ALTA.** Dot plot deviation vs market é input do CS sub-index.
-
-### 3.5 ECB rate projections
-
-ECB não publica dot plot equivalente mas publica rate path projections ocasionais.
-
-**Acesso:**
-- ECB macroeconomic projections: quarterly, `ecb.europa.eu/pub/projections/html/index.en.html`
-- Contém rate assumptions (não commitments) para projeção
-
-**Menos formalizado que Fed dot plot** — deve ser complementado com speech analysis.
-
-### 3.6 Policy surprise indices
-
-Medida de componente *não antecipada* das decisões BC. Computação requer intraday data.
-
-**Fontes:**
-- **Kuttner-style**: Change in 3M fed funds futures em janela de 30min à volta do FOMC announcement
-- **Gürkaynak-Sack-Swanson**: factor decomposition (target, path, asset factors)
-- **Recent academic datasets**: múltiplos papers publicam surprise series
-
-**Acesso operacional:**
-- Silvia Miranda-Agrippino mantém public dataset: `silviamirandaagrippino.com/code-data`
-- Nakamura-Steinsson dataset também disponível via autores
-
-**Criticidade: MÉDIA.** Útil para detecção de regime shifts, mas não crítica para MVP.
-
----
-
-## Camada 4 · Financial Conditions Indices — M4 layer
-
-Esta camada tem sobreposição parcial com plano de crédito (já cobrimos NFCI).
-
-### 4.1 Chicago Fed NFCI e ANFCI
-
-Já cobertos no plano de crédito via FRED séries `NFCI`, `ANFCI`.
-
-**Para SONAR-Monetary especificamente**, também utilizar:
-- `NFCINONFINLEVERAGE` — non-financial leverage subindex
-- `NFCICREDIT` — credit subindex
-- `NFCIRISK` — risk subindex
-- `NFCILEVERAGE` — overall leverage
-
-**Criticidade: ESSENCIAL.** Já resolvido via FRED.
-
-### 4.2 Goldman Sachs FCI
-
-Proprietário, não disponível publicly. Algumas aproximações via:
-- Papers de replicação académica
-- GS research notes (para clientes)
-
-**Criticidade: BAIXA.** NFCI suficiente para v1.
-
-### 4.3 Bloomberg Financial Conditions Index (BFCI)
-
-Disponível only via Bloomberg Terminal. Para utilizadores com acesso:
-- `BFCIUS <Index>` — US
-- `BFCIEU <Index>` — EA
-
-**Criticidade: BAIXA para MVP.** Se já tiver Bloomberg, bonus.
-
-### 4.4 IMF Global Financial Stability Report FCIs
-
-Publicação trimestral com FCIs cross-country.
-
-**Acesso:**
-- URL: `imf.org/en/Publications/GFSR`
-- Formato: PDF + Excel annex
-- Gratuito
-
-**Cobertura:** US, EA, UK, JP, CN, EMs aggregated.
-
-**Criticidade: MÉDIA.** Útil para cross-country FCI comparison.
-
-### 4.5 Custom FCI para Portugal
-
-O manual Cap 10.6 propõe construção custom para PT (não existe off-the-shelf).
-
-**Components necessários (todos gratuitos):**
-- DFR ECB — já via ECB SDW
-- 10Y PT sovereign yield — ECB SDW `IRS.M.PT.L.L40.CI.0000.EUR.N.Z`
-- Spread PT-Bund — computado
-- PSI-20 valuation — via Twelve Data (já existente)
-- EUR NEER — via ECB SDW `EXR.M.E5.EUR.EN00.A`
-- PT mortgage rate — ECB SDW `MIR.M.PT.B.A22.A.R.A.2250.EUR.N`
-- VSTOXX — via Yahoo Finance ou Stooq
-
-**Implementation SONAR:**
-Construção em Python com z-score standardization (10Y rolling window) e weighted aggregation conforme pesos do manual (20%/20%/15%/10%/15%/15%/5%).
-
-**Criticidade: ALTA para PT coverage.** É o diferenciador distintivo da coluna "A Equação".
-
----
-
-## Camada 5 · Communication analysis — CS sub-index
-
-Esta é a camada **mais trabalhosa** operacionalmente — requer processamento de texto em quantidades significativas.
-
-### 5.1 FOMC speeches e minutes
-
-**Fed speeches arquivo:**
-- URL: `federalreserve.gov/newsevents/speeches.htm`
-- Histórico: disponível desde 1996 na íntegra
-- Formato: HTML web pages
-- Pode ser scraped com `BeautifulSoup` ou `scrapy`
-
-**FOMC minutes:**
-- URL: `federalreserve.gov/monetarypolicy/fomccalendars.htm`
-- Publicadas ~3 semanas após cada meeting
-- Formato: HTML + PDF
-
-**FOMC statements (decisions):**
-- Same URL, publicadas immediately after meeting
-- Short (1-2 pages), mas high-signal
-
-**Processing pipeline sugerido:**
-1. Daily scraper de federalreserve.gov para novo conteúdo
-2. Store em database (PostgreSQL full-text search ou Elasticsearch)
-3. Hawkish/dovish scoring via:
-   - Rule-based keyword matching (baseline)
-   - FinBERT ou similar financial NLP model (v2)
-   - LLM-based classification (v3)
-4. Aggregation em "communication hawkishness index"
-
-**Criticidade: ALTA para reaction function prediction.** Cap 19.9 do manual descreve este processo.
-
-### 5.2 ECB speeches e press conferences
-
-**ECB speeches:**
-- URL: `ecb.europa.eu/press/key/speeches/html/index.en.html`
-- Histórico completo desde 1998
-- Formato: HTML
-- Multiple speakers (President, VP, Executive Board, national governors)
-
-**Press conferences:**
-- URL: `ecb.europa.eu/press/pressconf/html/index.en.html`
-- Full transcripts desde 1998
-- Include Q&A sections (high-information)
-
-**ECB Monetary Policy Account (equivalente a FOMC minutes):**
-- Published ~4 weeks after Governing Council meeting
-- URL: `ecb.europa.eu/press/accounts/html/index.en.html`
-
-**Criticidade: ALTA.** Para Portugal via ECB, é a fonte primária.
-
-### 5.3 BoE speeches, minutes, voting records
-
-**Unique advantage**: BoE publishes individual voting records for each MPC meeting, allowing direct dissent analysis.
-
-**Acesso:**
-- URL: `bankofengland.co.uk/monetary-policy/monetary-policy-summary-and-minutes`
-- Voting records em each minutes document
-- Individual speeches: `bankofengland.co.uk/news/speeches`
-
-**Criticidade: MÉDIA.** Mais acessível que Fed/ECB, menor coverage no SONAR.
-
-### 5.4 BoJ communications
-
-**Less structured** — BoJ publica policy statements, opinion summaries, speeches.
-
-**Acesso:**
-- Statements: `boj.or.jp/en/mopo/mpmdeci/mpr_2024/index.htm`
-- Summaries of Opinions: same area
-- Governor speeches: `boj.or.jp/en/about/press/koen_index.htm`
-
-**Special consideration**: BoJ communications são notoriously opaque. NLP approaches less reliable.
-
-**Criticidade: BAIXA-MÉDIA.** Informal pragmatism em BoJ dificulta prediction automation.
-
-### 5.5 Speech sentiment models e datasets
-
-**Pre-built datasets:**
-- **Apel & Grimaldi (2014)** — hawkish/dovish lexicon
-- **Hansen, McMahon, Prat (2018)** — FOMC transparency study datasets
-- **Husted, Rogers, Sun (2020)** — Fed communication uncertainty index
-
-**NLP models:**
-- **FinBERT** (financial BERT variant): pretrained em financial texts
-- **Large language models** (Claude, GPT-4) for zero-shot classification — more expensive but more accurate
-
-**Implementation recommendation:**
-Start with rule-based lexicon (Apel-Grimaldi), upgrade to FinBERT as v2, LLM-based as v3 quando orçamento permitir.
-
----
-
-## Camada 6 · Central bank balance sheets
-
-### 6.1 Fed balance sheet data
-
-**Via FRED:**
-- `WALCL` — Total Assets of Federal Reserve Banks (weekly, since 2002)
-- `WSHOTSL` — Treasury holdings
-- `WSHOMCB` — MBS holdings
-- `WAML1TOTL` — Total assets maturity breakdown
-
-**Fed H.4.1 Release:**
-- URL: `federalreserve.gov/releases/h41/current/`
-- Weekly, extremely detailed
-- XML, CSV, JSON formats
-- Gratuito
-
-**Criticidade: ALTA.** Balance sheet stance é componente directo do ES sub-index.
-
-### 6.2 ECB balance sheet data
-
-**Via ECB SDW:**
-- Dataset `ILM` (ILM - IRLS) — Eurosystem consolidated balance sheet
-- Weekly releases (Tuesday afternoons)
-
-**Via ECB weekly financial statement:**
-- URL: `ecb.europa.eu/press/pr/wfs/shared/html/index.en.html`
-- Week-by-week breakdown
-- APP and PEPP holdings separately
-
-**Criticidade: ALTA.** QT via passive roll-off é tracked aqui.
-
-### 6.3 BoE balance sheet
-
-**Via BoE Database:**
-- URL: `bankofengland.co.uk/boeapps/database/`
-- Weekly bank return
-- Asset Purchase Facility (APF) separately disclosed
-
-### 6.4 BoJ balance sheet
-
-**Via BoJ statistics:**
-- URL: `boj.or.jp/en/statistics/boj/other/ac/index.htm`
-- Monthly balance sheet summary
-- Extremely large (~125% GDP) — outlier for monitoring
-
-### 6.5 PBoC balance sheet
-
-**Via PBoC:**
-- URL: `pbc.gov.cn/en/3688066/index.html`
-- Monthly, sometimes delayed
-- Less transparent than major BCs
-
----
-
-## Camada 7 · Trading Economics — cobertura agregada
-
-Já coberta no plano de crédito. Para SONAR-Monetary especificamente, séries-chave incluem:
-
-- **Central bank policy rates** — 150+ países, atualizadas live
-- **Interest rates futures** — agregados principais
-- **Currency values** — todas major pairs
-- **Government bond yields** — yields principais por país
-- **Central bank balance sheets** — para países onde acesso directo é complicado
-
-**Criticidade: JÁ RESOLVIDO** (key já ativa `624f88489cd84146a4ee8d78db3fc01a`).
-
----
-
-## Plano de implementação em 3 Tiers
-
-### Tier 1 · MVP do connector SONAR-Monetary
-
-**Característica: ~95% gratuito, cobre 80% do framework.**
-
-| # | Fonte | Acesso | Papel no SONAR-Monetary | Prioridade |
-|---|---|---|---|---|
-| 1 | Krippner SSR (`ljkmfa.com`) | Público, download mensal | SSR live para 7 BCs (US, EA, JP, UK, CA, AU, NZ) | 🔴 Crítica |
-| 2 | Wu-Xia histórico (Atlanta Fed + Wu site) | Público, download one-time | Backtest histórico shadow rates | 🔴 Crítica |
-| 3 | FRED API v2 | Key grátis (já prevista) | PCE, CPI, breakevens, WALCL, NFCI, ANFCI, DFII | 🔴 Crítica |
-| 4 | ECB SDW SDMX | Público, sem chave | €STR, HICP core, ILM, MIR, YC dataset | 🔴 Crítica |
-| 5 | Laubach-Williams r* (NY Fed) | Público | r* US e HLW multi-country | 🔴 Crítica |
-| 6 | IMF WEO output gap | Público, semi-anual | Taylor Rule input | 🟠 Alta |
-| 7 | FOMC SEP scraper | Público, 4x/ano | Dot plot deviation vs market | 🟠 Alta |
-| 8 | BoE Database | Público | SONIA, UK yields, APF data | 🟠 Alta |
-| 9 | BIS SDMX (WS_CBPOL) | Público (já no plano credit) | Policy rates 40+ countries | ✅ Já ativo |
-| 10 | Trading Economics | Key paga (já tem) | Cross-country policy rates backup | ✅ Já ativo |
-
-### Tier 2 · Communication analysis e expectations depth
-
-**Característica: requer processing pipelines mais complexas.**
-
-| # | Fonte | Acesso | Papel |
-|---|---|---|---|
-| 11 | Fed speeches/minutes scraper | Público | CS sub-index, reaction function |
-| 12 | ECB speeches/accounts scraper | Público | ECB reaction function |
-| 13 | BoE minutes + voting records | Público | BoE most transparent dissent analysis |
-| 14 | Miranda-Agrippino policy surprises | Público | Regime shift detection |
-| 15 | Apel-Grimaldi hawkish-dovish lexicon | Público | Baseline NLP scoring |
-| 16 | AMECO output gap (EC) | Público | Cross-check vs IMF |
-| 17 | BoJ statements scraper | Público | Japan monetary cycle |
-| 18 | FinBERT financial NLP | Open source | Advanced text classification |
-
-### Tier 3 · Institutional
-
-**Característica: caro, para v2+ ou coverage completa.**
-
-| # | Fonte | Custo estimado | Papel |
-|---|---|---|---|
-| 19 | CME Datamine fed funds futures | ~$300-600/mês | Intraday futures data, policy surprises |
-| 20 | Bloomberg Terminal | ~$25k/ano | OIS curves todas as moedas, BFCI, CDS |
-| 21 | Refinitiv Eikon | ~$22k/ano | Alternativa a Bloomberg |
-| 22 | Citi/GS FCI custom feeds | Institutional | Proprietary FCIs |
-| 23 | LLM API para speech analysis | ~$500-2000/mês | High-quality text classification |
-
----
-
-## Roadmap cronológico (4 semanas para MVP, pode correr em paralelo ao credit)
-
-### Semana 1 — Setup shadow rates e r-star
-
-- [ ] Implementar scraper mensal de Krippner SSR (ljkmfa.com)
-- [ ] Download histórico Wu-Xia (Atlanta Fed + Wu site) — one-time
-- [ ] Download Laubach-Williams r* (NY Fed)
-- [ ] Schema v15 do SONAR com tabelas monetary_stance
-- [ ] Implementar computação M1_stance_vs_neutral
-
-**Entregáveis:**
-- `connectors/krippner.py`
-- `connectors/wu_xia_historical.py`
-- `connectors/laubach_williams.py`
-- M1 layer operacional para 7 BCs
-
-### Semana 2 — Taylor Rule e M2 layer
-
-- [ ] Connector IMF WEO output gap
-- [ ] Implementação 4 variantes Taylor Rule (1993, 1999, inertia, forward-looking)
-- [ ] Computação M2_gap para cada BC
-- [ ] Validação contra dados históricos (US 2003-2005 Taylor gap test)
-
-**Entregáveis:**
-- `computation/taylor_rules.py`
-- `connectors/imf_weo.py`
-- M2 layer com 4 variantes
-
-### Semana 3 — Market expectations (M3) e FCI (M4)
-
-- [ ] FRED ingestion de breakevens, real yields, curve points
-- [ ] ECB SDW YC dataset para €STR curves
-- [ ] FOMC SEP scraper (PDF processing)
-- [ ] Custom PT FCI construction
-- [ ] M3 layer agregation
-- [ ] M4 layer com custom PT FCI
-
-**Entregáveis:**
-- `connectors/fred_monetary.py`
-- `connectors/ecb_sdw_monetary.py`
-- `scrapers/fomc_sep.py`
-- `computation/custom_fci_pt.py`
-- M3 e M4 layers operacionais
-
-### Semana 4 — MSC agregation e dashboard
-
-- [ ] Agregação 5 sub-indices em MSC (pesos 30/25/20/15/10)
-- [ ] Dilemma detector (4 triggers)
-- [ ] Dashboard SONAR-Monetary prototype
-- [ ] Cross-country comparison (10 BCs)
-- [ ] Integração com CCCS do credit cycle
-
-**Entregáveis:**
-- `computation/msc.py`
-- `computation/dilemma_detector.py`
-- Dashboard v1 com MSC live
-- Report canónico Portugal (paralelo ao credit report)
-
----
-
-## Integração com o SONAR schema v15
-
-Extensão ao schema do plano credit:
-
-```sql
--- Nova tabela: monetary_stance_indicators
-CREATE TABLE monetary_stance_indicators (
-    id INTEGER PRIMARY KEY,
-    bc_id TEXT,                    -- 'Fed', 'ECB', 'BoE', 'BoJ', ...
-    date DATE,
-    layer TEXT,                    -- 'M1', 'M2', 'M3', 'M4'
-    indicator TEXT,                -- 'shadow_rate', 'taylor_1993_gap', '1Y_OIS', ...
-    value REAL,
-    source TEXT,                   -- 'Krippner', 'Wu-Xia', 'FRED', ...
-    ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Nova tabela: monetary_sub_indices
-CREATE TABLE monetary_sub_indices (
-    id INTEGER PRIMARY KEY,
-    bc_id TEXT,
-    date DATE,
-    ES REAL,  -- Effective Stance [0-100]
-    RD REAL,  -- Rule Deviation
-    EP REAL,  -- Expected Path
-    FC REAL,  -- Financial Conditions
-    CS REAL,  -- Credibility Signal
-    MSC REAL, -- Composite [0-100]
-    dilemma_flag BOOLEAN,
-    dilemma_type TEXT  -- 'A', 'B', 'C', 'D' or NULL
-);
-
--- Nova tabela: communication_scores
-CREATE TABLE communication_scores (
-    id INTEGER PRIMARY KEY,
-    bc_id TEXT,
-    speaker TEXT,
-    date DATE,
-    speech_url TEXT,
-    hawkishness_score REAL,  -- [-1, +1]
-    methodology TEXT,  -- 'keyword', 'finbert', 'llm'
-    excerpt_hawkish TEXT,  -- key hawkish phrases
-    excerpt_dovish TEXT    -- key dovish phrases
-);
-
--- Nova tabela: policy_decisions
-CREATE TABLE policy_decisions (
-    id INTEGER PRIMARY KEY,
-    bc_id TEXT,
-    decision_date DATE,
-    rate_before REAL,
-    rate_after REAL,
-    rate_change_bps INTEGER,
-    dissent_count INTEGER,
-    surprise_bps REAL,  -- Kuttner-style if available
-    statement_url TEXT,
-    hawkishness_shift REAL  -- vs previous statement
-);
+**Overlays críticos:**
+- **NSS curves** é entry point para M3 (market expectations) + E2 (yield slope) + CRP (spread vs bench). Deve ser implementado primeiro no Phase 1 sequencing (ver spec §3 dependency graph).
+- **Expected-inflation** é entry point para M2 (Taylor gap usa π_expected) + M3 (breakevens) + ERP overlay (real rates).
+
+**Não usadas:**
+- **BIS** — foco credit/FX (não monetary directly; BIS WS_LONG_CPP apenas consumer prices long-run, não breakeven/curves).
+- **FMP** — `/api/stable/` 403. Sem path monetary (treasury endpoint testou 403).
+- **TCMB** — bloqueado D1 (endpoint discovery failed). Turkey via TE.
+
+### 1.3 Critério de escolha
+
+```
+If series in FRED_CATALOG and (country == US OR FRED mirror exists):
+    primary = FRED
+elif country in ECB_EA and series in ECB_SDW:
+    primary = ECB_SDW
+elif series is central-bank-specific (shadow rate, curve Svensson, etc.):
+    primary = NATIVE CB (scrape or direct API)
+elif country in TE_BREADTH:
+    primary = TE
+else:
+    primary = GAP
 ```
 
 ---
 
-## Questões abertas para decisão futura
+## 2. Country tier coverage
 
-### D1 — Shadow rates live durante non-ZLB
-Krippner cobre 7 BCs live; Wu-Xia suspenso. Durante períodos non-ZLB, policy rate ≈ shadow rate. **Recomendação:** usar policy rate como default, Krippner SSR quando disponível, sinalizar quando divergem > 25bps.
+### 2.1 Tabela
 
-### D2 — Output gap source
-IMF WEO vs OECD vs AMECO frequently divergem. **Recomendação:** IMF WEO primary (global coverage), AMECO secondary for EA-specific. Flag divergence > 1pp como uncertainty.
+| Tier | Count | M1 policy rate | M1 shadow rate | M2 Taylor+HLW | M3 forwards | M3 breakeven | M4 FCI | MSC viável? |
+|------|-------|----------------|----------------|----------------|-------------|--------------|--------|-------------|
+| T1 | 16 | ✓ full | ~ 4 (US EA UK JP) | ~ 4 (US EA UK CA) | ✓ derived NSS | ~ 7 (linker countries) | ~ 2 (US EA) | Sim — full para US+EA |
+| T2 | 30 | ✓ TE breadth | ✗ | ✗ | ~ partial (depends NSS) | ✗ | ✗ | Parcial — M1 only |
+| T3 | 43 | ~ TE partial | ✗ | ✗ | ✗ | ✗ | ✗ | Não — M1 degraded |
+| T4 | ~110 | ~ annual | ✗ | ✗ | ✗ | ✗ | ✗ | Não |
 
-### D3 — Communication NLP pipeline
-Rule-based vs FinBERT vs LLM. **Recomendação:** v1 rule-based (baseline), v2 FinBERT (melhor accuracy), v3 LLM (production quality mas custo).
+**Observação:** MSC é **fortemente US+EA-centric** por design — M2/M3/M4 requerem data académica e forward-curve markets que só existem em ~4-8 países. Specs documentam este viés como by-design (ver `cycles/monetary-msc.md §2`).
 
-### D4 — CDS e institutional market data
-Bloomberg/Refinitiv para OIS curves completas vs workarounds gratuitos. **Recomendação:** workarounds até fund institucional, depois Bloomberg.
+### 2.2 País-chave por sub-index
 
-### D5 — BC coverage
-10 BCs principais vs apenas 4-5 para MVP. **Recomendação:** MVP cobre Fed, ECB, BoE, BoJ (essenciais) + PT como proxy EA. Tier 2 adiciona SNB, BoC, RBA, PBoC, Riksbank, Norges.
+| Sub-index | T1 full support | T1 partial | T2+ |
+|-----------|-----------------|------------|-----|
+| M1 ER policy rate | Todos 16 | — | TE breadth 30+ |
+| M1 ER shadow rate | US (Wu-Xia), EA+UK+JP (Krippner) | CA, AU, SE, CH implied (Krippner extended) | ✗ |
+| M2 Taylor+HLW | US, EA, UK, CA | JP (r* derived; Taylor sensitivity) | ✗ |
+| M3 breakeven | US, UK, FR, DE, IT, CA, AU (linkers) | JP experimental | ✗ |
+| M3 5y5y forward | US, EA | — | ✗ (derivable se NSS cobre) |
+| M4 FCI | US (NFCI), EA (CISS) | — | ✗ |
 
-### D6 — Speech ingestion strategy
-Daily scraping vs batch monthly. **Recomendação:** batch semanal (Friday) cobre ~95% de valor, minimiza complexity.
+### 2.3 Degradação T2/T3
 
----
+MSC para T2+ emite usando apenas M1 (policy rate normalized vs 10Y rolling). Outras sub-indices NULL → Policy 1 re-weight requer ≥3/4+CS → **fail**. Output: `MSC = NULL, flags = [M2_M3_M4_MISSING, T2_DEGRADED]`.
 
-## Anexo A · Lista consolidada de URLs e endpoints (monetário-específicos)
-
-| Fonte | Base URL | Auth | Uso principal |
-|---|---|---|---|
-| Atlanta Fed Wu-Xia | `atlantafed.org/cqer/research/wu-xia-shadow-federal-funds-rate` | Nenhuma | Histórico SSR US |
-| Jing Cynthia Wu | `sites.google.com/view/jingcynthiawu/shadow-rates` | Nenhuma | SSR US, EA, UK histórico |
-| LJK Krippner | `ljkmfa.com/visitors/` | Nenhuma | SSR live 7 BCs |
-| NY Fed r-star | `newyorkfed.org/research/policy/rstar` | Nenhuma | Laubach-Williams r* |
-| ECB SDW OIS | `data-api.ecb.europa.eu/service/data/YC` | Nenhuma | EA OIS curves |
-| BoE Database | `bankofengland.co.uk/boeapps/database/` | Nenhuma | SONIA, UK yields |
-| BoJ Statistics | `boj.or.jp/en/statistics/` | Nenhuma | Japan rates, balance sheet |
-| PBoC English | `pbc.gov.cn/en/3688066/index.html` | Nenhuma | China monetary data |
-| Fed H.4.1 | `federalreserve.gov/releases/h41/current/` | Nenhuma | Fed balance sheet weekly |
-| FOMC SEP | `federalreserve.gov/monetarypolicy/fomcprojtabl*.htm` | Nenhuma | Dot plots |
-| Fed speeches | `federalreserve.gov/newsevents/speeches.htm` | Nenhuma | Speech scraping |
-| ECB speeches | `ecb.europa.eu/press/key/speeches/html/index.en.html` | Nenhuma | ECB communication |
-| IMF WEO | `imf.org/en/Publications/WEO/weo-database` | Nenhuma | Output gap |
-| AMECO | `ec.europa.eu/economy_finance/ameco/` | Nenhuma | EU output gap |
-| Miranda-Agrippino | `silviamirandaagrippino.com/code-data` | Nenhuma | Policy surprises |
+**Exceção** (spec §4): MSC simplified score para T2 disponível via `M1_only_mode`:
+```
+MSC_T2 = normalize(policy_rate, lookback_10y) × 100
+confidence = 0.40  # low — only reflects level, não stance completo
+```
 
 ---
 
-## Anexo B · Checklist de setup
+## 3. Endpoints por fonte
 
-### Pré-requisitos (complementar ao plano credit)
+### 3.1 FRED — monetary backbone
 
-- [ ] Python 3.11+ já instalado
-- [ ] Packages adicionais: `pdfplumber` (SEP scraping), `beautifulsoup4`, `scrapy`, `transformers` (FinBERT futuro)
-- [ ] Storage adicional para speeches archive (~5-10 GB)
-- [ ] Schema v14 (crédito) já aplicado — estender para v15 com tabelas monetárias
+**Base + auth** igual a economic.md §3.2.
 
-### Credenciais
+| Consumer | Series ID | Freq | Notes |
+|----------|-----------|------|-------|
+| M1 US policy rate | `DFEDTAR` (target range midpoint), `FEDFUNDS` (effective) | Daily | Fed Funds |
+| M1 EA policy rate | `ECBMRRFR` (MRO rate) | Daily | Mirror ECB |
+| M1 UK policy rate | `IR3TIB01GBM156N` (OECD mirror BoE) | Monthly | — |
+| M1 JP policy rate | `INTDSRJPM193N` | Monthly | — |
+| M1 US shadow rate (Wu-Xia) | — | — | **Não em FRED** — Atlanta Fed direct CSV |
+| M1 EA/UK/JP shadow (Krippner) | — | — | **Não em FRED** — Krippner site scrape |
+| M2 US r* HLW | — | — | **Não em FRED** — NY Fed CSV direct |
+| M3 US breakeven | `T5YIE`, `T10YIE`, `T20YIE`, `T30YIE` | Daily | Daily breakeven |
+| M3 US forward 5y5y | `T5YIFR` (5Y forward 5Y inflation) | Daily | |
+| M3 US TIPS real yields | `DFII5`, `DFII10`, `DFII30` | Daily | For real curve |
+| M3 SPF US | `EXPINF10YR` (10Y inflation expectation) | Quarterly | Philly Fed SPF |
+| M4 US FCI | `NFCI` (Chicago Fed National FCI) | Weekly | Published Wed |
+| M4 US FCI (alt) | `ANFCI` (Adjusted NFCI) | Weekly | Macro-adjusted |
 
-- [ ] **FRED API key** — mesma do plano credit, não necessita nova
-- [ ] Nenhuma chave adicional para Tier 1
+**Nominal yield curve US** (for NSS input):
+`DGS3MO`, `DGS6MO`, `DGS1`, `DGS2`, `DGS5`, `DGS7`, `DGS10`, `DGS20`, `DGS30` — 9 tenors daily.
 
-### Verificações iniciais
+### 3.2 ECB SDW — EA monetary
 
-- [ ] Descarregar última file Krippner de `ljkmfa.com/visitors/` (manual)
-- [ ] Download Wu-Xia Excel da Atlanta Fed
-- [ ] Testar FRED query para `WXSRUS`, `NFCI`, `T5YIFR`
-- [ ] Testar ECB SDW query para yield curve dataset `YC`
-- [ ] Scraper test para uma FOMC SEP page
+**Base:** `https://data-api.ecb.europa.eu/service/data`
+
+| Consumer | Dataflow | Key example | Notes |
+|----------|----------|-------------|-------|
+| M1 EA policy | `FM` | `D.U2.EUR.4F.KR.MRR_FR.LEV` | MRO fixed rate |
+| M1 EA deposit/lending facility | `FM` | `D.U2.EUR.4F.KR.DFR.LEV` / `MLFR.LEV` | — |
+| M3 EA inflation swap | `FM` | `D.U2.EUR.RT.MM.EURIRS1Y.LEV` | — |
+| M3 EA breakeven | `YC` | `B.U2.EUR.4F.G_N_A.SV_C_YM.BREAK.{T}Y` | Yield curve breakeven |
+| M3 EA nominal yield curve | `YC` | `B.U2.EUR.4F.G_N_A.SV_C_YM.SR_{T}Y` | Svensson-fitted |
+| M4 EA CISS | `CISS` | `D.U2.Z0Z.4F.EC.SOV_CISS.IDX` | Composite Indicator Systemic Stress |
+| Expected-inflation SPF EA | `RFI` | — | Quarterly survey |
+
+**Rate limit:** undocumented public service; 1 req/sec polite.
+
+### 3.3 Central bank natives (T1 overrides)
+
+| CB | Data endpoint | Consumer |
+|----|--------------|----------|
+| Bundesbank | `https://api.statistiken.bundesbank.de/rest/data/BBSIS/...` | DE yield curve (Svensson — pré-fitted, published daily) |
+| BoE | `https://www.bankofengland.co.uk/boeapps/database/...` CSV downloads | UK A-S yield curve (Anderson-Sleath model) |
+| BoJ | `https://www.stat-search.boj.or.jp/ssi/mtshtml/...` CSV | JP policy + yield data |
+| SNB | `https://data.snb.ch/api/cube/...` | CH rates |
+| Riksbank | `https://api.riksbank.se/api/swea/v1/...` | SE rates |
+| MoF JP | `https://www.mof.go.jp/english/policy/jgbs/...` CSV | JGB yields |
+| Atlanta Fed (Wu-Xia) | `https://www.atlantafed.org/cqer/research/wu-xia-shadow-federal-funds-rate` CSV | US shadow rate |
+| NY Fed (HLW) | `https://www.newyorkfed.org/research/policy/rstar` CSV | US+EA+UK+CA r* |
+| Krippner (RBNZ sponsored) | `https://www.ljkmfa.com/...` CSV | Shadow rates 4 economies |
+
+**Status D1:** endpoints listed são discovery baseline. Phase 1 connector implementation validates (smoke + parse). Atlanta Fed + NY Fed CSV paths historically stable.
+
+### 3.4 TCMB EVDS — Turkey
+
+**Status D1: BLOCKED** (ver economic.md §3.7 detalhe).
+
+**Target series monetary (quando recuperado):**
+- M1 Turkey policy: `TP.AOFOPO03` (overnight lending O/N policy)
+- M3 Turkey expectations: `TP.SURVEYS*` family
+
+Turkey fallback: TE `/country/turkey/indicators` Cat=Money → policy rate OK; sub-indices M2-M4 não aplicáveis (T2 `M1_only_mode`).
+
+### 3.5 TE — breadth para M1 policy rates
+
+**Base + auth** igual a economic.md §3.1.
+
+```
+GET /country/{c}/indicators?c={KEY}&f=json
+  → filter Category="Money" subfilter "Interest Rate"
+```
+
+**Coverage:** ~90 países com policy rate tracked (inclui quase todos os 160 ISO-3 countries).
+
+### 3.6 Shadow rates (academic scrapes)
+
+**Wu-Xia US shadow rate:**
+- URL: `https://www.atlantafed.org/-/media/documents/cqer/researchcq/shadow_rate.xlsx`
+- Frequency: monthly update
+- Method: Wu-Xia 2016 (Journal of Money, Credit and Banking)
+- Scope: US only
+
+**Krippner shadow rate:**
+- URL: `https://www.ljkmfa.com/wp-content/uploads/2024/XX/...pdf` (monthly PDF — parse issue)
+- Alternative: RBNZ research page indirect
+- Scope: US, EA, UK, JP (+ extensions to AU, CA, CH, NZ, SE)
+- Method: Krippner 2012, 2015 (multi-factor shadow rate model)
+
+**Cross-validation (spec M1 §4):** usar BOTH Wu-Xia e Krippner US como xval; emit warning se |WuXia - Krippner| > 50 bps.
+
+### 3.7 HLW r* (academic)
+
+**URL:** `https://www.newyorkfed.org/medialibrary/media/research/policy/rstar/Laubach_Williams_current_estimates.xlsx`
+**Frequency:** quarterly update (published with Fed SEP lag ~60 dias)
+**Coverage:** US (canonical) + EA + UK + CA (Holston-Laubach-Williams 2017 extension)
+**Method:** HLW state-space Kalman filter.
+
+**Cross-validation:** Lubik-Matthes (Richmond Fed) DSGE estimates são secondary. Phase 2 P2-012.
+
+### 3.8 Expected-inflation alternatives
+
+| Source | URL | Scope | Notes |
+|--------|-----|-------|-------|
+| FRED breakeven | `T5YIE`, `T10YIE`, `T20YIE`, `T30YIE` | US | Daily |
+| FRED TIPS | `DFII*` | US | Real yield (compute BEI = nominal - TIPS) |
+| ECB SDW breakeven | `YC` dataflow BREAK.{T}Y | EA | Daily |
+| BoE | `IUDSBXXX` (implied infl RPI 5y) | UK | Daily |
+| Bloomberg Tier 3 | — | UK/JP gaps | Out-of-scope Phase 1 |
+| ECB SPF | ECB SDW `RFI` dataflow | EA survey | Quarterly |
+| US Philly SPF | FRED `EXPINF10YR` | US survey | Quarterly |
+| BoJ Tankan | BoJ CSV | JP survey | Quarterly |
+
+**Hierarchy per spec `expected-inflation.md`** (pattern "hierarchy best-of"):
+```
+1. Breakeven (market-implied) — daily
+2. Inflation swap — daily
+3. SPF (survey) — quarterly
+4. Realised CPI YoY (proxy) — monthly
+```
 
 ---
 
-## Histórico de versões
+## 4. Série catalog — por index / overlay
 
-| Versão | Data | Autor | Alterações |
-|---|---|---|---|
-| 0.1 | 2026-04-17 | Hugo + SONAR Research | Draft inicial — 7 camadas funcionais, 3 tiers, 4-week roadmap |
+### 4.1 M1 — Effective rates
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `policy_rate` | FRED `FEDFUNDS` (US); ECB SDW `FM` (EA); native CB direct | TE breadth non-T1 | D | 1 |
+| `shadow_rate_krippner_wu_xia` | Atlanta Fed XLS (US Wu-Xia); Krippner site (EA/UK/JP) | — | M | 30 |
+
+**M1 derivation (spec §3):**
+```
+effective_rate = max(shadow_rate, policy_rate) if ZLB else policy_rate
+zlb_flag = (policy_rate ≤ 0.50)
+```
+
+**Cross-check:** `|wu_xia_us - krippner_us| > 50bps → warning`.
+
+### 4.2 M2 — Taylor gaps + r*
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `r_star_hlw` | NY Fed XLS (quarterly) | Lubik-Matthes (P2-012) | Q | 60 |
+| `taylor_rule_prescribed` | Derived: `r* + π_expected + 0.5·(π - π_target) + 0.5·gdp_gap` | — | Q | derived |
+| `taylor_gap_pp` | `policy_rate - taylor_rule_prescribed` | — | Q | derived |
+
+**Inputs needed:**
+- `r*` → HLW
+- `π_expected` → expected-inflation overlay (SPF preferível)
+- `π_target` → 2.0% Fed/ECB; spec M2 §5 documenta per-country overrides
+- `gdp_gap` → derived from E1 + OECD output gap (FRED `NROUST` for US natural rate)
+
+### 4.3 M3 — Market expectations
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `five_year_forward_breakeven` | FRED `T5YIFR` (US); derived from NSS (EA) | — | D | 1 |
+| `spf_inflation_expectation` | FRED `EXPINF10YR` (US); ECB SPF (EA) | — | Q | 45 |
+
+**M3 composite** pondera forwards (weight=0.60) + SPF (0.40). Ver spec M3 §4.
+
+### 4.4 M4 — Financial Conditions Indices
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `chicago_fed_nfci` | FRED `NFCI` | — | W | 5 |
+| `ecb_ciss` | ECB SDW CISS dataflow | — | D | 1 |
+
+**M4 country-specific:** Phase 1 emite FCI apenas para US (NFCI) + EA (CISS). Para T1 ex-US/EA spec §5 recomenda building domestic FCI via PCA of (policy_rate_spread, credit_spread, equity_vol, sovereign_vol). Phase 2 backlog P2-006.
+
+### 4.5 Overlay L2 — NSS curves
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `sovereign_yield_{tenor}` | TE `/country/{c}/indicators` Cat=Money | FRED `DGS*` (US); Bundesbank Svensson (DE); BoE A-S (UK); MoF (JP) | D | 1 |
+| `tips_real_yield_{tenor}` | FRED `DFII5`/`DFII10`/`DFII30` (US) | ECB SDW (EA linkers); BoE (UK ILG) | D | 1 |
+
+**Tenors canónicos:** 3M, 6M, 1Y, 2Y, 5Y, 7Y, 10Y, 20Y, 30Y (9 tenors).
+
+**NSS fitting** (spec §3):
+- Requires ≥6 tenors per country per day.
+- Nelson-Siegel-Svensson 6-parameter model: β0, β1, β2, β3, τ1, τ2.
+- Optimizer: scipy.optimize.least_squares with bounded τ ∈ [0.5, 10].
+- Output: fitted curve function → consumable point estimates em any tenor.
+
+**T1 override strategy** (per CSV row 2-10):
+- US: FRED `DGS*` native daily (9 tenors).
+- DE: Bundesbank Svensson pré-fitted (preferível — curve model-consistent).
+- UK: BoE Anderson-Sleath pré-fitted.
+- JP: MoF Jp Government Bond yields + fit local NSS.
+- Other T1 (EA members, CA, AU, ...): TE + fit local.
+
+**T4 degraded path:** se país tem < 6 tenores → NSS não fitable → emit spot observations com flag `NSS_SPARSE`.
+
+### 4.6 Overlay L2 — Expected-inflation
+
+| Série | Pri | Ovr | Freq | Lat |
+|-------|-----|-----|------|-----|
+| `breakeven_inflation_bei` | FRED `T{T}YIE` (US); ECB SDW (EA); BoE (UK) | — | D | 1 |
+| `inflation_swap_rate` | ECB SDW `FM` swap dataflow (EA); partial FRED `FII*` (US) | — | D | 1 |
+| `hicp_yoy` | Eurostat `prc_hicp_manr` (EA); ECB SDW | TE breadth T3-T4 | M | 30 |
+| `cpi_yoy` | FRED `CPIAUCSL` (US); TE breadth; TCMB `TP.FG.J0` (TR) | — | M | 15 |
+| `spf_inflation_expectation` | FRED `EXPINF10YR` (US); ECB SPF (EA) | BoJ Tankan (JP) | Q | 45 |
+
+**Expected-inflation hierarchy** (spec patterns "hierarchy best-of"):
+```
+per (country, tenor):
+    if country has liquid linker AND breakeven available:
+        primary = breakeven
+    elif country has inflation swap market:
+        primary = swap
+    elif country has SPF:
+        primary = SPF
+    else:
+        primary = CPI YoY trailing (proxy)
+```
+
+**HICP vs CPI:** EA countries usam HICP (harmonised); non-EU usam CPI nacional. Emit source flag para downstream consumers (rating-spread, ERP real-rate conversion).
 
 ---
 
-**Documento de trabalho interno · 7365 Capital · SONAR Research · Abril 2026**
+## 5. Fallback hierarchy
 
-*Ver também: "SONAR Data Sources Implementation Plan" (ciclo de crédito) — fontes partilhadas BIS, Eurostat, BPStat, FRED, Trading Economics detalhadas nesse documento.*
+### 5.1 Árvore de decisão MSC
+
+```
+Para cada (series, country):
+    1. IF series in FRED AND (country == US OR mirror):
+         → FRED
+    2. ELIF country in ECB_EA AND series in ECB_SDW:
+         → ECB SDW
+    3. ELIF series is academic (shadow_rate, r*):
+         → scrape academic (Atlanta Fed, NY Fed, Krippner)
+    4. ELIF country in TE_BREADTH AND series = policy_rate:
+         → TE (M1 only)
+    5. ELSE:
+         → flag + degraded / M1_only_mode
+```
+
+### 5.2 Policy 1 re-weight MSC
+
+MSC tem 4 sub-indices + CS (cross-cycle). Re-weight quando 1 sub-index missing:
+
+```
+valid = {M1, M3, M4, CS}  # example: M2 missing
+weights_valid = {0.30, 0.25, 0.20, 0.10}  # total 0.85
+re-weighted = {M1: 0.30/0.85, M3: 0.25/0.85, M4: 0.20/0.85, CS: 0.10/0.85}
+MSC = sum
+confidence = min(0.75, base)
+```
+
+**M1_only_mode** para T2+ é special-case: apenas M1 disponível; confidence = 0.40; flag `M1_ONLY_MODE` emitted.
+
+### 5.3 Override conditions
+
+- **FRED primary US** always.
+- **ECB SDW primary EA** always (não TE fallback — ECB SDW é authoritative).
+- **Bundesbank override DE yield curve** — Svensson model-consistent (preferir sobre TE spot points).
+- **BoE override UK yield curve** — A-S model idem.
+- **Shadow rate cross-check** US: Wu-Xia + Krippner both required → discrepancy warning.
+
+---
+
+## 6. Known gaps e backlog
+
+### 6.1 Gaps críticos (BLOCKING)
+
+| Gap | Impacto | Mitigação | Backlog |
+|-----|---------|-----------|---------|
+| Shadow rate coverage | Apenas US+EA+UK+JP — resto T1 sem shadow | ZLB flag-only sem shadow numeric | `P2-004` |
+| HLW r* country coverage | 4 países only | Lubik-Matthes DSGE alternative | `P2-012` |
+| TCMB endpoint | Turkey policy via TE só | `M1_only_mode` | `CAL-018` |
+| Krippner parse (PDF) | Site format muda periodicamente | Manual monitoring; alert on parse fail | — |
+| MSC non-US/EA | Design-limited (spec §2 acknowledged) | By-design; expandir em Phase 4 | `CAL-015` |
+
+### 6.2 Gaps de qualidade (CORE)
+
+- **Wu-Xia monthly vs daily policy rate:** shadow rate monthly; effective rate daily. Spec §3 resolves mixing: effective_rate emitted daily usando last shadow rate até release next.
+- **π_target cross-country:** spec §5 assume 2% inflation target. Paises com different targets (Turkey historically 5-12%, EMs 3-4%) precisa per-country override.
+- **Breakeven inflation risk premium:** BEI contains IRP — not pure expected inflation. Spec `expected-inflation.md §6` documenta; Phase 2 decomposition P2-005.
+- **NSS convergence failures:** para países com ≤6 tenores NSS fails → fallback to linear interp. Quality degradation silent — need explicit flag.
+
+### 6.3 Out-of-scope Phase 0 / Phase 1
+
+- **Communication signal (CS)** — text NLP on CB speeches. Phase 2+ `P2-008`. Phase 1 uses `CS = 50` neutral stub.
+- **Balance sheet dynamics** — QE/QT tracking via weekly central bank balance sheet. Phase 2 `P2-006`.
+- **Yield curve fitting sub-components** — Dai-Singleton, multi-factor affine. Out-of-scope.
+- **Real rate decomposition** — term premia (Kim-Wright, ACM). Out-of-scope.
+
+### 6.4 Calibration tasks
+
+- `CAL-005` — MSC weights (0.30/0.15/0.25/0.20/0.10) empirical validation.
+- `CAL-007` — shadow rate cross-validation (Wu-Xia vs Krippner).
+- `CAL-015` — MSC extension to T2 EMs (design decision Phase 4).
+- `CAL-018` — TCMB endpoint recovery.
+
+---
+
+## 7. Licensing status
+
+| Fonte | Licença | Uso |
+|-------|---------|-----|
+| FRED | Public domain | Sem restrições |
+| ECB SDW | ECB re-use | Attribution |
+| Bundesbank | CC-BY-4.0 | Attribution |
+| BoE | Open Government Licence | Attribution |
+| BoJ | Free research use | Attribution |
+| MoF JP | Government data — free | — |
+| NY Fed (HLW) | Public domain | — |
+| Atlanta Fed (Wu-Xia) | Public domain | — |
+| Krippner (ljkmfa.com) | Free research use | Attribution "Krippner 2015" |
+| TE | Commercial (tier pending) | Internal-only |
+| TCMB EVDS | Academic free | — |
+
+---
+
+## 8. Cross-refs
+
+### 8.1 Specs consumer
+
+- `docs/specs/indices/monetary/M1-effective-rates.md`.
+- `docs/specs/indices/monetary/M2-taylor-gaps.md`.
+- `docs/specs/indices/monetary/M3-market-expectations.md`.
+- `docs/specs/indices/monetary/M4-fci.md`.
+- `docs/specs/cycles/monetary-msc.md`.
+- `docs/specs/overlays/nss-curves.md`.
+- `docs/specs/overlays/expected-inflation.md`.
+
+### 8.2 Outros cycles
+
+- `cycles/economic-ecs.md §5 E2` — consome yield slope derived from NSS.
+- `cycles/financial-fcs.md §6` — F3 consome TIPS real yields via expected-inflation overlay.
+- `cycles/credit-cccs.md §6` — CCCS lê CS cross-cycle from MSC (Phase 2 bidirectional).
+
+### 8.3 Overlays partilhados
+
+- `nss-curves` emits yield curve → downstream: E2 (slope), F3 (real yields), CRP (spread).
+- `expected-inflation` emits π_e → downstream: M2 (Taylor input), M3 (breakeven raw), ERP daily (real rate).
+
+### 8.4 Conventions
+
+- `conventions/normalization.md` — z-score lookback 30Y.
+- `conventions/composite-aggregation.md` — Policy 1 + M1_only_mode special-case.
+- `conventions/patterns.md` — NSS fit cache; hierarchy best-of for expected-inflation.
+- `conventions/flags.md` — emitidos: `ZLB_ACTIVE`, `SHADOW_RATE_MISSING`, `NSS_SPARSE`, `WU_XIA_KRIPPNER_DIVERGE`, `M1_ONLY_MODE`, `T2_DEGRADED`, `BEI_RISK_PREMIUM_UNADJUSTED`.
+
+### 8.5 Architecture / ADRs
+
+- `docs/ARCHITECTURE.md §L3 monetary`.
+- `docs/adr/ADR-0002` — nine-layer.
+
+### 8.6 Governance / backlog
+
+- `docs/backlog/calibration-tasks.md` — `CAL-005`, `CAL-007`, `CAL-015`, `CAL-018`.
+- `docs/backlog/phase2-items.md` — `P2-004` (shadow rate expand), `P2-005` (BEI decomp), `P2-006` (FCI country-domestic), `P2-008` (CS NLP), `P2-012` (Lubik-Matthes).
+- `docs/data_sources/D0_audit_report.md` — TCMB finding.
+- `docs/data_sources/D1_coverage_matrix.csv` — rows 2-11 (NSS), 26-30 (expected-inflation), 49-54 (M1-M4).
+
+---
+
+*Última revisão: 2026-04-18 (Phase 0 Bloco D1 rewrite).*

@@ -1,1430 +1,477 @@
-# SONAR · Plano de Fontes de Dados do Ciclo Económico
+# SONAR v2 · Data sources — Economic cycle (ECS)
 
-**Documento de implementação técnica**
-**Autor**: Hugo · 7365 Capital
-**Versão**: v1.0 · Abril 2026
-**Contexto**: Extensão do schema SONAR para v16 — terceiro ciclo a ser integrado após credit (v13) e monetário (v14-15)
-**Âmbito**: Traduzir o Manual do Ciclo Económico (6 partes, 4.178 parágrafos) em pipeline de dados operacional
+> **Layer scope:** L3 indices `E1-activity`, `E2-leading`, `E3-labor`, `E4-sentiment` + L4 `cycles/economic-ecs`.
+> **Phase 0 Bloco D1** — rewrite baseado em `D1_coverage_matrix.csv` (2026-04-18) + D0 audit findings.
+> **Status:** doc canónico. Substitui v1 (4 272 linhas totais nos 4 docs) com estrutura uniforme 5-source hierarchy.
 
----
-
-## Executive Summary
-
-Este documento operacionaliza as fontes de dados necessárias para construir o Economic Cycle Score (ECS) para os países do universo SONAR. O objetivo é implementar a medição proposta nos capítulos 7-10 do manual (E1 Activity, E2 Leading, E3 Labor, E4 Sentiment) e alimentar o framework integrado descrito nos capítulos 15-17.
-
-**Três princípios orientadores**:
-
-1. **Reutilização inteligente** — os planos de crédito (v13) e monetário (v14-15) já cobriram integralmente FRED, ECB SDW, Eurostat, OECD SDMX, BIS, BPStat. Este plano concentra-se em **adições distintivas do económico** sem duplicar infraestrutura existente.
-
-2. **Nowcasting como cidadão de primeira classe** — o capítulo 19 do manual dedicou tratamento extenso a Fed GDPNow, NY Fed Nowcast, Sahm Rule automation, Growth-at-Risk. Este plano traduz isso em connectors operacionais, não em consulta pontual.
-
-3. **Alternative data sem over-engineering** — card spending, shipping, news sentiment, job postings são valiosos mas variáveis em disponibilidade/custo. Proposta é Tier 1 MVP sem alternative data, Tier 2 com gradual introdução, Tier 3 institutional-grade.
-
-**Nova cobertura estimada**: 480-650 indicadores adicionais, trazendo SONAR total para ~2.350 signals across 15 countries × 4 cycles.
-
-**Esforço estimado**: 4 semanas para Tier 1 MVP operacional, 8 semanas para Tier 2, 12 semanas para Tier 3.
+Documento alinhado com:
+- `docs/specs/cycles/economic-ecs.md` (composite ECS = 0.35·E1 + 0.25·E2 + 0.25·E3 + 0.15·E4)
+- `docs/specs/indices/economic/E1..E4.md`
+- `docs/data_sources/country_tiers.yaml`
+- `docs/data_sources/D1_coverage_matrix.csv`
+- `docs/data_sources/D0_audit_report.md`
 
 ---
 
-## 1. Âmbito e delimitação
-
-### 1.1 O que este plano cobre
-
-Ficou estabelecido no capítulo 7 que o ciclo económico usa a composição **E1 + E2 + E3 + E4** com pesos **35/25/25/15**. As fontes agrupam-se conforme:
-
-| Layer | Cobertura | Esta secção |
-|---|---|---|
-| **E1 Activity** | GDP, IP, retail, personal income, employment, composite coincident | §3 |
-| **E2 Leading** | Yield curve, credit spreads, PMIs, LEI, OECD CLI, ECRI WLI, permits, orders | §4 |
-| **E3 Labor** | NFP, unemployment, Sahm Rule, JOLTS, wages, claims, Beveridge | §5 |
-| **E4 Sentiment** | UMich, Conference Board, inflation expectations, ISM, NFIB, EPU, EC ESI, ZEW, Ifo, VIX, Tankan | §6 |
-| **Nowcasting** | Fed GDPNow, NY Fed Nowcast, STLENI, ADS Index, weekly indicators | §7 |
-| **Alternative data** | Card spending, LinkedIn, shipping, news sentiment | §8 |
-
-### 1.2 O que este plano NÃO cobre (já está em v13-v15)
-
-Os connectors já implementados no SONAR cobrem integralmente as seguintes fontes, referenciadas aqui apenas quando indicador económico específico requer **nova serie** dentro delas:
-
-- **FRED API (v13)** — já operacional. Esta fase adiciona ~80 series específicas económicas.
-- **ECB Statistical Data Warehouse (v14)** — já operacional para monetário. Economic adiciona HICP core, unemployment EA, indústria.
-- **Eurostat API (v13)** — já operacional. Economic adiciona GDP nacional, labor surveys.
-- **OECD SDMX (v13)** — já operacional. Economic adiciona CLI composites, confidence indices.
-- **BIS Data Portal (v13)** — já operacional. Economic adiciona property prices, international labor.
-- **BPStat/BdP APIs (v14)** — já operacional. Economic adiciona INE Portugal data layer.
-
-### 1.3 Países prioritários (replicando Tier do manual)
-
-| Tier | Países | Cobertura ECS |
-|---|---|---|
-| **Tier 1 — full** | US, EA aggregate, Germany, UK, Japan | 100% indicators |
-| **Tier 2 — good** | France, Italy, Spain, Canada, Australia | ~80% indicators |
-| **Tier 3 — limited** | Portugal, Ireland, Netherlands, Sweden, Switzerland | ~60% indicators |
-| **Tier 4 — experimental** | China, India, Brazil, Turkey | ~40% indicators, wider confidence |
-
-Portugal permanece em Tier 3 — inclui EA overlay + INE/BdP específico. Consistência com planos anteriores.
-
----
-
-## 2. Arquitetura de tiers
-
-Mesmo modelo gradual dos dois planos anteriores:
-
-### Tier 1 — MVP (semanas 1-4)
-
-**Critério**: connectors gratuitos, suficientes para publicar ECS Tier 1 countries com confidence razoável.
-
-Deliverables:
-- FRED connector estendido com ~80 novas series
-- Eurostat connector estendido com GDP/labor EA countries
-- OECD CLI connector (composite leading indicators)
-- Atlanta Fed GDPNow via FRED `GDPNOW`
-- NY Fed Nowcast via scraping/API
-- Sahm Rule automated computation
-- Conference Board LEI via FRED `USSLIND`
-- Portugal layer: INE quarterly GDP + BdP monthly indicators
-
-Resultado: ECS operacional para US, UK, EA aggregate, Germany, Japan. Portugal parcialmente coberto.
-
-### Tier 2 — comunicação (semanas 5-8)
-
-**Critério**: elevação para nível que permite columns de mercado robustas sem gap evidentes.
-
-Deliverables:
-- S&P Global PMI coverage expandido (headlines para 20+ países)
-- Philly Fed ADS Index daily
-- NY Fed GSCPI (Global Supply Chain Pressure Index)
-- EPU Index (policyuncertainty.com) Baker-Bloom-Davis
-- Michigan 5Y inflation expectations (`MICH`)
-- Conference Board Consumer Confidence
-- Senior Loan Officer Opinion Survey (SLOOS) quarterly
-- Atlanta Fed Wage Growth Tracker
-- Fed Beveridge curve dashboard data
-
-Resultado: ECS com alguns leading/sentiment depth. Cobertura geográfica estendida.
-
-### Tier 3 — institutional-grade (semanas 9-12)
-
-**Critério**: alternative data + nowcasting sophistication para decisões institutional.
-
-Deliverables:
-- ECRI WLI weekly (subscription)
-- LinkedIn Economic Graph (limited access)
-- Chetty/Opportunity Insights card spending (public GitHub)
-- Bloomberg/Refinitiv for PMI sub-components
-- Custom Python ML recession probability model
-- Growth-at-Risk backtested framework
-- Weekly Economic Index (Lewis-Mertens-Stock) via FRED
-
-Resultado: ECS com nowcasting sophistication comparable a top research desks.
-
----
-
-## 3. Layer E1 — Activity Indicators
-
-### 3.1 US core E1 — FRED connector extension
-
-Todas as series abaixo via FRED API existente (v13 connector). Adiciona-se apenas à watchlist, sem infraestrutura nova.
-
-| Série | Nome | Frequência | Lag | Peso E1 |
-|---|---|---|---|---|
-| `GDPC1` | Real GDP | Q | 30d | 25% |
-| `GDPC96` | Real GDP (alternative vintage) | Q | 30d | — |
-| `GDI` | Gross Domestic Income | Q | 30d | — |
-| `A261RX1Q020SBEA` | Real GDI | Q | 30d | — |
-| `INDPRO` | Industrial Production | M | 2w | 15% |
-| `TCU` | Capacity Utilization | M | 2w | — |
-| `PAYEMS` | Non-farm Payrolls | M | 1w | 20% |
-| `USPRIV` | Private Payrolls | M | 1w | — |
-| `CES3000000001` | Manufacturing Payrolls | M | 1w | — |
-| `CES2000000001` | Construction Payrolls | M | 1w | — |
-| `RSXFS` | Retail and Food Services Sales | M | 2w | 10% |
-| `RRSFS` | Real Retail and Food Services Sales | M | 2w | — |
-| `RSXFSN` | Retail (non-seasonally adjusted) | M | 2w | — |
-| `MRTSSM44X72USS` | Retail Sales ex-autos | M | 2w | — |
-| `W875RX1` | Real Personal Income ex-transfers | M | 2w | 15% |
-| `PCEC96` | Real PCE | M | 2w | — |
-| `GPDIC1` | Real Gross Private Domestic Investment | Q | 30d | — |
-| `GCEC1` | Real Government Consumption | Q | 30d | — |
-| `NETEXP` | Net Exports (nominal) | Q | 30d | — |
-
-### 3.2 US composite coincident indicators
-
-| Série | Source | Frequência | Uso |
-|---|---|---|---|
-| `CFNAI` | Chicago Fed National Activity Index | M | Composite benchmark |
-| `CFNAIMA3` | CFNAI 3-month Moving Average | M | Smoothed |
-| `USSLIND` | Conference Board Coincident Index | M | US-wide composite |
-
-### 3.3 EA core E1 — Eurostat connector extension
-
-Via Eurostat existing connector (v13). Datasets a adicionar à watchlist:
-
-| Dataset | Descrição | Frequência |
-|---|---|---|
-| `namq_10_gdp` | Quarterly GDP and its components (EA + national) | Q |
-| `namq_10_a10` | GDP by industry sector | Q |
-| `sts_inpr_m` | Industrial Production monthly | M |
-| `sts_trtu_m` | Retail trade volume | M |
-| `lfsi_emp_m` | Employment (monthly) | M |
-| `une_rt_m` | Unemployment rate monthly | M |
-| `ei_bsco_m` | Consumer confidence indicator | M |
-| `ei_bsin_m_r2` | Industrial confidence | M |
-| `ei_bssi_m_r2` | Services confidence | M |
-
-### 3.4 UK E1 — ONS connector (new)
-
-**Novo connector leve** — UK Office for National Statistics via `https://api.ons.gov.uk/dataset/{dataset-id}`.
-
-| Dataset ID | Descrição | Frequência |
-|---|---|---|
-| `monthly-gdp` | Monthly GDP estimate (UK unique among AEs) | M |
-| `labour-market` | Labor Force Survey monthly | M |
-| `retail-sales` | Retail sales monthly | M |
-| `industrial-production` | Production index monthly | M |
-
-### 3.5 Japan E1 — Statistics Bureau / BOJ
-
-**Connector tentativo** — Statistics Bureau Japan + BOJ data portal. Menos standardized; scraping podería ser necessário inicialmente, com migração para BOJ API posteriormente.
-
-Indicadores:
-- Tankan quarterly business survey (BOJ)
-- Industrial production monthly (METI)
-- Retail sales monthly (METI)
-- Unemployment rate monthly (Stats Bureau)
-
-### 3.6 Portugal E1 — INE + BdP layer
-
-Via BPStat connector existente (v14) + novo INE connector lightweight.
-
-**INE datasets** (via web scraping inicial, API migration later):
-- Quarterly GDP (Contas Nacionais Trimestrais)
-- Monthly labor force estimate (Inquérito ao Emprego)
-- Monthly industrial production
-- Monthly retail sales
-- Tourism indicators (critical for PT cycle: chegadas, dormidas, rendimento turismo)
-
-### 3.7 OECD cross-country aggregate
-
-Via OECD SDMX existing connector (v13). Datasets a adicionar:
-
-| Dataset | Cobertura | Frequência |
-|---|---|---|
-| `SNA_TABLE1` | GDP annual cross-country | A |
-| `QNA` | Quarterly National Accounts | Q |
-| `MEI` | Main Economic Indicators (unified) | M/Q |
-| `STLABOUR` | Short-term Labour Statistics | M |
-
----
-
-## 4. Layer E2 — Leading Indicators
-
-### 4.1 Yield curve — primary leading indicator
-
-Via FRED existing connector. Séries críticas:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `T10Y3M` | 10Y - 3M Treasury spread (NY Fed preferred) | D |
-| `T10Y2Y` | 10Y - 2Y Treasury spread (market focus) | D |
-| `T10Y5Y` | 10Y - 5Y Treasury spread | D |
-| `DGS10` | 10Y Treasury Constant Maturity | D |
-| `DGS2` | 2Y Treasury Constant Maturity | D |
-| `DGS3MO` | 3M Treasury Bill | D |
-| `DFEDTARU` | Federal Funds Upper Target | D |
-
-**Engstrom-Sharpe Near-term Forward Spread (NFS)**: computed internamente (não é série FRED direta). Requer forward rates — available via Fed H.15 release.
-
-### 4.2 Credit spreads — financial stress proxy
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `BAA10Y` | BAA - 10Y Treasury spread | D |
-| `BAMLH0A0HYM2` | ICE BofA US High Yield OAS | D |
-| `BAMLC0A0CM` | ICE BofA US IG Corporate OAS | D |
-| `BAMLC0A4CBBB` | BBB Corporate OAS | D |
-| `BAMLH0A3HYC` | CCC and Lower Rated HY OAS | D |
-| `EBP_OA` | Excess Bond Premium (Gilchrist-Zakrajšek) | M |
-
-### 4.3 PMIs — survey-based leading
-
-**S&P Global / ISM** — headline values são públicos on release day. Para component detail (new orders, employment, prices), Bloomberg or Refinitiv needed (Tier 3).
-
-MVP approach — scrape headline values from:
-
-| Source | Frequência | Países |
-|---|---|---|
-| `ism.ws` | M | US Manufacturing, Services |
-| `spglobal.com/market-intelligence` | M | 40+ countries PMIs |
-| `tradingeconomics.com` | M | Aggregated PMI dashboard |
-
-FRED proxies when available:
-- `NAPM` (ISM Manufacturing historical)
-- `NAPMII` (ISM Services historical)
-
-**China-specific** (important given divergences):
-- Caixin Manufacturing PMI (monthly, private)
-- NBS Official Manufacturing PMI (monthly, state-owned bias)
-- Caixin Services PMI
-- NBS Non-Manufacturing PMI
-
-### 4.4 Conference Board Leading Economic Index
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `USSLIND` | Conference Board LEI (US) | M |
-
-**Component detail** via Conference Board subscription (Tier 3) — para decomposition analysis.
-
-### 4.5 OECD Composite Leading Indicators
-
-Via OECD SDMX existing connector:
-
-| Dataset | Descrição | Frequência |
-|---|---|---|
-| `MEI_CLI` | Composite Leading Indicators | M |
-| `MEI_CLI_AMPLITUDE_ADJUSTED` | CLI amplitude adjusted | M |
-| `MEI_CLI_TREND_RESTORED` | CLI trend restored | M |
-
-**Chave operacional**: extrair sub-series per country (37 members + aggregates like EA, OECD, G7, Asia-5).
-
-### 4.6 Building permits e orders
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `PERMIT` | Building Permits (total private) | M |
-| `HOUST` | Housing Starts | M |
-| `PERMIT1` | Permits for 1-unit structures | M |
-| `DGORDER` | Durable Goods Orders | M |
-| `NEWORDER` | Manufacturers' New Orders | M |
-| `ANDEV` | Orders non-defense capital goods ex-aircraft | M |
-| `M0602AUSM027SBEA` | Core capex shipments | M |
-
-### 4.7 Initial jobless claims — weekly leading
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `ICSA` | Initial Claims (seasonally adjusted) | W |
-| `CCSA` | Continued Claims | W |
-| `IC4WSA` | Initial Claims 4-week average | W |
-
-**Frequência semanal é raro e valioso** — released every Thursday, minimal lag.
-
-### 4.8 ECRI Weekly Leading Index
-
-**Tier 3 only** — ECRI is commercial subscription. Tier 1/2 relies on publicly-disclosed crisis-era calls. Tier 3 considera full WLI time series.
-
-URL: `businesscycle.com`
-
----
-
-## 5. Layer E3 — Labor Market Depth
-
-### 5.1 Headline unemployment — US
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `UNRATE` | Unemployment Rate (U-3) | M |
-| `U6RATE` | U-6 Unemployment Rate | M |
-| `LNS11300060` | Prime-age Labor Force Participation | M |
-| `CIVPART` | Total Labor Force Participation | M |
-| `EMRATIO` | Employment-Population Ratio | M |
-| `LNS11300002` | Prime-age Employment-Population Ratio | M |
-
-### 5.2 Sahm Rule — automation
-
-**Critical operational feature** — capítulo 19 do manual destacou Sahm Rule como the single most reliable recession indicator.
-
-Série pré-computada:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `SAHMCURRENT` | Real-time Sahm Rule Recession Indicator | M |
-| `SAHMREALTIME` | Sahm Rule using real-time data | M |
-
-**SONAR internal computation**:
-```python
-def compute_sahm_rule(unrate_series, window_short=3, window_long=12):
-    """
-    Sahm Rule: 3M MA of U-3 rate minus minimum of U-3 3M MA
-    over past 12 months. Trigger at >= 0.5pp.
-    """
-    ur_3ma = unrate_series.rolling(window=window_short).mean()
-    ur_12min = ur_3ma.rolling(window=window_long).min()
-    sahm = ur_3ma - ur_12min
-    trigger = sahm >= 0.5
-    return sahm, trigger
+## 1. Overview e hierarquia de fontes
+
+### 1.1 Mandato do ciclo
+
+O Economic Cycle Score (ECS) mede o estado do real economy de um país numa escala 0–100. Consome 4 indices L3:
+
+| Index | Peso ECS | Mandato |
+|-------|----------|---------|
+| E1-activity | 0.35 | GDP growth + Industrial Production + Retail Sales (output corrente) |
+| E2-leading | 0.25 | Yield curve slope + OECD CLI + LEI + PMI Manufacturing (forward-looking) |
+| E3-labor | 0.25 | Unemployment + Sahm rule + NFP + JOLTS (labor market depth) |
+| E4-sentiment | 0.15 | UMich Consumer Sentiment + ESI Economic Sentiment + VIX (sentiment/risk) |
+
+Normalização per spec `conventions/normalization.md`: `clip(50 + 16.67·z_clamped, 0, 100)`.
+Aggregation per spec `conventions/composite-aggregation.md` (Policy 1 fail-mode: re-weight proporcional se 1 sub-index missing; require ≥3/4; confidence cap 0.75 quando re-weighted).
+
+### 1.2 Hierarquia de fontes (5 níveis canónicos)
+
+Conforme `docs/specs/conventions/patterns.md` pattern "hierarchy best-of":
+
+```
+1. PRIMARY          TE (Trading Economics)
+   └── breadth: /country/{c}/indicators — universo T1-T3
+2. OVERRIDE T1      FRED (US) / Central banks nativos (EA, UK, JP, ...)
+   └── latência + precisão > TE
+3. SECONDARY EU     Eurostat / INE (PT) / Bundesbank (DE) / ECB SDW
+   └── released data + vintage semanticamente correcto
+4. SECONDARY EM     TCMB (Turkey) / BCB (Brazil) / RBI (India) / ...
+   └── central bank nativo onde TE gap
+5. TERTIARY         OECD CLI / Shiller (CAPE indirect) / scraped alternative
+   └── meta/aggregated data fora da breadth TE
 ```
 
-**Alert**: Sahm Rule trigger é flagship SONAR alert — push notification to core system.
+**Não usadas no ECS:**
+- **BIS** — foco em credit/debt (cycle CCCS) + FX (cross-cycle). Nenhuma série económica mapeada para E1-E4.
+- **FMP** — D0+D1 confirmaram `/api/stable/` e `/api/v3/` ambos `403 Legacy Endpoint`. Chave pre-2025-08 sem acesso renovado. **Não utilizável** sem upgrade (decisão Hugo; default = parked P2+).
+- **Agency scrapes** — parte de F4-positioning, não E4. VIX aparece em E4 mas via FRED.
 
-### 5.3 JOLTS — vacancies e flows
+### 1.3 Critério de escolha primary vs override
 
-Via FRED existing connector:
+Para cada `(index, country, series)` a decisão flui:
 
-| Série | Descrição | Frequência |
-|---|---|---|
-| `JTSJOL` | Job Openings | M |
-| `JTSHIL` | Hires | M |
-| `JTSQUL` | Quits | M |
-| `JTSLDL` | Layoffs and Discharges | M |
-| `JTSTSL` | Total Separations | M |
-
-**Computed ratio**: Job Openings / Unemployed = labor market tightness proxy. Important since 2021-22 reached 2:1 (unprecedented).
-
-### 5.4 Wages
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `AHETPI` | Average Hourly Earnings (production) | M |
-| `CES0500000003` | Average Hourly Earnings (all employees) | M |
-| `ECIWAG` | Employment Cost Index — Wages | Q |
-| `ECIALLCIV` | Employment Cost Index — Total Compensation | Q |
-
-**Atlanta Fed Wage Growth Tracker** (separate connector):
-- URL: `atlantafed.org/chcs/wage-growth-tracker`
-- Tracks median wage growth for continuously employed
-- Important methodology — controls for composition changes
-- Monthly publication
-- Downloadable Excel + API via Atlanta Fed
-
-### 5.5 Beveridge curve analysis
-
-**Computed visualization**, não série única. Usa:
-- `JTSJOR` (Job Openings Rate as % of employment)
-- `UNRATE` (Unemployment Rate)
-
-Plot joins these, SONAR computes curve position vs historical normal. Outward shift = structural concern signal.
-
-### 5.6 Productivity (long-run anchor)
-
-Via FRED:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `OPHNFB` | Nonfarm Business Output per Hour | Q |
-| `COMPNFB` | Nonfarm Business Compensation per Hour | Q |
-| `ULCNFB` | Unit Labor Cost Nonfarm Business | Q |
-
-### 5.7 EA labor — Eurostat extension
-
-| Dataset Eurostat | Descrição |
-|---|---|
-| `une_rt_m` | Unemployment rate monthly by country |
-| `lfsi_emp_m` | Employment monthly |
-| `lc_lci_r2_a` | Labor Cost Index annual |
-| `earn_nt_net` | Net earnings |
-| `jvs_q_nace2` | Job vacancy statistics |
-
-### 5.8 Portugal labor — INE + IEFP
-
-- INE Inquérito ao Emprego (quarterly LFS)
-- IEFP monthly unemployment registration
-- Eurostat harmonized unemployment PT
-- BPStat wage growth indicators
-
----
-
-## 6. Layer E4 — Sentiment
-
-### 6.1 US consumer sentiment — dual source
-
-Via FRED existing connector:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `UMCSENT` | UMich Consumer Sentiment | M |
-| `UMCSENTSM` | UMich Current Conditions | M |
-| `UMCSENTE` | UMich Consumer Expectations | M |
-| `MICH` | UMich 1Y Inflation Expectations | M |
-| `MICHM5YM5` | UMich 5Y Inflation Expectations | M |
-| `CSCICP03USM665S` | Conference Board Consumer Confidence | M |
-
-### 6.2 NY Fed Survey of Consumer Expectations
-
-**Novo connector** — NY Fed publishes SCE monthly via web + Excel downloads.
-
-URL: `newyorkfed.org/microeconomics/sce`
-
-Variables:
-- 1Y inflation expectations
-- 3Y inflation expectations
-- 5Y inflation expectations
-- Housing expectations
-- Job search expectations
-- Earnings expectations
-- Household spending expectations
-
-Frequency: M. Published ~10th of each month.
-
-### 6.3 US business sentiment
-
-Via FRED + Institute for Supply Management:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `NAPM` | ISM Manufacturing PMI | M |
-| `NAPMII` | ISM Services PMI | M |
-| `NAPMNOI` | ISM Manufacturing New Orders | M |
-| `NFIBBTI` | NFIB Small Business Optimism | M |
-| `NFIBPRICES` | NFIB Price Plans | M |
-
-### 6.4 SLOOS — Senior Loan Officer Opinion Survey
-
-**Quarterly survey, important leading indicator**. Released ~1 month after quarter-end.
-
-URL: `federalreserve.gov/data/sloos.htm`
-
-Key variables (separate FRED series):
-- `DRTSCILM` — Net % banks tightening C&I loan standards (large/medium firms)
-- `DRTSCIS` — Net % tightening C&I (small firms)
-- `DRSCLCI` — Net % reporting stronger demand for C&I loans
-- `DRTSCLCC` — Net % tightening credit card standards
-- `DRTSCLNR` — Net % tightening residential mortgage standards
-
-### 6.5 EU sentiment — Eurostat + DG ECFIN
-
-Via Eurostat connector + DG ECFIN (European Commission) data portal:
-
-| Dataset | Descrição |
-|---|---|
-| `ei_bsco_m` | Consumer Confidence Indicator EA |
-| `ei_bsin_m_r2` | Industrial Confidence EA |
-| `ei_bssi_m_r2` | Services Confidence EA |
-| `ei_bsbu_m_r2` | Retail Confidence EA |
-| `ei_bsco_q_r2` | Economic Sentiment Indicator (ESI) |
-
-### 6.6 ZEW, Ifo, Sentix — Germany deep sentiment
-
-**Subscription data** mostly, but headlines public.
-
-- ZEW Indicator of Economic Sentiment (monthly): `zew.de`
-- Ifo Business Climate Index (monthly): `ifo.de/en`
-- Sentix Economic Index (monthly): `sentix.de`
-
-Tier 2: scrape headline values. Tier 3: full subscription for component detail.
-
-### 6.7 Japan Tankan
-
-**Quarterly**, Bank of Japan publishes:
-- URL: `boj.or.jp/en/statistics/tk`
-- Key measure: Large Manufacturers Business Conditions DI
-- Released March, June, September, December
-
-### 6.8 VIX e market sentiment
-
-Via FRED:
-
-| Série | Descrição | Frequência |
-|---|---|---|
-| `VIXCLS` | VIX Close | D |
-| `VXNCLS` | Nasdaq 100 Volatility | D |
-
-### 6.9 Economic Policy Uncertainty
-
-**Baker-Bloom-Davis EPU Index** (Cap 10 do manual):
-
-URL: `policyuncertainty.com`
-
-Datasets:
-- US EPU (daily since 1985)
-- Global EPU (monthly)
-- Country-specific EPU for 20+ countries
-- News-based, policy-expirations-based, and disagreement-based components
-
-API: download CSVs. MVP: weekly refresh.
-
----
-
-## 7. Nowcasting Layer (dedicated — parallel ao Cap 19)
-
-### 7.1 Atlanta Fed GDPNow — primary US nowcast
-
-**Access via FRED** (preferred — standardized):
-
-| Série FRED | Descrição |
-|---|---|
-| `GDPNOW` | Atlanta Fed GDPNow current quarter estimate |
-
-**Properties** (confirmed via search Apr 2026):
-- Methodology: synthesizes bridge equation + factor model + Bayesian VAR
-- Aggregates 13 subcomponents using BEA chain-weighting
-- Average absolute error 0.77pp (2011:Q3–2025:Q2)
-- RMSE 1.17pp
-- Updated 5-6 times per month
-- Release schedule available at `atlantafed.org/cqer/research/gdpnow`
-
-**Alternative access (vintages)**:
-- ALFRED: `alfred.stlouisfed.org/series?seid=GDPNOW` — preserves real-time vintages (essential for backtesting)
-- Atlanta Fed Excel tracking file: `atlantafed.org/-/media/documents/cqer/researchcq/gdpnow/RealGDPTrackingSlides.pdf`
-- EconomyNow mobile app (interface only)
-- Trading Economics aggregation: `tradingeconomics.com/united-states/gdpnow-fed-data.html`
-
-### 7.2 NY Fed Nowcast
-
-**Methodology: Dynamic Factor Model** (Giannone-Reichlin-Small).
-
-URL: `newyorkfed.org/research/policy/nowcast`
-
-Characteristics (Cap 19 detail):
-- ~36 data series (smaller than GDPNow's 150+)
-- Updates weekly
-- Less volatile, more structural
-- Factor decomposition available
-
-**Access strategy**:
-- No FRED series direct (NY Fed publishes own platform)
-- Web scraping for current value + download historical Excel
-- Weekly refresh schedule
-
-### 7.3 St. Louis Fed Economic News Index
-
-**Nowcast alternativo** — useful cross-validation.
-
-| Série FRED | Descrição |
-|---|---|
-| `STLENI` | St. Louis Fed Economic News Index: Real GDP Nowcast |
-
-Methodology: uses economic content from key monthly economic data releases. Produces quarterly GDP nowcast.
-
-### 7.4 Weekly Economic Index (Lewis-Mertens-Stock)
-
-**Unique weekly frequency** — one of the few macro indicators updated weekly.
-
-| Série FRED | Descrição |
-|---|---|
-| `WEI` | Weekly Economic Index | W |
-
-Useful for mid-quarter updates when monthly data not yet arrived.
-
-### 7.5 Philly Fed ADS Index
-
-**Daily** business cycle indicator.
-
-URL: `philadelphiafed.org/surveys-and-data/real-time-data-research/ads-index`
-
-Characteristics:
-- 6 coincident indicators combined continuously
-- Daily update
-- Scale: 0 = average growth, negative = below average
-- Useful for cross-validation of weekly/monthly data
-
-### 7.6 Sahm Rule real-time
-
-Covered §5.2. Re-emphasized here as nowcasting priority.
-
-### 7.7 NY Fed recession probability model
-
-**Yield curve-based recession probability** — capítulo 19.
-
-URL: `newyorkfed.org/research/capital_markets/ycfaq.html`
-
-Methodology: probit regression of NBER recessions on 10Y-3M yield curve spread.
-
-Access:
-- Monthly update
-- Published as Excel spreadsheet
-- SONAR replicates internally using FRED `T10Y3M`
-
-Internal computation (paralleling NY Fed method):
-```python
-def ny_fed_recession_prob(t10y3m_avg_spread):
-    """
-    NY Fed probit model simplified.
-    Constants from public NY Fed methodology documentation.
-    """
-    import scipy.stats as st
-    alpha = -0.5333
-    beta = -0.6334
-    # alpha and beta from NY Fed methodology paper
-    probability = st.norm.cdf(alpha + beta * t10y3m_avg_spread)
-    return probability
 ```
-
-### 7.8 Growth-at-Risk framework
-
-**Adrian-Boyarchenko-Giannone 2019** — AER. Dedicated section Cap 19.
-
-Implementation:
-- Quantile regression of GDP growth on financial conditions (NFCI via FRED `NFCI`)
-- Outputs full distribution of expected growth
-- Key metric: 10th percentile (Growth-at-Risk)
-
-Internal Python module — implementation via:
-```python
-import statsmodels.formula.api as smf
-
-def growth_at_risk_qregression(gdp_growth, nfci, quantiles=[0.05, 0.10, 0.25, 0.50, 0.75]):
-    """
-    Quantile regression for Growth-at-Risk framework.
-    """
-    results = {}
-    for q in quantiles:
-        model = smf.quantreg('gdp_growth ~ nfci', data).fit(q=q)
-        results[q] = model
-    return results
-```
-
-### 7.9 SONAR custom recession probability model
-
-**8-input composite** (capítulo 19.11):
-
-```python
-sonar_recession_prob_6M = weighted_average(
-    sahm_rule_probability,           # weight 0.25
-    yield_curve_ny_fed_model_prob,   # weight 0.20
-    lei_6m_growth_probability,       # weight 0.15
-    growth_at_risk_10pct,            # weight 0.10
-    ecri_wli_growth_sign,            # weight 0.10
-    pmi_composite_probability,       # weight 0.10
-    consumer_sentiment_prob,         # weight 0.05
-    credit_spread_hy_probability,    # weight 0.05
-)
-```
-
-Validation target: backtest 1970-present, target 85%+ hit rate, <15% false positive rate.
-
----
-
-## 8. Alternative Data
-
-### 8.1 Card spending — consumption real-time
-
-**Commercial providers** (Tier 2/3):
-- Bloomberg consumer spending trackers (subscription)
-- Visa SpendingPulse (subscription)
-- Bank of America institute spending (public reports, limited API)
-- Chase Spending Pulse (limited public access)
-
-**Public alternative** — Chetty/Opportunity Insights:
-- URL: `github.com/OpportunityInsights/EconomicTracker`
-- Daily/weekly data since 2020
-- Card spending, employment, time use
-- CC BY license
-- **Recommended Tier 2** — high value, public access
-
-### 8.2 Job postings — labor demand real-time
-
-**LinkedIn Economic Graph**:
-- URL: `economicgraph.linkedin.com`
-- Restricted access, research partnerships
-- Tier 3 only for proprietary data
-- Public reports sometimes available
-
-**Indeed Hiring Lab**:
-- URL: `hiringlab.org`
-- Published analyses, limited raw data
-- Useful supplementary analysis
-
-**Conference Board Help Wanted Online**:
-- Discontinued 2018, replaced by newer measures
-- Historical data useful for longer backtests
-
-### 8.3 Shipping / logistics
-
-**Container shipping**:
-- Baltic Dry Index — daily, via public trackers
-- Shanghai Containerized Freight Index
-- Harpex (Hamburg-based)
-- Drewry World Container Index
-
-**Trucking**:
-- Cass Freight Index monthly — `cassinfo.com`
-- ATA (American Trucking Associations) — subscription
-
-**Railroad**:
-- Association of American Railroads weekly data — public
-
-### 8.4 NY Fed Global Supply Chain Pressure Index
-
-**Important specific indicator** — referenced Cap 16 (Stagflation diagnosis):
-
-URL: `newyorkfed.org/research/policy/gscpi`
-
-| Série | Descrição |
-|---|---|
-| `GSCPI` | NY Fed Global Supply Chain Pressure Index | M |
-
-- Integrates data from multiple countries, commodities, shipping
-- Monthly frequency
-- Z-score interpretation (>2 = extreme stress)
-
-### 8.5 News sentiment
-
-**EPU Index** já coberto §6.9.
-
-**Additional news analytics**:
-- GDELT (Global Database of Events, Language, and Tone) — public, but massive
-- Bloomberg news sentiment — commercial
-
-**MVP recommendation**: rely on EPU + headline-based pattern matching. Tier 3: invest in Bloomberg access.
-
-### 8.6 Electricity e fuel consumption
-
-**US energy data**:
-- EIA (Energy Information Administration) weekly data
-- Public API
-- Useful industrial activity proxy
-
-**EU energy**:
-- ENTSO-E Transparency Platform (electricity)
-- Commercial weekly natural gas data
-
----
-
-## 9. Schema SQL — v16 extension
-
-### 9.1 Overview
-
-Extensão do schema SONAR de v15 (monetário) para v16 (económico).
-
-**Convention**: todas as tables novas prefixadas `economic_*` para disambiguation.
-
-### 9.2 Core tables
-
-```sql
--- ============================================================
--- v16: Economic Cycle tables
--- ============================================================
-
--- E1-E4 raw indicators (one table per sub-index family)
-CREATE TABLE IF NOT EXISTS economic_indicators_raw (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    country TEXT NOT NULL,
-    date TEXT NOT NULL,             -- ISO date
-    series_code TEXT NOT NULL,      -- e.g., PAYEMS, GDPC1, T10Y3M
-    series_name TEXT,
-    value REAL,
-    unit TEXT,
-    source TEXT NOT NULL,           -- FRED, Eurostat, OECD, BPStat, NYFed, ...
-    frequency TEXT,                 -- D, W, M, Q, A
-    layer TEXT NOT NULL,            -- E1, E2, E3, E4
-    vintage_date TEXT,              -- for ALFRED revisions
-    fetched_at TEXT NOT NULL,
-    UNIQUE(country, date, series_code, vintage_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_econ_raw_country_date ON economic_indicators_raw(country, date);
-CREATE INDEX IF NOT EXISTS idx_econ_raw_series ON economic_indicators_raw(series_code);
-CREATE INDEX IF NOT EXISTS idx_econ_raw_layer ON economic_indicators_raw(layer);
-
--- Z-scored indicators (10-year rolling window)
-CREATE TABLE IF NOT EXISTS economic_indicators_zscored (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    country TEXT NOT NULL,
-    date TEXT NOT NULL,
-    series_code TEXT NOT NULL,
-    raw_value REAL,
-    z_score REAL,
-    percentile REAL,
-    rolling_mean REAL,
-    rolling_std REAL,
-    window_years INTEGER DEFAULT 10,
-    computed_at TEXT NOT NULL,
-    UNIQUE(country, date, series_code)
-);
-
-CREATE INDEX IF NOT EXISTS idx_econ_zscored_country_date
-    ON economic_indicators_zscored(country, date);
-
--- Sub-indices E1-E4 computed
-CREATE TABLE IF NOT EXISTS economic_sub_indices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    country TEXT NOT NULL,
-    date TEXT NOT NULL,
-    cluster TEXT,                   -- 1-6 per Cap 6
-    e1_activity REAL,               -- [0, 100]
-    e2_leading REAL,                -- [0, 100]
-    e3_labor REAL,                  -- [0, 100]
-    e4_sentiment REAL,              -- [0, 100]
-    ecs REAL,                       -- ECS = 0.35·E1 + 0.25·E2 + 0.25·E3 + 0.15·E4
-    confidence REAL,                -- [0, 1]
-    data_freshness_days INTEGER,
-    phase TEXT,                     -- Expansion, Slowdown, Recession, Recovery
-    phase_sub_classification TEXT,  -- Strong, Mild, Late, etc.
-    momentum TEXT,                  -- positive, stable, negative
-    stagflation_flag INTEGER,       -- 0 or 1
-    computed_at TEXT NOT NULL,
-    UNIQUE(country, date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_econ_subidx_country_date
-    ON economic_sub_indices(country, date);
-
--- ECS historical (time series per country)
-CREATE TABLE IF NOT EXISTS ecs_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    country TEXT NOT NULL,
-    date TEXT NOT NULL,
-    ecs REAL NOT NULL,
-    phase TEXT,
-    nber_dating TEXT,               -- for US: NBER recession? (T/F)
-    cepr_dating TEXT,               -- for EA: CEPR recession? (T/F)
-    oecd_cli_state TEXT,            -- OECD CLI position
-    ecri_wli_sign TEXT,             -- for comparison
-    UNIQUE(country, date)
-);
-```
-
-### 9.3 Nowcasting tables
-
-```sql
--- ============================================================
--- Nowcasting history (paralelo ao recession probability models)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS nowcast_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    nowcast_source TEXT NOT NULL,   -- GDPNow, NYFed, STLENI, WEI, ADS, Sahm
-    target_quarter TEXT,            -- e.g., "2026Q1"
-    gdp_growth_nowcast REAL,        -- annualized % change
-    gdp_growth_actual REAL,         -- filled after release
-    forecast_error REAL,            -- actual - nowcast
-    vintage_date TEXT,              -- when nowcast was made
-    UNIQUE(date, country, nowcast_source, target_quarter, vintage_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_nowcast_country_date
-    ON nowcast_history(country, date);
-
--- Recession probability models
-CREATE TABLE IF NOT EXISTS recession_probability_models (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    model_name TEXT NOT NULL,       -- NYFed_ProbIt, Sahm, SONAR_Composite, GaR
-    horizon_months INTEGER,         -- 6, 12, 18, 24
-    probability REAL,               -- [0, 1]
-    inputs_json TEXT,               -- JSON with input values for reproducibility
-    triggered INTEGER,              -- 0 or 1 if threshold crossed
-    computed_at TEXT NOT NULL,
-    UNIQUE(date, country, model_name, horizon_months)
-);
-
-CREATE INDEX IF NOT EXISTS idx_recprob_country_date
-    ON recession_probability_models(country, date);
-
--- Sahm Rule specific tracking
-CREATE TABLE IF NOT EXISTS sahm_rule_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    unrate REAL,
-    unrate_3ma REAL,
-    unrate_12month_min REAL,
-    sahm_value REAL,                -- U-rate 3MA minus 12M min
-    triggered INTEGER,              -- 0 or 1 (>= 0.5)
-    UNIQUE(date, country)
-);
-
-CREATE INDEX IF NOT EXISTS idx_sahm_country_date
-    ON sahm_rule_history(country, date);
-```
-
-### 9.4 Beveridge curve + Stagflation diagnostics
-
-```sql
--- Beveridge curve positioning
-CREATE TABLE IF NOT EXISTS beveridge_positions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    unemployment_rate REAL,
-    job_openings_rate REAL,         -- as % of employment + openings
-    position_vs_historical REAL,    -- signed distance from normal curve
-    interpretation TEXT,            -- along_curve, outward_shift, inward_shift
-    UNIQUE(date, country)
-);
-
--- Stagflation trigger history
-CREATE TABLE IF NOT EXISTS stagflation_triggers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    trigger_a_classical INTEGER,    -- inflation + unemployment + low growth
-    trigger_b_emerging INTEGER,     -- momentum-based
-    trigger_c_entrenchment INTEGER, -- expectations + wages + core
-    trigger_d_supply_shock INTEGER, -- oil + core + growth decline
-    stagflation_score REAL,         -- max of 4 trigger scores
-    flag_active INTEGER,            -- 0 or 1
-    UNIQUE(date, country)
-);
-```
-
-### 9.5 4-way integration table
-
-```sql
--- ============================================================
--- Cross-cycle integration (connects economic + credit + monetary + financial)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS integrated_cycle_position (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    country TEXT NOT NULL,
-    
-    -- Economic cycle (this project)
-    ecs REAL,
-    economic_phase TEXT,
-    
-    -- Credit cycle (v13 project)
-    cccs REAL,
-    credit_phase TEXT,
-    
-    -- Monetary cycle (v14-15 project)
-    msc REAL,
-    monetary_phase TEXT,
-    
-    -- Financial cycle (future)
-    fcs REAL,
-    financial_phase TEXT,
-    
-    -- Integrated diagnostics
-    canonical_pattern TEXT,         -- Pattern 1-6 per Cap 17
-    configuration_type TEXT,        -- standard, divergent, stagflation, etc.
-    stagflation_flag INTEGER,       -- from economic
-    dilemma_flag INTEGER,           -- from monetary
-    boom_flag INTEGER,              -- from credit
-    euphoria_flag INTEGER,          -- from financial
-    
-    historical_precedents INTEGER,  -- count of similar configurations
-    base_rate_continued_expansion REAL,
-    base_rate_slowdown REAL,
-    base_rate_recession REAL,
-    
-    alert_level TEXT,               -- green, yellow, orange, red
-    
-    UNIQUE(date, country)
-);
-
-CREATE INDEX IF NOT EXISTS idx_integrated_country_date
-    ON integrated_cycle_position(country, date);
-```
-
-### 9.6 Migration script
-
-```sql
--- v15 → v16 migration
-BEGIN TRANSACTION;
-
--- Verify prerequisites
-SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='monetary_stance_history';
--- Must return 1 (v15 prerequisite)
-
--- Execute all CREATE TABLE statements above
-
--- Update schema version
-UPDATE schema_version SET version = 16 WHERE singleton = TRUE;
-
-COMMIT;
+If country in FRED_NATIVE_SET and series in FRED_CATALOG:
+    primary = FRED
+elif country == "PT" and series in INE_NATIVE_SET:
+    primary = INE_PT
+elif country in ECB_EA_SET and series in ECB_SDW:
+    primary = ECB_SDW
+elif country == "TR" and series in TCMB_CATALOG:
+    primary = TCMB (when endpoint recovered — D1 blocker aberto)
+elif country in TE_BREADTH_T1_T3:
+    primary = TE
+else:
+    primary = GAP (flag emitido; confidence cap)
 ```
 
 ---
 
-## 10. Roadmap 4-week implementation
+## 2. Country tier coverage
 
-### Semana 1 — FRED extension + E1 core
+### 2.1 Tabela de cobertura esperada
 
-**Foco**: E1 Activity para US via FRED.
+| Tier | Count | E1 | E2 | E3 | E4 | ECS viável? |
+|------|-------|----|----|----|----|------------|
+| T1 | 16 | ✓ full | ✓ full | ✓ full | ✓ full | Sim — full confidence |
+| T2 | 30 | ✓ full | ~ partial (CLI disponível; LEI não; PMI breadth TE ≥60%) | ✓ full | ~ partial (VIX global proxy; ESI só EA; UMich só US) | Sim — com E4 re-weighted |
+| T3 | 43 | ✓ full (TE breadth) | ~ reduzida (CLI OECD coverage ~25 países; PMI ad-hoc) | ✓ full | ✗ — apenas VIX global | Marginal — confidence ≤0.60 |
+| T4 | ~110 | ~ degradado (GDP annual only frequent) | ✗ — sem leading data | ~ unemployment only | ✗ | Não — flag `COVERAGE_INSUFFICIENT` |
 
-Tasks:
-- Extend FRED connector watchlist com ~80 new series (listed §3.1)
-- Implement E1 composite weighting per Cap 7
-- Z-score computation on 10-year rolling window
-- Unit tests against known historical periods (2008, 2020)
-- Initial validation: Covid recession correctly classified
+### 2.2 Países com override nativo (precedence sobre TE)
 
-Deliverable: E1 score para US 1960-presente.
+| Country | Native source | Scope override |
+|---------|--------------|----------------|
+| US | FRED (St. Louis Fed) | Todos os 4 indices — override total |
+| EA | ECB SDW | E2 (ESI), parcial E3 (unemployment) |
+| DE | Destatis + Bundesbank | E1 (IP monthly), E3 (labor) |
+| FR | INSEE | E1, E3 |
+| IT | ISTAT | E1, E3 |
+| ES | INE ES | E1, E3 |
+| NL | CBS | E1, E3 |
+| UK | ONS + BoE | E1, E3 |
+| JP | e-Stat + MIC | E1 (Tankan separado), E3 |
+| CA | StatCan | E1, E3 |
+| AU | ABS | E1, E3 |
+| NZ | Stats NZ | E1 |
+| CH | SECO + BFS | E1, E3 |
+| NO/SE | SSB / SCB | E1 |
+| PT | **INE PT** (home market) | E1, E3, E4 (indicador de confiança) |
+| TR | TCMB (EVDS) | E1 (GDP), E3 (unemployment) — **bloqueado D1** |
 
-### Semana 2 — E2 Leading + Sahm Rule
+### 2.3 Degradação T4
 
-**Foco**: Leading indicators + labor market signals.
-
-Tasks:
-- FRED yield curve series (T10Y3M, T10Y2Y, etc.)
-- Credit spreads (BAA10Y, HY OAS)
-- Conference Board LEI (USSLIND)
-- OECD CLI via existing OECD connector
-- **Sahm Rule automation** (SAHMCURRENT + internal computation)
-- Initial claims weekly tracker (ICSA)
-- Building permits (PERMIT, HOUST)
-
-Deliverable: E2 + E3 Sahm component operational. Alert system for Sahm trigger.
-
-### Semana 3 — E3 JOLTS + E4 sentiment
-
-**Foco**: Complete labor depth + sentiment layer.
-
-Tasks:
-- JOLTS series (openings, quits, hires, layoffs)
-- Atlanta Fed Wage Growth Tracker
-- UMich sentiment (UMCSENT) + inflation expectations (MICH)
-- Conference Board Confidence
-- ISM Manufacturing + Services
-- EPU Index (Baker-Bloom-Davis) via scraping
-- SLOOS quarterly credit conditions
-- NY Fed SCE (inflation expectations monthly)
-
-Deliverable: E3 + E4 complete for US. ECS compute for US 1960-present.
-
-### Semana 4 — Cross-country + nowcasting
-
-**Foco**: Extension to EA aggregate + Tier 1 countries + nowcasting layer.
-
-Tasks:
-- Eurostat extension for EA GDP/labor/confidence
-- ONS connector lightweight (UK)
-- BOJ scraping minimal (Japan)
-- INE + BPStat extension (Portugal)
-- GDPNow from FRED (`GDPNOW`)
-- NY Fed Nowcast (scraping)
-- STLENI (St. Louis Fed Economic News Index)
-- Weekly Economic Index (WEI)
-- SONAR recession probability model (8-input composite)
-- Growth-at-Risk initial implementation
-
-Deliverable: ECS operational Tier 1 (US, UK, EA, Germany, Japan). Portugal partial. Nowcasting panel populated.
-
-### Validação final semana 4
-
-**Backtest target**:
-- US ECS vs NBER dating 1970-2023: 88%+ agreement
-- Sahm Rule: triggered in all NBER recessions, no false positives
-- SONAR composite recession probability: > 50% triggered in all US recessions 1970-present
-- Nowcast GDPNow + NYFed cross-validation: tracking within 1pp historically
+Para países T4 ECS **não é operacional** em MVP. Fluxo:
+- Fixture `ecs_components` recebe `NULL` para E2+E4 → Policy 1 re-weight requer ≥3/4 → **fail**.
+- Output pipeline emite `ECS = NULL, flags = [COVERAGE_INSUFFICIENT, T4_DEGRADED]`.
+- Rationale: T4 scope é rating-spread + CRP apenas (per `country_tiers.yaml`).
 
 ---
 
-## 11. Anexo A — URLs consolidados
+## 3. Endpoints por fonte
 
-### A.1 US federal sources
-- FRED API: `fred.stlouisfed.org`
-- ALFRED (archival vintages): `alfred.stlouisfed.org`
-- BEA: `bea.gov`
-- BLS: `bls.gov`
-- Census: `census.gov`
-- Federal Reserve H.15: `federalreserve.gov/releases/h15`
-- Atlanta Fed GDPNow: `atlantafed.org/cqer/research/gdpnow`
-- Atlanta Fed Wage Tracker: `atlantafed.org/chcs/wage-growth-tracker`
-- NY Fed Nowcast: `newyorkfed.org/research/policy/nowcast`
-- NY Fed SCE: `newyorkfed.org/microeconomics/sce`
-- NY Fed Yield Curve: `newyorkfed.org/research/capital_markets/ycfaq.html`
-- NY Fed GSCPI: `newyorkfed.org/research/policy/gscpi`
-- NY Fed Recession Probability: via NY Fed research data
-- Philly Fed ADS: `philadelphiafed.org/surveys-and-data/real-time-data-research/ads-index`
-- Philly Fed SPF: `philadelphiafed.org/surveys-and-data/real-time-data-research/survey-of-professional-forecasters`
-- Chicago Fed CFNAI: via FRED `CFNAI`, `CFNAIMA3`
-- St. Louis Fed SLOOS: `federalreserve.gov/data/sloos.htm`
-- St. Louis Fed Economic News Index: via FRED `STLENI`
+### 3.1 TE — Trading Economics
 
-### A.2 European sources
-- Eurostat: `ec.europa.eu/eurostat`
-- ECB SDW: `sdw.ecb.europa.eu`
-- European Commission DG ECFIN: `ec.europa.eu/economy_finance/db_indicators`
-- ZEW: `zew.de`
-- Ifo: `ifo.de/en`
-- Sentix: `sentix.de`
-- UK ONS: `ons.gov.uk` (API at `api.ons.gov.uk`)
+**Base:** `https://api.tradingeconomics.com`
+**Auth:** query param `c={TE_API_KEY}` (chave em `.env`; formato `XXXX:YYYY` mixed-case; **não** OAuth).
+**Format:** `f=json` (default XML — sempre passar explicit).
+**Plano actual:** indeterminado (Hugo a confirmar); D0 confirmou acesso a 75+ countries breadth.
 
-### A.3 Other major economies
-- BOJ: `boj.or.jp/en/statistics/tk` (Tankan)
-- Statistics Bureau Japan: `stat.go.jp`
-- Bank of Canada: `bankofcanada.ca/rates/indicators`
-- Reserve Bank of Australia: `rba.gov.au/statistics`
-- China NBS: `stats.gov.cn`
-- Caixin: via S&P Global
+| Consumer | Endpoint | Rate budget | Cache policy |
+|----------|----------|-------------|--------------|
+| E1-activity GDP QoQ | `/country/{c}/indicators` filter `Category=GDP` | 1 call per country per 24h | 24h TTL |
+| E1-activity Industrial Production | `/country/{c}/indicators` filter `Category=Business` subfilter IP | 1 call per country per 24h | 24h TTL |
+| E1-activity Retail Sales | `/country/{c}/indicators` filter `Category=Consumer` | 1 call per country per 24h | 24h TTL |
+| E2-leading PMI Manufacturing | `/country/{c}/indicators` filter `Category=Business` subfilter PMI | 1 call per country per 24h | 24h TTL |
+| Historical (backfill) | `/historical/country/{c}/indicator/{indicator_name}` | 1 call per series per backfill run | permanent — immutable vintage |
 
-### A.4 Portugal specific
-- BPStat (BdP): `bpstat.bportugal.pt`
-- INE: `ine.pt`
-- IEFP: `iefp.pt`
+**CategoryGroup relevantes para ECS:**
+- `GDP` → E1
+- `Business` → E1 (IP) + E2 (PMI)
+- `Consumer` → E1 (Retail) + E4 (sentiment indices)
+- `Labour` → E3 (unemployment, NFP proxy para non-US)
+- `Markets` → E4 (VIX, via index historical)
 
-### A.5 International
-- OECD: `data.oecd.org`
-- IMF: `imf.org/en/Data`
-- IMF WEO: `imf.org/en/Publications/WEO`
-- BIS: `bis.org/statistics`
+**Padrão de consumo preferido** (per D0 finding TE-A01 3 492 rows 75 categories para PT):
+1. 1× call `/country/{c}` daily → extract latest values para todos os indicators (3 492 rows single response, 450 kB).
+2. 1× call `/country/{c}/indicators?g=<group>` quando precisamos filtrar por categoria especifica.
+3. Historical series só via `/historical/country/{c}/indicator/{name}` on-demand ou semanal backfill.
 
-### A.6 Research/commercial
-- Conference Board: `conference-board.org`
-- ECRI: `businesscycle.com`
-- Atlanta Fed EconomyNow app: iOS + Android
-- EPU Index: `policyuncertainty.com`
-- Opportunity Insights: `opportunityinsights.org` + `github.com/OpportunityInsights/EconomicTracker`
-- LinkedIn Economic Graph: `economicgraph.linkedin.com`
-- Indeed Hiring Lab: `hiringlab.org`
-- Trading Economics: `tradingeconomics.com`
+Ver D0 §7 para findings complete.
 
-### A.7 PMI providers
-- S&P Global: `spglobal.com/market-intelligence`
-- ISM: `ism.ws`
+### 3.2 FRED — Federal Reserve Economic Data (St. Louis Fed)
 
-### A.8 Alternative data
-- Cass Freight Index: `cassinfo.com`
-- Baltic Exchange: `balticexchange.com`
-- EIA (energy): `eia.gov`
-- ENTSO-E: `transparency.entsoe.eu`
+**Base:** `https://api.stlouisfed.org/fred`
+**Auth:** query param `api_key={FRED_API_KEY}`
+**Format:** `file_type=json`
+**Rate limit:** 120 req/min (ample).
+
+| Consumer | Series ID | Frequency | Release latency |
+|----------|-----------|-----------|-----------------|
+| E1 US GDP QoQ | `GDP` (nominal), `GDPC1` (real chained 2017 USD) | Quarterly | ~30d after quarter end |
+| E1 US Industrial Production | `INDPRO` | Monthly | ~15d |
+| E1 US Retail Sales | `RSAFS` | Monthly | ~15d |
+| E2 yield slope 10Y-2Y | `T10Y2Y` (pre-computed) | Daily | ~1d |
+| E2 OECD CLI US | `OECDLOLITOAASTSAM` | Monthly | ~30d |
+| E2 LEI proxy | `USSLIND` (Philly Fed State Leading Index — public) | Monthly | ~30d |
+| E2 ISM PMI mirror | `NAPMMPI` (**descontinuado** FRED; usar ISM direct) | — | — |
+| E3 US Unemployment | `UNRATE` | Monthly | ~5d after jobs report |
+| E3 Sahm Rule | `SAHMREALTIME` (FRED-computed) | Monthly | ~5d |
+| E3 NFP | `PAYEMS` (total nonfarm) | Monthly | 1st Friday |
+| E3 JOLTS openings | `JTSJOL` | Monthly | ~45d lag |
+| E4 UMich sentiment | `UMCSENT` | Monthly | ~25d (preliminary mid-month, final month-end) |
+| E4 VIX | `VIXCLS` | Daily | Real-time (prev close) |
+
+**Observation endpoint pattern:**
+```
+GET /series/observations?series_id={ID}&api_key={K}&file_type=json
+    &observation_start=YYYY-MM-DD&observation_end=YYYY-MM-DD
+```
+
+**Metadata endpoint** (para descoberta):
+```
+GET /series?series_id={ID}&api_key={K}&file_type=json
+```
+
+### 3.3 OECD — Composite Leading Indicators
+
+**Base:** `https://stats.oecd.org/SDMX-JSON/data/`
+**Auth:** none (public).
+**Format:** SDMX-JSON.
+
+**Pattern:**
+```
+GET /MEI_CLI/LOLITOAA.{COUNTRY}.M/all?startTime=YYYY-MM&endTime=YYYY-MM
+```
+Onde `{COUNTRY}` é código OECD 3-letter (`USA`, `DEU`, `FRA`, `PRT`, ...). Lista completa via endpoint estrutural `SDMX-JSON/dimension/MEI_CLI/`.
+
+**Coverage real:** ~35 countries (M36/G20 + selecionados). T1 cobertura total; T2 parcial; T3 reduzida.
+
+**FRED mirror** (preferível para US por consistency): `OECDLOLITOAASTSAM`.
+
+### 3.4 ECB SDW — Statistical Data Warehouse
+
+**Base:** `https://data-api.ecb.europa.eu/service/data`
+**Auth:** none (public).
+**Format:** query param `format=jsondata` (SDMX-JSON) or default XML.
+
+| Consumer | Dataflow | Key pattern | Notes |
+|----------|----------|-------------|-------|
+| E4 ESI Economic Sentiment (EA) | `ESI` (DG ECFIN) | `M.{country}.Z.ESI.Z` | Monthly; EA aggregate + members |
+| E3 EA Unemployment | `STS` + `UNE_RT_M` | `M.{country}.LTR.TOTAL.PC_ACT.NSA.LTU` | Eurostat mirror |
+
+**Rate limit:** undocumented; comportamento polite (1 req/sec). Public dataset — use liberal.
+
+### 3.5 Eurostat (direto)
+
+**Base:** `https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data`
+**Auth:** none.
+**Format:** JSON-Stat.
+
+| Consumer | Dataset | Notes |
+|----------|---------|-------|
+| E4 ESI alternativo | `ei_bssi_m_r2` | DG ECFIN confidence indicators |
+| E3 Unemployment | `une_rt_m` | Monthly harmonised |
+| E1 IP | `sts_inpr_m` | Industrial Production idx |
+
+### 3.6 INE PT — Instituto Nacional de Estatística (Portugal)
+
+**Base:** `https://www.ine.pt/ine/xportal/xmain?xpid=INE&xpgid=ine_indicadores`
+**Auth:** none (public data service).
+**Format:** JSON via `web_api/data/indicador` path.
+
+| Consumer | Indicador | Notes |
+|----------|-----------|-------|
+| E1 PT GDP QoQ | `0011725` (PIB em volume) | Quarterly; flash estimate + final |
+| E1 PT IP | `0000997` | Monthly |
+| E1 PT Retail Sales | `0009099` (IVC) | Monthly |
+| E3 PT Unemployment | `0000976` | Monthly (ILO method) |
+| E4 PT Consumer Confidence | `0009122` | Monthly |
+
+**Path:** para descoberta sistemática ver INE catalog search endpoint — backlog item P2-013.
+
+### 3.7 TCMB EVDS — Turkey
+
+**Status D1:** **BLOCKED**. D0+D1 discovery (10 calls) retornaram HTML SPA homepage em todas as variantes testadas (key em header, key em URL param, key em canonical path-style, canonical com aggregationTypes, `/EVDS/service/*` alternative root, `/serieList`, `/categories`, `/datagroups`). Nenhuma combinação URL+auth produziu JSON.
+
+**Endpoint (por docs):**
+```
+GET https://evds2.tcmb.gov.tr/service/evds/series={code}-{code2}&startDate=DD-MM-YYYY&endDate=DD-MM-YYYY&type=json
+Authorization: via header `key: {TCMB_API_KEY}`
+```
+
+**Series relevantes (quando endpoint recuperado):**
+- E1 Turkey GDP: `TP.YSKGSYH.F`
+- E1 Turkey IP: `TP.SABS*` family
+- E3 Turkey unemployment: `TP.ISSIZLIK`
+
+**Mitigação actual:** para Turkey usar TE primary (`/country/turkey/indicators`) — breadth completa confirmada D0. Bloqueio nativo não afecta MVP (Turkey é T2; TE breadth suficiente).
+
+**Backlog:** escalate Hugo → pedir TCMB support OU ler PDF docs EVDS v1.9 completo para descobrir URL pattern correto. Item `CAL-018` (Phase 4).
+
+### 3.8 Shiller — Online data (Yale)
+
+**Base:** `http://www.econ.yale.edu/~shiller/data/ie_data.xls`
+**Auth:** none. Static XLS file.
+**Relevância ECS:** apenas VIX via F3/E4 cross-reference (CAPE é F1-valuations, não E4).
 
 ---
 
-## 12. Anexo B — Setup checklist
+## 4. Série catalog — por index
 
-### B.1 Dependencies
+Legenda: `Pri` = primary recommendation; `Ovr` = override Tier 1; `Freq` = frequency; `Lat` = release latency (dias); `Spec` = consumer spec canónico.
 
-```
-# Python packages (incremental to monetary/credit)
-pip install requests pandas numpy sqlalchemy statsmodels
-pip install yfinance        # for some market data
-pip install beautifulsoup4  # for scraping
-pip install selenium        # for dynamic pages (NY Fed Nowcast)
-pip install scipy           # for statistics
-pip install scikit-learn    # for ML components
-pip install openpyxl        # for Excel download processing
-```
+### 4.1 E1 — Activity
 
-### B.2 Environment variables
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `gdp_qoq` | TE `/country/{c}/indicators` (Cat=GDP) | FRED `GDP/GDPC1` (US); INE `0011725` (PT); TCMB `TP.YSKGSYH.F` (TR) | Q | 30 | E1 §2.1 |
+| `industrial_production` | TE `/country/{c}/indicators` (Cat=Business) | FRED `INDPRO` (US); INE `0000997` (PT) | M | 15 | E1 §2.2 |
+| `retail_sales` | TE `/country/{c}/indicators` (Cat=Consumer) | FRED `RSAFS` (US); INE `0009099` (PT) | M | 15 | E1 §2.3 |
 
-```bash
-# Already in place from monetary/credit plans:
-FRED_API_KEY=xxx  # st.louis fed
-OECD_USER_AGENT=xxx  # OECD SDMX
-BPSTAT_API_TOKEN=xxx  # banco de portugal
+**Computation:**
+- `gdp_qoq_annualized = ((gdp_q / gdp_q_1)^4 - 1) × 100` (US BEA convention).
+- `ip_yoy = (ip_m / ip_m_12) - 1`.
+- `retail_yoy = (rsafs_m / rsafs_m_12) - 1` (aplicar deflator CPI se nominal).
 
-# New for economic cycle:
-ATLANTA_FED_USER_AGENT="SONAR Research/1.0 (hugo@7365capital.pt)"
-PHILLY_FED_USER_AGENT="SONAR Research/1.0"
-CONFERENCE_BOARD_API=optional  # Tier 3 subscription
-ECRI_API=optional  # Tier 3 subscription
-```
+**Edge cases** (per E1 spec §6): vintage revisions (backfill reload 3 vintages Q→Q-1→Q-2); quarter straddle detection; holiday-adjusted months.
 
-### B.3 SQLite schema migration
+### 4.2 E2 — Leading Indicators
 
-```bash
-cd ~/sonar
-sqlite3 sonar.db < migrations/v15_to_v16.sql
-# Verify: SELECT version FROM schema_version; → should return 16
-```
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `yield_curve_slope_10y_2y` | FRED `T10Y2Y` (US pre-computed); derived from NSS overlay (other countries) | — | D | 1 | E2 §2.1 |
+| `oecd_cli` | OECD SDMX `MEI_CLI/LOLITOAA.{C}.M` | FRED `OECDLOLITOAASTSAM` (US mirror) | M | 30 | E2 §2.2 |
+| `lei_conference_board` | SCRAPE Conference Board (US only — paywall) | FRED `USSLIND` (Philly Fed state proxy) | M | 30 | E2 §2.3 |
+| `pmi_manufacturing` | TE `/country/{c}/indicators` subfilter PMI | FRED `NAPMMPI` (**deprecated** — descontinuado 2017); ISM direct scrape (backlog) | M | 2 | E2 §2.4 |
 
-### B.4 Cron schedule
+**Computation slope:** feed da overlay `nss-curves` (ver `monetary.md §4.2` — NSS emits smooth curve; ECS consome ponto 10Y - 2Y).
 
-```cron
-# Daily (morning, high-frequency indicators)
-0 8 * * * /usr/bin/python3 ~/sonar/fetch_yield_curve.py
-0 8 * * * /usr/bin/python3 ~/sonar/fetch_credit_spreads.py
-0 8 * * * /usr/bin/python3 ~/sonar/fetch_vix.py
-0 8 * * * /usr/bin/python3 ~/sonar/fetch_philly_fed_ads.py
+**LEI status:** Conference Board LEI full (US) é paywalled desde ~2020 (membership). Proxy viable: `USSLIND` (Philly Fed coincident-leading composite, public). Limitação: USSLIND é state-level coincident, não national forward. Marker `AUXILIARY` per CSV (non-blocking).
 
-# Weekly (Thursday — claims release)
-0 15 * * 4 /usr/bin/python3 ~/sonar/fetch_initial_claims.py
-0 10 * * 5 /usr/bin/python3 ~/sonar/fetch_weekly_economic_index.py
+**PMI**: TE breadth confirma PMI Manufacturing headline para 60+ countries. Sub-components (New Orders, Employment, Prices) geralmente paywalled S&P Global — Phase 2 backlog P2-007.
 
-# Monthly — NFP (first Friday)
-0 9 1-7 * 5 /usr/bin/python3 ~/sonar/fetch_nfp_release.py
-0 9 1-7 * 5 /usr/bin/python3 ~/sonar/compute_sahm_rule.py  # critical
-0 9 1-7 * 5 /usr/bin/python3 ~/sonar/check_sahm_alert.py
+### 4.3 E3 — Labor Market Depth
 
-# Monthly — various mid-month
-0 9 10 * * /usr/bin/python3 ~/sonar/fetch_nyfed_sce.py
-0 9 14 * * /usr/bin/python3 ~/sonar/fetch_retail_sales.py
-0 9 15 * * /usr/bin/python3 ~/sonar/fetch_industrial_production.py
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `unemployment_rate` | TE `/country/{c}/indicators` Cat=Labour | FRED `UNRATE` (US); Eurostat `une_rt_m` (EA); TCMB `TP.ISSIZLIK` (TR) | M | 5 | E3 §2.1 |
+| `sahm_rule_triggered` | FRED `SAHMREALTIME` (US only direct) | Derived locally: `sahm = UR_3mo_avg - min(UR_3mo_avg, trailing_12m)` | M | 5 | E3 §2.2 |
+| `nfp_change` | TE `/country/us/indicators/non-farm-payrolls` | FRED `PAYEMS` first-diff (US only) | M | 2 | E3 §2.3 |
+| `jolts_openings` | FRED `JTSJOL` (US only) | — | M | 45 | E3 §2.4 |
 
-# GDPNow updates (5-6x per month, better run more frequently)
-0 10 * * * /usr/bin/python3 ~/sonar/fetch_gdpnow.py
+**US-specific scope:** NFP + JOLTS + Sahm são US-only por design — E3 spec §3 tolera missing para non-US (re-weight remaining 2/4 sub-components).
 
-# NY Fed Nowcast (weekly, Friday)
-0 12 * * 5 /usr/bin/python3 ~/sonar/fetch_nyfed_nowcast.py
+**Sahm rule trigger:** `sahm ≥ 0.50 pp → recession signal` (Claudia Sahm 2019 methodology). Spec E3 §4 requires realtime feed (retroactively revised vintages não usáveis).
 
-# Quarterly — GDP release (~end of quarter month 1-3)
-0 9 27-30 1,4,7,10 * /usr/bin/python3 ~/sonar/fetch_gdp_release.py
-0 9 10 2,5,8,11 * /usr/bin/python3 ~/sonar/fetch_sloos.py
+### 4.4 E4 — Sentiment
 
-# Daily ECS computation (integration)
-0 11 * * * /usr/bin/python3 ~/sonar/compute_ecs.py
-0 11 * * * /usr/bin/python3 ~/sonar/compute_integrated_position.py
-```
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `umich_sentiment` | FRED `UMCSENT` (US primary) | TE `/country/us/indicators` Cat=Consumer subfilter Michigan | M | 25 | E4 §2.1 |
+| `esi_economic_sentiment` | ECB SDW `ESI.M.{C}.Z.ESI.Z` | Eurostat `ei_bssi_m_r2` | M | 25 | E4 §2.2 |
+| `vix_index` | FRED `VIXCLS` (daily close) | TE `/markets/historical/VIX:IND` | D | 1 | E4 §2.3 (cross-ref F3) |
 
-### B.5 Alert triggers
-
-Critical alerts to push immediately:
-
-| Alert | Condition | Priority |
-|---|---|---|
-| **Sahm Rule** | sahm_value >= 0.5 | **P0** |
-| **Yield curve inversion** | T10Y3M < 0 sustained 5 days | **P0** |
-| **GDPNow crash** | GDPNow falls > 1pp in single update | P1 |
-| **Stagflation flag** | Any trigger A-D activates | P1 |
-| **ECS phase change** | Classification shifts | P1 |
-| **Recession probability** | SONAR composite >= 50% | P1 |
-| **LEI 6M growth** | Negative 3 consecutive months | P2 |
-| **Claims spike** | ICSA > 4-week avg by 20%+ | P2 |
-
-### B.6 Data quality checks
-
-Pre-computation validation:
-```python
-def validate_economic_indicator(country, date, series_code, value):
-    # 1. Value not NaN
-    # 2. Value within historical 5-sigma band (flag outliers)
-    # 3. Date not future
-    # 4. Date not too stale (>90 days for monthly series)
-    # 5. Series exists in metadata
-    # Return (valid, warning_list)
-```
-
-Post-aggregation validation:
-```python
-def validate_ecs(country, date, ecs_value, sub_indices):
-    # 1. ECS in [0, 100]
-    # 2. All sub-indices in [0, 100]
-    # 3. ECS approximately equals weighted sum
-    # 4. Sub-indices consistency (labor + sentiment extremes flag)
-    # 5. Historical continuity (no single-month >20pt changes without explanation)
-    # Return (valid, warnings, suggestions)
-```
-
-### B.7 Testing checklist — acceptance criteria
-
-Pre-Tier 1 release:
-- [ ] 1970-2023 US data loads without errors
-- [ ] E1-E4 composites compute for every month
-- [ ] ECS series reasonably smooth (no jumps > 20pts without cause)
-- [ ] Sahm Rule fires in every NBER recession 1970-present
-- [ ] Sahm Rule zero false positives 1970-2020
-- [ ] Yield curve inversion precedes every recession 1970-present
-- [ ] ECS below 30 during every NBER recession
-- [ ] ECS above 55 during every NBER expansion middle
-- [ ] Backtest hit ratio NBER dating: 85%+ agreement at month level
-- [ ] EA data loads for 2000-2023
-- [ ] CEPR-dated EA recessions (2008-09, 2011-13, 2020) captured
-- [ ] Portugal data loads via BPStat + INE
-- [ ] Portugal 2011-13 crisis clearly recessionary per ECS
-- [ ] Nowcasting cross-validates GDPNow vs NYFed vs STLENI (within 1pp historical)
-- [ ] Growth-at-Risk distribution matches published IMF GFSR figures
-
-Post-release monitoring:
-- [ ] Daily ECS updates for Tier 1 countries
-- [ ] Weekly Sahm Rule + yield curve review
-- [ ] Monthly phase classification review
-- [ ] Quarterly backtest against new data
-- [ ] Annual weight recalibration
+**VIX dual role:** primário para F3-risk-appetite (financial cycle) + secundário para E4 (sentiment proxy global quando UMich/ESI indisponíveis). Single raw load; ambos cycles consomem de `markets_timeseries` table.
 
 ---
 
-## 13. Métricas de sucesso
+## 5. Fallback hierarchy
 
-### Cobertura quantitativa — alvo
+### 5.1 Árvore de decisão por série
 
-| Métrica | Tier 1 MVP | Tier 2 | Tier 3 |
-|---|---|---|---|
-| Series FRED ativas | +80 | +120 | +150 |
-| Eurostat datasets | +10 | +15 | +20 |
-| Países com ECS computado | 5 | 10 | 15 |
-| Nowcasting sources | 3 (GDPNow, NYFed, Sahm) | 6 | 9 |
-| Alternative data streams | 0 | 2 | 5 |
-| Recession probability models | 3 | 5 | 8 |
-| **Indicadores totais** | **~250** | **~380** | **~520** |
+```
+Para cada (series, country):
+    1. IF country has native_connector AND series in native_catalog:
+         → native (FRED / INE PT / ECB SDW / TCMB / ...)
+    2. ELIF country in TE_breadth AND series covered in TE:
+         → TE /country/{c}/indicators
+    3. ELIF series has global_fallback (e.g. VIX global, OECD CLI):
+         → global source
+    4. ELSE:
+         → emit flag {SERIES}_{COUNTRY}_MISSING; index consumes degraded
+```
 
-### Cobertura qualitativa — validação contra literature
+### 5.2 Exemplos concretos (6 células)
 
-- Sahm Rule triggered em 100% NBER recessions 1970-presente (target)
-- Yield curve inversion precedeu 100% recessions com >6 mês lead (target)
-- ECS sub-30 durante 100% NBER recessions (target)
-- ECS sub-30 durante 0% NBER expansions (target, ex-outliers)
-- GDPNow vs actual GDP: média de abs(error) < 1.5pp (literature benchmark)
+| Série × Country | Primary | Fallback | Flag se ambos faltam |
+|-----------------|---------|----------|----------------------|
+| `gdp_qoq × US` | FRED `GDPC1` | TE `/country/us/indicators` | `GDP_US_MISSING` |
+| `gdp_qoq × PT` | INE `0011725` | TE `/country/portugal/indicators` | `GDP_PT_MISSING` |
+| `gdp_qoq × TR` | TE (TCMB blocked) | — | `GDP_TR_MISSING` |
+| `gdp_qoq × BR` | TE `/country/brazil/indicators` | BCB SGS (Phase 2+) | `GDP_BR_MISSING` |
+| `unemployment × EA` | ECB SDW `STS/UNE_RT_M` | Eurostat direct | `UNR_EA_MISSING` |
+| `vix × any` | FRED `VIXCLS` | TE `/markets/VIX:IND` | `VIX_MISSING` (global) |
 
-### Performance metrics operacional
+### 5.3 Override conditions
 
-- Refresh freshness Tier 1: < 1 dia data stale
-- Sahm Rule alert latency: < 24h após NFP release
-- GDPNow sync latency: < 4h após Atlanta Fed release
-- ECS computation time: < 5s para single-country full series
-- System uptime target: 99%+
+Per CSV column `override_condition`:
 
----
+- **FRED US override:** sempre activo para US quando série em FRED catalog (latência menor + revisões vintage nativas).
+- **INE PT override:** activo apenas quando delay TE ≥ 3 dias relative a INE (Portugal é home market — freshness matter).
+- **ECB SDW EA override:** activo para EA aggregate (TE reporta only country-level, não aggregate).
+- **TCMB TR override:** PARKED — quando endpoint recuperado, activar.
 
-## 14. Risk register
+### 5.4 Policy 1 re-weight at composite
 
-### 14.1 Dependência de FRED API
+Quando sub-index falha (todas sub-séries missing → index = NULL), ECS re-weight:
 
-**Risk**: Downtime FRED ou mudança de limits.
+```
+valid_indices = {I where I.score is not None}
+if len(valid_indices) < 3: return None  # fail
+weights = original_weights[valid_indices] / sum(original_weights[valid_indices])
+ECS = sum(w × I.score for I, w in valid_indices)
+confidence = min(0.75, base_confidence)  # cap
+```
 
-**Mitigation**: keep 30-day rolling cache. ALFRED vintages preservation. Multiple redundancies via Eurostat/OECD for non-US series.
-
-### 14.2 GDPNow methodology change
-
-**Risk**: Atlanta Fed altera metodologia (happened in 2025 — per search, updated from pure bridge equation to bridge + BVAR).
-
-**Mitigation**: monitor Atlanta Fed research updates. Keep legacy computation alongside. Document vintage differences in nowcast_history table.
-
-### 14.3 Scraping fragility
-
-**Risk**: Web scraping NY Fed Nowcast, PMIs, etc. breaks quando sites update.
-
-**Mitigation**: wrap scraping em try/except with specific error codes. Fallback to manual spreadsheet parsing. Tier 3: subscribe to APIs onde disponível.
-
-### 14.4 Portugal data gaps
-
-**Risk**: INE/BPStat não fornece alguns indicators necessários.
-
-**Mitigation**: Portugal already Tier 3 with wider confidence. Use EA overlays where domestic data gaps. Document known gaps in data_freshness_days.
-
-### 14.5 Structural breaks
-
-**Risk**: Post-Covid patterns break z-score normalization (rolling 10-year window contaminated).
-
-**Mitigation**: Rolling window já é adaptation. For Covid period (2020-2021), optional "regime-switching" mode that treats these as outliers. Future: explicit regime-switching model.
-
-### 14.6 Sahm Rule deanchoring
-
-**Risk**: Sahm Rule may become less reliable in novel cycle dynamics (labor hoarding post-Covid may delay trigger).
-
-**Mitigation**: Present Sahm alongside alternative labor signals. Backtest continuously. If breaks observed, add secondary triggers.
+Ver `docs/specs/conventions/composite-aggregation.md` Policy 1.
 
 ---
 
-## 15. Open questions
+## 6. Known gaps e backlog items
 
-**Q1**: Should we invest in ECRI WLI subscription Tier 3? — depends on whether 19 editorial angles identify WLI as essential.
+### 6.1 Gaps críticos (BLOCKING na matrix)
 
-**Q2**: LinkedIn Economic Graph access — realistic ROI for the brand vs cost?
+| Gap | Impacto | Mitigação curto-prazo | Backlog item |
+|-----|---------|----------------------|--------------|
+| TCMB endpoint indisponível | E1+E3 Turkey sem path nativo | TE breadth suficiente; flag `TCMB_NATIVE_MISSING` informativo | `CAL-018` |
+| Conference Board LEI paywall | E2 US LEI sem path directo | Philly Fed state proxy `USSLIND` | `P2-007` (LEI upgrade) |
+| S&P Global PMI sub-components paywall | E2 PMI só headline | Usar headline; sub-comps Phase 3+ | `P2-007` |
+| OECD CLI country coverage | E2 ~T2+ parcial; T3 sem CLI | Re-weight E2 sem CLI | `P2-009` (multi-source LEI composite) |
 
-**Q3**: Should Growth-at-Risk be exposed in SONAR dashboard explicitly, or remain internal?
+### 6.2 Gaps de qualidade (CORE na matrix)
 
-**Q4**: For Portugal, how much INE data to fetch via scraping vs wait for official API (ETA unclear)?
+| Gap | Descrição | Mitigação |
+|-----|-----------|-----------|
+| TE categoria inconsistente cross-country | Category "Business" contém IP+PMI+Capacity misturado | Filtro textual em indicator_name (não robusto) → backlog `P2-010` refactor TE normalization |
+| FRED revisão vintage | PAYEMS revisto mensalmente 2 prior months | Backfill 3 vintages + snapshot por vintage | Coberto em `conventions/methodology-versions.md` (spec E3) |
+| Shiller CAPE disponibilidade offline | ie_data.xls às vezes 404 (Yale server) | Local cache 24h + staleness alert | Spec `erp-daily` §7 (financial.md) |
 
-**Q5**: AI capex wave — should SONAR track specifically (NVIDIA orders, hyperscaler capex reports) as separate high-signal series?
+### 6.3 Out-of-scope Phase 0 / Phase 1
 
-**Q6**: Should we implement regime-switching for stagflation detection (Bayesian approach), or keep rule-based triggers from Cap 16?
+Por decisão explícita (ver `ROADMAP.md`):
 
-**Q7**: How to handle revisions — should ECS history show real-time vintage (vs. all-revised)?
+- **Alternative data** (Google Trends, satellite, credit card, mobility) — roteado para Phase 2 `P2-003`.
+- **Nowcasting models** (GDPNow, NY Fed Nowcast, Atlanta Fed) — Phase 3 `P2-011` (ECS cross-validation). MVP usa released quarterly GDP sem nowcasting overlay.
+- **PMI sub-components** — Phase 3 `P2-007`.
+- **Survey data granular** (UMich sub-items; Conference Board consumer confidence components) — Phase 3.
+
+### 6.4 Calibration tasks dependentes
+
+Ver `docs/backlog/calibration-tasks.md`:
+
+- `CAL-002` — lookback economic 10Y confirm para µ/σ z-score (baseline; revisar quando história real disponível).
+- `CAL-003` — weights E1 0.35 / E2 0.25 / E3 0.25 / E4 0.15 empirical validation (out-of-sample H2 2026).
+- `CAL-018` — TCMB endpoint recovery.
 
 ---
 
-## 16. Conclusão
+## 7. Licensing status
 
-Este plano operacionaliza o Manual do Ciclo Económico em pipeline implementável em 4-12 semanas conforme Tier. A filosofia é consistente com os planos de crédito e monetário: reutilização inteligente de connectors existentes, adições focadas onde o ciclo económico requer especificamente, e atenção particular ao nowcasting (que é diferencial do ciclo económico vs os outros três).
+| Fonte | Licença | Uso permitido | Observações |
+|-------|---------|--------------|-------------|
+| TE | Commercial (tier a confirmar Hugo) | Internal-only per TE TOS; redistribution proibida | **Pending Hugo:** plan tier (Basic/Standard/Premium?) |
+| FRED | Public domain (Fed policy) | Sem restrições | ✓ safe |
+| OECD CLI | CC-BY-4.0 | Redistribution com atribuição | ✓ safe |
+| ECB SDW | Re-use condições ECB (similar CC-BY) | Attribution required | ✓ safe |
+| Eurostat | Eurostat re-use (CC-BY-4.0 equivalente) | Attribution "Source: Eurostat" | ✓ safe |
+| INE PT | Open Data PT (CC-BY-compatible) | Attribution "Fonte: INE PT" | ✓ safe |
+| TCMB EVDS | Free for academic/research; commercial unclear | Pending docs review | Escalate Hugo se commercial use |
+| Shiller (Yale) | Academic free-use | Attribution "Shiller, R. Yale" required | ✓ safe |
+| Conference Board LEI | Proprietary (paywalled) | **Não redistribuir** | Usar Philly Fed proxy |
 
-**Três princípios operacionais reafirmados**:
-
-1. **Framework first, data second** — o manual define o que medir; este plano diz onde e como.
-2. **Incremental — não big-bang** — Tier 1 publicable em 4 semanas; Tier 3 completo em 12 semanas.
-3. **Honesty sobre limitations** — data quality, structural breaks, false positives explicitly tracked.
-
-**Após implementação**, o SONAR-Economic torna-se operacional para publicação de columns e análise quantitativa. Junto com SONAR-Credit e SONAR-Monetary, forma 75% do framework SONAR completo. O quarto e último ciclo (financeiro) fecha a arquitetura.
+**Stance editorial 7365 Capital:** todas séries feed em outputs públicos (reports) citam fonte. Outputs internos (dashboard, signals) operam dentro ToS TE.
 
 ---
 
-**— fim do documento —**
+## 8. Cross-refs
 
-*7365 Capital · SONAR Research · Abril 2026*
+### 8.1 Specs consumer
+
+- `docs/specs/indices/economic/E1-activity.md` — consumidor principal de §4.1.
+- `docs/specs/indices/economic/E2-leading.md` — consumidor principal de §4.2.
+- `docs/specs/indices/economic/E3-labor.md` — consumidor principal de §4.3.
+- `docs/specs/indices/economic/E4-sentiment.md` — consumidor principal de §4.4.
+- `docs/specs/cycles/economic-ecs.md` — composite L4 (consome E1-E4).
+
+### 8.2 Outros cycles que leem E* sub-indices cross-cycle
+
+- `docs/specs/cycles/credit-cccs.md` §5 — CCCS cross-cycle reads ECS trend (early warning).
+- `docs/specs/cycles/monetary-msc.md` §5 — MSC consulta E1 GDP via r* gap (M2).
+- `docs/specs/cycles/financial-fcs.md` §5 — FCS lê E4 VIX (shared series).
+
+### 8.3 Overlays que partilham séries
+
+- `docs/specs/overlays/nss-curves.md` — NSS emite yield curve; E2 consome slope 10Y-2Y (derived).
+- `docs/specs/overlays/expected-inflation.md` — consume CPI; E1/E3/E4 não consomem directo mas mesma fonte TE (evitar double-call via cache).
+
+### 8.4 Conventions
+
+- `docs/specs/conventions/normalization.md` — fórmula score.
+- `docs/specs/conventions/composite-aggregation.md` — Policy 1 re-weight.
+- `docs/specs/conventions/flags.md` — flags emitidos por este doc: `GDP_{C}_MISSING`, `UR_{C}_MISSING`, `PMI_HEADLINE_ONLY`, `TCMB_NATIVE_MISSING`, `COVERAGE_INSUFFICIENT`, `T4_DEGRADED`.
+- `docs/specs/conventions/methodology-versions.md` — vintage management.
+
+### 8.5 Architecture
+
+- `docs/ARCHITECTURE.md` §L0-L4 — layer contracts.
+- `docs/adr/ADR-0002-nine-layer-architecture.md` — rationale.
+- `docs/adr/ADR-0003-db-path-sqlite-postgres.md` — storage contract para timeseries table `e_indices`.
+
+### 8.6 Governance e backlog
+
+- `docs/governance/DATA.md` — data handling rules.
+- `docs/backlog/calibration-tasks.md` — `CAL-002`, `CAL-003`, `CAL-018`.
+- `docs/backlog/phase2-items.md` — `P2-003`, `P2-007`, `P2-009`, `P2-010`, `P2-011`, `P2-013`.
+- `docs/data_sources/D0_audit_report.md` — TE/FRED/FMP/TCMB smoke findings.
+- `docs/data_sources/D1_coverage_matrix.csv` — matrix canónica.
+- `docs/data_sources/country_tiers.yaml` — tier assignments.
+
+---
+
+*Última revisão: 2026-04-18 (Phase 0 Bloco D1 rewrite).*

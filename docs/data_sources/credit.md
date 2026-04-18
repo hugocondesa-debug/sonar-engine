@@ -1,607 +1,479 @@
-# SONAR · Plano de Fontes de Dados para Implementação
+# SONAR v2 · Data sources — Credit cycle (CCCS)
 
-> **Documento de referência técnica** · 7365 Capital · Abril 2026
-> Framework: Manual do Ciclo de Crédito (6 partes, 20 capítulos)
-> Contexto: extensão de fontes para além da API Trading Economics já em uso
+> **Layer scope:** L3 indices `L1..L4` (credit stock/gap/impulse/DSR) + L4 `cycles/credit-cccs` + L2 overlays `rating-spread`, `crp`.
+> **Phase 0 Bloco D1** — rewrite baseado em `D1_coverage_matrix.csv` (2026-04-18) + D0 audit findings.
+> **Status:** doc canónico. Substitui v1 credit.md (607 linhas).
 
----
-
-## Objetivo deste documento
-
-Mapear **todas as fontes de dados** necessárias para operacionalizar o framework descrito no manual, além da API Trading Economics já existente. Para cada fonte: o que fornece, como aceder, nível de criticidade, e integração no sistema.
-
-O documento está organizado em **8 camadas funcionais** que espelham a arquitetura do SONAR, seguidas por um plano de implementação em **3 tiers** de prioridade.
-
----
-
-## Sumário executivo
-
-| Aspeto | Conclusão |
-|---|---|
-| Cobertura Tier 1 | **100% gratuito**, cobre 80% do framework |
-| Chaves adicionais necessárias | Apenas FRED API key (grátis, 5 min de registo) |
-| Bloqueadores | Nenhum para MVP; institucionais só para v2+ |
-| Tempo estimado MVP | 4 semanas (roadmap na secção final) |
-| Custo Tier 1 | €0 (fontes públicas) |
-| Custo Tier 3 (opcional) | €60-80k/ano (Bloomberg + Preqin + S&P) |
+Documento alinhado com:
+- `docs/specs/cycles/credit-cccs.md` (composite `CCCS_v0.1 = 0.44·CS + 0.33·LC + 0.22·MS` — QS omitido Phase 1).
+- `docs/specs/indices/credit/{L1,L2,L3,L4}.md`.
+- `docs/specs/overlays/{rating-spread,crp}.md`.
+- `docs/data_sources/country_tiers.yaml` (BIS universe = T1+T2 mostly).
+- `docs/data_sources/D1_coverage_matrix.csv`.
+- `docs/data_sources/D0_audit_report.md` (critical finding: TE ratings 4Y stale → TE rejected para rating-spread).
 
 ---
 
-## Camada 1 · Dados de crédito · Núcleo do framework
+## 1. Overview e hierarquia de fontes
 
-Esta é a camada sem a qual o SONAR não existe. A `Trading Economics` cobre superficialmente, mas há três fontes primárias que trazem profundidade que a TE não tem.
+### 1.1 Mandato do ciclo
 
-### 1.1 BIS Data Portal · `data.bis.org`
+O Credit Cycle Score (CCCS) mede a fase cíclica do crédito privado non-financial. Consome 4 sub-indices (Phase 1 usa 3):
 
-Fonte oficial e obrigatória para credit-to-GDP gaps, DSR e property prices. A TE reporta muitos destes indicadores, mas quase sempre secundariamente e sem granularidade BIS (breakdown households vs corporates, Q-series vs F-series, séries vintage vs revised).
+| Index | Sub-index | Peso CCCS v0.1 | Mandato |
+|-------|-----------|----------------|---------|
+| L1-credit-to-gdp-stock | CS (Credit Stock) | 0.44 | Nível Credit/GDP ratio (slow-moving) |
+| L2-credit-to-gdp-gap | — | — | Input para CS via one-sided HP filter (Basel III) |
+| L3-credit-impulse | LC (Loan Cycle) | 0.33 | Credit impulse (Biggs-Mayer-Pick) + growth |
+| L4-dsr | MS (Marginal Stress) | 0.22 | Debt service ratio (Drehmann-Juselius) |
+| — (Phase 2+) | QS (Quality Stress) | 0 v0.1 | NPL + credit quality — **omitido** MVP |
 
-**Acesso técnico:**
-- SDMX REST API v2
-- Gratuito, sem API key, sem rate limits publicados
-- Formatos: JSON, XML, CSV
-- Endpoint base: `https://stats.bis.org/api/v2/data/`
-- Documentação: `https://stats.bis.org/api-doc/v2/`
+Ver spec `cycles/credit-cccs.md §2` para rationale QS omitido (NPL data latency ~90 dias + coverage BIS parcial não viable realtime).
 
-**Datasets-chave para o SONAR:**
+### 1.2 Hierarquia de fontes (5 níveis canónicos)
 
-| Dataset | Conteúdo | Uso no SONAR |
-|---|---|---|
-| `WS_TC` | Total credit to PNFS, credit-to-GDP ratios, credit gaps | Cap 7, Cap 8 (L1, L2) |
-| `WS_DSR` | Debt service ratios (32 países, breakdown HH/Corp) | Cap 10 (L4) |
-| `WS_SPP` | Residential property prices (60+ países) | Cap 14 (housing) |
-| `WS_CBPOL` | Central bank policy rates | Ciclo monetário |
-| `WS_LBS` | Locational banking statistics | Shadow banking proxy |
-| `WS_DEBT_SEC2` | Debt securities issuance | Non-bank credit |
-| `WS_XRU` | Effective exchange rates | Currency conditioning |
-
-**Criticidade: ESSENCIAL.** Todo o Cap 7, 8, 10 depende destes dados. O credit gap BIS com λ=400k é literalmente o benchmark regulatório de Basileia III, não uma aproximação. A fórmula DSR Drehmann-Juselius tem 32 países pré-computados no BIS — reconstruí-la a partir de inputs TE é possível mas perde fidelidade.
-
-**Exemplo de chamada:**
 ```
-GET https://stats.bis.org/api/v2/data/BIS,WS_TC,1.0/
-    Q.PT.P.A.M.770.A?
-    startPeriod=1990-Q1&
-    endPeriod=2026-Q1&
-    format=jsondata
+1. PRIMARY          BIS (Bank for International Settlements)
+   └── WS_TC (credit-to-GDP), WS_DSR (pre-computed DSR 32 países),
+       WS_CREDIT_GAP (one-sided HP gap)
+2. OVERRIDE T1      FRED (US derivations) / Central banks nativos
+   └── TDSP (US household DSR), QUSPAMUSQTMKTP (US credit), CARDS
+3. SECONDARY EU     ECB SDW (EA credit counterparts)
+   └── BSI + MIR dataflows
+4. SECONDARY EM     BCB (Brazil), BOK (Korea), RBI (India) — Phase 2
+   └── native central banks onde BIS tem latency/gap
+5. TERTIARY         Scrape agency rating sites + Damodaran (annual)
+   └── S&P, Moody's, Fitch, DBRS press releases (rating-spread overlay)
 ```
 
----
-
-### 1.2 ECB Statistical Data Warehouse · `data.ecb.europa.eu`
-
-Fonte autoritativa para toda a euro area. Contém o que nenhuma outra base tem: a **Bank Lending Survey** (BLS) por país, harmonizada, publicada 2-3 semanas após o final do trimestre.
-
-**Acesso técnico:**
-- SDMX 2.1 REST API
-- Gratuito, sem API key
-- Endpoint base: `https://data-api.ecb.europa.eu/service/data/`
-- Documentação: `https://data.ecb.europa.eu/help/api/overview`
-
-**Datasets-chave:**
-
-| Dataset | Conteúdo | Uso no SONAR |
-|---|---|---|
-| `BLS` | Bank Lending Survey (standards, demand, factors) | Cap 11 (QS sub-index) |
-| `BSI` | Monetary aggregates (M1, M2, M3), bank credit | Cap 7 cross-check |
-| `MIR` | MFI interest rates por segmento e maturidade | Cap 10 (input para DSR) |
-| `FCI` | Financial conditions indicators | Cap 17 (ciclo financeiro) |
-| `RPP` | Residential property prices harmonizadas 27 EU + UK | Cap 14 (housing EU) |
-| `IVF` | Investment fund statistics | Shadow banking EU |
-| `FM` | Financial markets (yields, spreads) | Cap 12 cross-check |
-
-**Criticidade: ESSENCIAL para Portugal e Cluster 2.** O Cap 11 inteiro sobre surveys depende disto para cobertura EU. A TE tem alguns dados ECB mas não o BLS — isso é ECB-native.
-
----
-
-### 1.3 FRED · `api.stlouisfed.org`
-
-Repositório mais completo de dados americanos. Valor indispensável pela curadoria: séries como **Wu-Xia shadow rate** ou **Excess Bond Premium (Gilchrist-Zakrajšek)** não existem em mais lado nenhum.
-
-**Acesso técnico:**
-- REST API v2 (v1 ainda funcional)
-- Gratuito mas **requer API key desde Novembro 2025**
-- Registo em `fredaccount.stlouisfed.org` (5 minutos, gratuito)
-- Rate limit: 120 requests/minuto
-- Python wrapper: `fredapi` (PyPI)
-- Endpoint base: `https://api.stlouisfed.org/fred/`
-
-**Séries-chave para o SONAR:**
-
-| Série ID | Conteúdo | Uso no SONAR |
-|---|---|---|
-| `DRTSCILM` | SLOOS net % tightening C&I loans large firms | Cap 11 (QS) |
-| `DRTSCLCC` | SLOOS tightening credit cards | Cap 11 |
-| `BAMLH0A0HYM2` | ICE BofA US HY OAS | Cap 12 (MS) |
-| `BAMLC0A0CM` | ICE BofA US IG OAS | Cap 12 (MS) |
-| `BAMLEMCBPIOAS` | EM corporate OAS | Cap 12 (EM) |
-| `T10Y3M` | Yield curve spread 10Y-3M | Cap 17 (econ cycle) |
-| `DFII10` | 10Y real yield (TIPS) | Ciclo monetário |
-| `NFCI` | Chicago Fed National FCI | Cap 17 (cross-check) |
-| `ANFCI` | Chicago Fed Adjusted NFCI | Cap 17 |
-| `EBPNEW` | Excess Bond Premium (Gilchrist-Zakrajšek) | Cap 12 refinement |
-| `DGS2`, `DGS10` | Treasury yields | Curve analysis |
-| `WALCL` | Fed balance sheet | Ciclo monetário |
-| `DRSFRMACBS` | US delinquency rate real estate | Cap 13 (NPL US) |
-
-**Criticidade: ESSENCIAL para o módulo US e para séries sintéticas** (shadow rates, excess bond premium). Fed é o epicentro do Global Financial Cycle — impossível modelar ciclos globais sem esta camada.
-
----
-
-## Camada 2 · Preços de mercado · Credit spreads e CDS
-
-Crítico para o sub-index **MS (Market Stress)** do CCCS. Cap 12 do manual.
-
-### 2.1 ICE BofA indices · via FRED
-
-Os HY OAS e IG OAS estão publicados gratuitamente via FRED como conveniência — a Fed St Louis licenciou-os ao ICE. Atualização diária com lag de 1 dia.
-
-**Séries já cobertas na Camada 1 via FRED** (repetidas aqui para clareza):
-
-| Série | Nome |
-|---|---|
-| `BAMLH0A0HYM2` | US High Yield OAS |
-| `BAMLC0A0CM` | US Investment Grade OAS |
-| `BAMLEMCBPIOAS` | EM Corporate OAS |
-| `BAMLHE00EHYIOAS` | Euro HY OAS |
-| `BAMLCC0A0CMTRIV` | US Corporate Total Return |
-
-**Criticidade: ESSENCIAL, via FRED (gratuito).**
-
-### 2.2 iTraxx Europe / CEMBI / CDX · problema de licenciamento
-
-Os índices de CDS são propriedade de `S&P Global` (adquiriu IHS Markit em 2022) e `ICE`. O acesso real-time requer licença institucional paga.
-
-**Opções caras (institucional):**
-- **Bloomberg Terminal** — ~$25k/ano — opção clássica
-- **Refinitiv Eikon (LSEG)** — ~$22k/ano — alternativa
-- **S&P Market Intelligence** — ~$15k/ano — menor mas útil
-- **FactSet** — menos focado em credit
-
-**Alternativa barata:**
-Valores de fim-de-dia dos principais tenor spreads (5Y CDX IG, 5Y CDX HY, 5Y iTraxx Main, 5Y iTraxx Crossover) podem ser raspados de:
-- Investing.com
-- WSJ Markets
-- Stooq.com
-
-Sem garantia de qualidade nem cobertura histórica profunda.
-
-**Criticidade: MÉDIA.** O HY OAS (via FRED) já captura o essencial; os CDS adicionam precisão marginal mas não são bloqueadores para MVP.
-
----
-
-## Camada 3 · Mercados de ações e volatilidade
-
-Para o ciclo financeiro e cross-checks de market stress.
-
-### 3.1 Twelve Data (já tem)
-
-- Cobertura: equity prices, índices, forex, commodities, fundamentals
-- Plano Venture: 610 credits/min
-- Suficiente para: fechos diários de índices, cotações de ETFs, most equity fundamentals
-- Key já ativa: `624f88489cd84146a4ee8d78db3fc01a`
-
-**Criticidade: JÁ RESOLVIDO.**
-
-### 3.2 VIX e term structure
-
-O VIX spot está em FRED (`VIXCLS`). Mas para o ciclo financeiro rigoroso, precisa-se do VIX term structure (VIX, VIX3M, VIX6M) para ver contango/backwardation.
-
-**Fontes alternativas:**
-- Yahoo Finance via `yfinance` Python package — gratuito, sem chave, algum risco de instabilidade
-- TE — cobertura moderada
-- CBOE diretamente — `cboe.com/delayed_quotes` (delayed)
-
-**Criticidade: BAIXA-MÉDIA.** Não bloqueia MVP mas refina v2.
-
----
-
-## Camada 4 · Housing · Amplificador crítico (Cap 14)
-
-### 4.1 ECB Residential Property Prices (EU harmonizado)
-
-ECB SDW publica `RPP` para 27 países EU harmonizados — cobre Cap 14 integralmente para Portugal e Cluster 2.
-
-**Já na Camada 1.2** via ECB SDW API.
-
-### 4.2 US housing
-
-FRED tem:
-- `CSUSHPINSA` — Case-Shiller national
-- `USSTHPI` — FHFA
-- Sub-indices metropolitanos por ZIP code
-
-**Criticidade: ALTA, via FRED (Camada 1.3).**
-
-### 4.3 Non-EU non-US (UK, CA, AU, JP, CN)
-
-- BIS publica `WS_SPP` para 60+ países, trimestral com lag
-- TE cobre mensalmente
-- Fontes nacionais: Nationwide UK, Teranet-National Bank Canada, CoreLogic Australia, Japan REIT Association, NBS China
-
-**Criticidade: MÉDIA-ALTA.** Para Portugal e EU é essencial (ECB RPP resolve); para non-EU é BIS + TE.
-
----
-
-## Camada 5 · Banking sector · NPL, capital, profitability (Cap 13)
-
-### 5.1 EBA Risk Dashboard
-
-Fonte harmonizada EU para NPLs, CET1, coverage ratios, RoE. Publicação trimestral.
-
-**Acesso: PROBLEMA.** A EBA não tem API REST pública. Os dados estão em Excel files no site `eba.europa.eu/risk-and-data-analysis/risk-analysis`.
-
-**Solução:**
-- Ingestão via scraping + parsing de xlsx (requer `openpyxl` em Python)
-- **Workaround mais elegante:** ECB SDW tem uma versão dos indicators EBA no dataset `SUP_IND`
-
-**Criticidade: MÉDIA.** EBA aggregados via ECB SDW chegam para narrativa macro.
-
-### 5.2 FDIC US banking data
-
-- API REST pública e gratuita
-- Endpoint: `banks.data.fdic.gov/api`
-- Cobre todos os bancos americanos individualmente
-- NPL ratios, Tier 1 capital, RoA agregados e por banco
-
-**Criticidade: ALTA para US.** Gratuito e granular.
-
-### 5.3 SNL Financial / S&P Global (institucional)
-
-Para granularidade bank-level cross-country. Ouro-standard mas caro (~$15-20k/ano).
-
-**Criticidade: BAIXA para SONAR v1.** Granularidade bank-level é luxury.
-
----
-
-## Camada 6 · Contas nacionais e agregados macro
-
-Base para GDP no denominador do credit ratio, context do ciclo económico, sincronização cross-country.
-
-### 6.1 Eurostat API
-
-- Gratuito, REST API
-- Cobre 27 estados EU + UK, EFTA
-- SDMX 2.1
-- Endpoint: `ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/data/`
-- **É melhor que TE para EU** porque é a fonte original harmonizada
-
-**Datasets-chave:**
-
-| Dataset | Conteúdo | Uso |
-|---|---|---|
-| `namq_10_gdp` | GDP nominal/real trimestral | Denominador credit ratio |
-| `prc_hicp_midx` | HICP consumer prices | Inflação |
-| `une_rt_q` | Unemployment rate | Ciclo económico |
-| `bop_c6_q` | Current account | Sync cross-country |
-| `gov_10q_ggnfa` | Government finance | Fiscal stance |
-| `nasq_10_nf_tr` | Household income disposable | DSR denominator |
-
-**Criticidade: ALTA.** Substitui TE para EU com vantagem.
-
-### 6.2 OECD.Stat
-
-Publica Economic Outlook database com forecasts, gaps, output gaps, labour market cross-country harmonizados.
-
-- API REST via SDMX
-- Endpoint: `sdmx.oecd.org/public/rest/`
-- Gratuito, sem chave
-
-**Datasets:**
-- `EO` — Economic Outlook (forecasts)
-- `MEI` — Main Economic Indicators
-- `QNA` — Quarterly National Accounts
-
-**Criticidade: MÉDIA.** Adiciona depth cross-country e forecasts oficiais.
-
-### 6.3 IMF Data API
-
-- `International Financial Statistics` (IFS)
-- `World Economic Outlook` (WEO)
-- `Financial Soundness Indicators` (FSI)
-- Cobertura global 190+ países
-- API SDMX REST
-- Endpoint: `dataservices.imf.org/REST/SDMX_JSON.svc/`
-- Gratuito, sem chave
-
-**Criticidade: MÉDIA.** Critical para cobertura EM.
-
----
-
-## Camada 7 · Portugal específico
-
-O SONAR tem ambição nacional, por isso vale a pena fontes dedicadas a Portugal.
-
-### 7.1 Banco de Portugal · BPStat
-
-BPStat (`bpstat.bportugal.pt`) tem **API JSON** (recentemente lançada, 2024).
-
-**Cobertura:**
-- Estatísticas monetárias e financeiras
-- Balance of payments
-- Empréstimos por sector
-- NPL doméstico
-- **Inquérito aos Bancos sobre o Mercado de Crédito**
-- Preços imobiliários
-
-**Acesso:**
-- Endpoint: `bpstat.bportugal.pt/data/v1/`
-- Gratuito, sem chave
-- Formato: JSON
-
-**Criticidade: ALTA.** O `Inquérito aos Bancos sobre o Mercado de Crédito` é único e subutilizado — está exclusivamente aqui. Cap 11.7 do manual identifica isto como ângulo editorial original.
-
-### 7.2 INE · Instituto Nacional de Estatística
-
-- API JSON em `ine.pt/ine/api`
-- Dados harmonizados PT:
-  - Preços habitacionais (desde 2009)
-  - CPI
-  - GDP
-  - Contas nacionais
-  - Mercado de trabalho
-- Gratuito
-
-**Criticidade: MÉDIA.** Muito duplica Eurostat mas com frequência mais tempestiva para Portugal.
-
----
-
-## Camada 8 · Dados alternativos e "dark matter" (Cap 19)
-
-### 8.1 JST Macrohistory Database
-
-- URL: `macrohistory.net/database`
-- CSV descarregável
-- 18 economias, 1870-2020, 48 variáveis
-- Actualização anual
-- Sem API mas é estático — ingestão é one-shot
-- Licença: livre para uso com atribuição
-
-**Criticidade: ESSENCIAL para validação do framework.** Sem isto, não há forma de testar o classifier em 150 anos de história. É o que dá credibilidade académica.
-
-**Variáveis relevantes para SONAR:**
-- `tloans` — total loans
-- `tmort` — mortgage loans
-- `tbus` — business loans
-- `gdp` — GDP nominal
-- `hpnom` — house prices nominal
-- `ltrate` — long-term rate
-- `stir` — short-term rate
-- `cpi` — consumer prices
-- `debtgdp` — government debt-to-GDP
-
-### 8.2 Private credit tracking
-
-- **Preqin** (institucional, pago ~$20k/ano) — ouro-standard
-- **BIS Global Liquidity** reports — parcial, gratuito
-- **Bloomberg** — se já tiver
-
-Private credit cresceu de $200bn para $1.7tn entre 2010-24, invisível ao BIS oficial. Cap 19.4 do manual identifica isto.
-
-**Criticidade: BAIXA para v1.** Documentar a limitação é mais honesto que tentar capturar imperfeitamente.
-
-### 8.3 Shadow banking proxies
-
-- FSB (`fsb.org`) publica `Global Monitoring Report on Non-Bank Financial Intermediation` anualmente
-- IMF Global Financial Stability Report chapters
-- PDF apenas — ingestão manual
-
-**Criticidade: BAIXA.** Anual e PDF-based; incorporar como narrativa, não como série.
-
----
-
-## Plano de implementação em 3 Tiers
-
-### Tier 1 · MVP do connector
-
-**Característica: 100% gratuito, cobre 80% do framework.**
-
-| # | Fonte | Acesso | Papel no SONAR | Prioridade |
-|---|---|---|---|---|
-| 1 | BIS SDMX API | Público, sem chave | Credit gap, DSR, property prices | 🔴 Crítica |
-| 2 | ECB SDW SDMX | Público, sem chave | BLS, MIR, BSI, RPP para EU | 🔴 Crítica |
-| 3 | FRED API v2 | Key grátis obrigatória | SLOOS, HY OAS, IG OAS, shadow rate | 🔴 Crítica |
-| 4 | Eurostat API | Público, sem chave | GDP nominal, contas nacionais EU | 🟠 Alta |
-| 5 | BPStat API | Público | Inquérito BdP, dados PT específicos | 🟠 Alta |
-| 6 | JST Database | Download CSV | Backtest histórico 150 anos | 🟠 Alta |
-| 7 | Twelve Data | Key paga (já tem) | Equity, FX, commodities, yields | ✅ Já ativo |
-
-### Tier 2 · Depth cross-country
-
-**Característica: também gratuito, complementa o Tier 1.**
-
-| # | Fonte | Acesso | Papel |
-|---|---|---|---|
-| 8 | OECD SDMX | Público | Output gaps, forecasts cross-country |
-| 9 | IMF Data API | Público | IFS, WEO, FSI para EM coverage |
-| 10 | INE PT API | Público | Dados PT alta frequência |
-| 11 | FDIC API | Público | Granularidade banking US |
-| 12 | Yahoo Finance | via `yfinance` | VIX term structure, cross-check |
-| 13 | EBA via ECB SUP_IND | Público | NPL, capital ratios EU harmonizado |
-
-### Tier 3 · Institucional
-
-**Característica: caro, para v2+ ou quando fund institucional lançar.**
-
-| # | Fonte | Custo estimado | Papel |
-|---|---|---|---|
-| 14 | Bloomberg Terminal | ~$25k/ano | CDS, iTraxx, CDX, commodities depth |
-| 15 | Refinitiv Eikon | ~$22k/ano | Alternativa a Bloomberg |
-| 16 | S&P Capital IQ | ~$15k/ano | Granularidade bank-level |
-| 17 | Preqin | ~$20k/ano | Private credit tracking |
-| 18 | SNL Financial | Included S&P | Banking granular cross-country |
-
----
-
-## Roadmap cronológico (4 semanas para MVP)
-
-### Semana 1 — Setup e ingestão BIS + ECB
-
-- [ ] Registo FRED API key (5 min)
-- [ ] Estrutura schema v14 do SONAR incorporando novas fontes
-- [ ] Implementar connector BIS SDMX (`WS_TC`, `WS_DSR`, `WS_SPP`)
-- [ ] Implementar connector ECB SDW (`BLS`, `MIR`, `BSI`, `RPP`)
-- [ ] Ingestão countries: PT, ES, IT, DE, FR, US, UK, CN
-- [ ] Testes: valores BIS batem com o que está em `data.bis.org` UI
-
-**Entregáveis:**
-- `connectors/bis.py`
-- `connectors/ecb_sdw.py`
-- Schema v14 SQLite
-- ~1.500 séries ingeridas
-
-### Semana 2 — Computação L1-L4
-
-- [ ] Implementar L1: credit-to-GDP stock (dual Q/F series)
-- [ ] Implementar L2: credit gap dual HP (λ=400k one-sided) + Hamilton (h=8)
-- [ ] Implementar L3: credit impulse Biggs-Mayer-Pick
-- [ ] Implementar L4: DSR Drehmann-Juselius fórmula completa + aproximações 1ª/2ª ordem
-- [ ] Validação contra dados BIS pré-publicados para os 32 países com DSR
-
-**Entregáveis:**
-- `computation/layers.py`
-- `computation/filters.py` (HP, Hamilton)
-- Backtest report DSR vs BIS published
-
-### Semana 3 — Integração FRED e market data
-
-- [ ] Connector FRED com gestão de key
-- [ ] Ingestão SLOOS (`DRTSCILM`), HY OAS, IG OAS
-- [ ] Computação sub-indice MS (Market Stress)
-- [ ] Computação sub-indice QS (Qualitative Signal)
-- [ ] Integração Eurostat para GDP cross-check
-
-**Entregáveis:**
-- `connectors/fred.py`
-- `connectors/eurostat.py`
-- Sub-indices MS, QS computados
-
-### Semana 4 — CCCS e classificador de fases
-
-- [ ] Agregação dos 5 sub-indices no CCCS (pesos 25/30/15/20/10)
-- [ ] Classifier de fases (2D stock × flow) com persistence rules
-- [ ] Burden override logic
-- [ ] Validação contra JST dataset (18 países, 1960-2020, 45 episódios de crise)
-- [ ] Backtest: test cases canónicos (US 2003-09, Spain 2003-11, Ireland 2003-12, Japan 1986-95)
-
-**Entregáveis:**
-- `computation/cccs.py`
-- `computation/classifier.py`
-- Backtest report com hit rates
-- Dashboard v1 com dados live
-
----
-
-## Integração com o SONAR schema v14
-
-Proposta de extensão ao schema atual (v13 → v14):
-
-```sql
--- Nova tabela: data_sources
-CREATE TABLE data_sources (
-    id INTEGER PRIMARY KEY,
-    name TEXT UNIQUE,            -- 'bis', 'ecb_sdw', 'fred', ...
-    tier INTEGER,                -- 1, 2, 3
-    access_type TEXT,            -- 'public', 'key_required', 'institutional'
-    base_url TEXT,
-    auth_method TEXT,            -- 'none', 'bearer', 'query_param'
-    rate_limit_per_min INTEGER,
-    last_success_ts TIMESTAMP,
-    enabled BOOLEAN DEFAULT 1
-);
-
--- Nova tabela: source_series_mapping
-CREATE TABLE source_series_mapping (
-    id INTEGER PRIMARY KEY,
-    sonar_indicator_id INTEGER,
-    source_id INTEGER,
-    source_series_key TEXT,      -- ex: 'BAMLH0A0HYM2' ou 'BIS,WS_TC,1.0/Q.PT...'
-    priority INTEGER,            -- 1 = primary, 2 = fallback
-    transformation TEXT,         -- 'raw', 'yoy', 'zscore_10y', etc
-    FOREIGN KEY (source_id) REFERENCES data_sources(id)
-);
-
--- Nova tabela: ingestion_log
-CREATE TABLE ingestion_log (
-    id INTEGER PRIMARY KEY,
-    source_id INTEGER,
-    series_key TEXT,
-    ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status TEXT,                 -- 'success', 'partial', 'failed'
-    records_added INTEGER,
-    error_msg TEXT,
-    FOREIGN KEY (source_id) REFERENCES data_sources(id)
-);
+**BIS dominance no CCCS** é estrutural: BIS publica a série canónica `credit-to-GDP` em base SNA harmonizada (non-financial private sector). D1 smoke test confirmou WS_DSR responsive (PT historical disponível). WS_TC key pattern needs refinement (D1-T2 test `Q.PT.P.M.770A` retornou 404 — key format pendente).
+
+**Não usadas no CCCS:**
+- **FMP** — `/api/stable/` 403 em todos endpoints tested. Sem alternative path para credit data.
+- **TE** — breadth disponível mas BIS é authoritative para credit-to-GDP (TE value frequently delayed + aggregation method unclear).
+- **Shiller/multpl/aaii** — equity/sentiment, não credit.
+
+### 1.3 Critério de escolha primary vs override
+
+```
+If country in BIS_43_UNIVERSE and series in BIS_DATAFLOW_catalog:
+    primary = BIS
+elif country == "US" and series has FRED_NATIVE:
+    primary = FRED (e.g. TDSP)
+elif country in ECB_EA and series in ECB_SDW_BSI:
+    primary = ECB_SDW
+elif country in TE_BREADTH_T1_T3:
+    primary = TE (private credit rate, loan growth)
+else:
+    primary = GAP
 ```
 
 ---
 
-## Questões abertas para decisão futura
+## 2. Country tier coverage
 
-### D1 — Preferência Tier 2 vs prioridade MVP
-O Tier 2 pode ser ingerido em paralelo ao Tier 1 ou deixado para depois do MVP. **Recomendação:** MVP primeiro, Tier 2 após validação dashboard.
+### 2.1 Tabela de cobertura esperada
 
-### D2 — CDS pricing
-Decidir se vale o investimento em Bloomberg ou se HY OAS via FRED é suficiente para v1. **Recomendação:** FRED suficiente até ter o fund institucional a pagar.
+| Tier | Count | L1 credit-to-GDP | L2 gap | L3 impulse | L4 DSR | CCCS viável? |
+|------|-------|------------------|--------|------------|--------|--------------|
+| T1 | 16 | ✓ BIS universe | ✓ | ✓ derived | ✓ (32 pre-computed) | Sim — full confidence |
+| T2 | 30 | ✓ BIS 43 covers most | ~ BIS partial | ~ derivable | ~ BIS 32 partial | Sim — T2 EM via BIS |
+| T3 | 43 | ✗ maioria fora BIS 43 | ✗ | ✗ | ✗ | Não — flag `COVERAGE_INSUFFICIENT` |
+| T4 | ~110 | ✗ | ✗ | ✗ | ✗ | Não |
 
-### D3 — EBA ingestão
-Scraping de xlsx vs usar ECB SDW `SUP_IND` agregado. **Recomendação:** SUP_IND (mais fácil, suficientemente granular).
+**BIS 43 country universe** (confirmado WS_TC metadata): AR, AU, AT, BE, BR, CA, CL, CN, CO, CZ, DK, EA, FI, FR, DE, GR, HK, HU, IN, ID, IE, IL, IT, JP, KR, LU, MY, MX, NL, NZ, NO, PL, PT, RU, SA, SG, ZA, ES, SE, CH, TH, TR, UK, US.
 
-### D4 — Update frequency
-Cron diário vs weekly vs on-demand? **Recomendação:** Diário para séries diárias (HY OAS, yields, FX); weekly para séries trimestrais (BIS, ECB BLS) — agenda cron inteligente.
+**BIS WS_DSR 32 countries** (pre-computed DSR): subset do WS_TC — foco G10 + majorel EMs. PT presente (confirmed D1-T2 smoke 200 OK).
 
-### D5 — Data warehousing
-Manter SQLite ou migrar para Postgres/TimescaleDB? **Recomendação:** SQLite até 10M records, depois migrar.
+### 2.2 Override nativo por país
 
----
+| Country | Native | Series |
+|---------|--------|--------|
+| US | FRED | `TDSP` (household DSR), `QUSPAMUSQTMKTP` (credit-to-GDP market series), `DRTSCLCC` (credit card delinquency) |
+| EA | ECB SDW | `BSI.M.{C}.N.A.L20.A.1.U2.2240.Z01.E` (total loans), `MIR` series (interest rates) |
+| PT | BdP (BPstat) | BPstat séries directas para loans; redundante vs ECB SDW |
+| UK | BoE | Bankstats download |
+| JP | BoJ | Flow of Funds |
+| TR | TCMB | TP.KR* family — **bloqueado D1** (ver economic.md §3.7) |
 
-## Anexo A · Lista consolidada de URLs e endpoints
+### 2.3 Degradação T3/T4
 
-| Fonte | Base URL | Auth | Docs |
-|---|---|---|---|
-| BIS | `https://stats.bis.org/api/v2/` | Nenhuma | `stats.bis.org/api-doc/v2/` |
-| ECB SDW | `https://data-api.ecb.europa.eu/service/data/` | Nenhuma | `data.ecb.europa.eu/help/api/overview` |
-| FRED | `https://api.stlouisfed.org/fred/` | API key | `fred.stlouisfed.org/docs/api/` |
-| Eurostat | `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1/data/` | Nenhuma | `ec.europa.eu/eurostat/web/sdmx-web-services/rest-sdmx-2.1` |
-| OECD | `https://sdmx.oecd.org/public/rest/` | Nenhuma | `data.oecd.org/api/sdmx-json-documentation/` |
-| IMF | `https://dataservices.imf.org/REST/SDMX_JSON.svc/` | Nenhuma | `datahelp.imf.org/knowledgebase/articles/630877` |
-| BPStat | `https://bpstat.bportugal.pt/data/v1/` | Nenhuma | BPStat docs site |
-| INE PT | `https://www.ine.pt/ine/api/` | Nenhuma | INE API portal |
-| FDIC | `https://banks.data.fdic.gov/api/` | Nenhuma | `banks.data.fdic.gov/docs/` |
-| Twelve Data | `https://api.twelvedata.com/` | API key (já tem) | `twelvedata.com/docs` |
-| JST Macrohistory | `http://macrohistory.net/database/` | Nenhuma | Download directo CSV |
-
----
-
-## Anexo B · Checklist de setup
-
-### Pré-requisitos
-
-- [ ] Python 3.11+ no ambiente SONAR
-- [ ] Packages: `requests`, `pandas`, `sdmx1`, `fredapi`, `openpyxl`, `yfinance`
-- [ ] SQLite atual (schema v13) operacional
-- [ ] Backup completo da base actual antes de migração v14
-
-### Credenciais a obter
-
-- [ ] **FRED API key** — Registo em `fredaccount.stlouisfed.org` (grátis, obrigatório)
-- [ ] (Opcional) Bloomberg access se já tiver via empresa
-
-### Verificações iniciais
-
-- [ ] Testar BIS API com query simples: PT credit gap último trimestre
-- [ ] Testar ECB API com BLS PT último trimestre disponível
-- [ ] Testar FRED API com HY OAS hoje
-- [ ] Testar Eurostat API com GDP PT último trimestre
-- [ ] Testar BPStat API com inquérito crédito PT último trimestre
+Para países fora BIS 43:
+- L1 CS via TE `/country/{c}/indicators` Cat=Money subfilter "Private credit" — qualidade variável.
+- L3 LC via loan growth TE — typically OK.
+- L4 MS via DSR computed locally se temos total debt stock + total interest payments.
+- Se ≥2 sub-indices unavailable → CCCS emite `NULL` + flag `COVERAGE_INSUFFICIENT`.
 
 ---
 
-## Histórico de versões
+## 3. Endpoints por fonte
 
-| Versão | Data | Autor | Alterações |
-|---|---|---|---|
-| 0.1 | 2026-04-16 | Hugo + SONAR Research | Draft inicial — 8 camadas, 3 tiers, 4-week roadmap |
+### 3.1 BIS — SDMX v2 API
+
+**Base:** `https://stats.bis.org/api/v2`
+**Auth:** none (public).
+**Format:** default XML; `?format=jsondata` → SDMX-JSON 1.0.
+**Accept header recommended:** `application/vnd.sdmx.data+json;version=1.0.0, application/json`.
+
+**Data endpoint pattern (SDMX v2):**
+```
+GET /data/dataflow/BIS/{FLOW}/{VERSION}/{KEY}?format=jsondata
+    &startPeriod=YYYY-Qn&endPeriod=YYYY-Qn
+```
+
+**Dataflows relevantes:**
+
+| Dataflow | Versão | Contents | CCCS consumer |
+|----------|--------|----------|---------------|
+| `WS_TC` | 1.0 | Credit statistics total credit to non-financial sector | L1 credit-to-GDP |
+| `WS_DSR` | 1.0 | Debt service ratios pre-computed | L4 DSR |
+| `WS_CREDIT_GAP` | 1.0 | Credit-to-GDP gap (BIS pre-computed one-sided HP) | L2 gap |
+| `WS_LBS_D_PUB` | 1.0 | Locational banking statistics (property prices cross) | F1 financial |
+| `WS_LONG_CPP` | 1.0 | Consumer prices long series | (not CCCS) |
+
+**Key structure WS_TC** (5 dimensions):
+```
+{FREQ}.{BORROWERS_CTY}.{BORROWERS_SECTOR}.{LENDERS_SECTOR}.{UNIT_MEASURE}
+```
+Exemplo: `Q.PT.P.M.770A`:
+- FREQ = Q (quarterly)
+- BORROWERS_CTY = PT
+- BORROWERS_SECTOR = P (private non-financial sector)
+- LENDERS_SECTOR = M (all sectors)
+- UNIT_MEASURE = 770A (% of GDP)
+
+**Finding D1-T2:** smoke test retornou 404 em `Q.PT.P.M.770A` → key format potentially incorrect. WS_DSR key `Q.PT.P` returnou 200 OK com estrutura populada (LC=BGN, CGM). Debug requerido em Phase 1 L1 implementation — possibly UNIT_MEASURE dimension code incorrect (e.g. `770A` deprecated; use `XDC_R_B1GQ`?). Backlog CAL-019.
+
+**Key structure WS_DSR** (3 dimensions):
+```
+{FREQ}.{BORROWERS_CTY}.{BORROWERS_SECTOR}
+```
+Exemplo: `Q.PT.P` → quarterly PT private non-financial DSR.
+
+**Structure endpoint (para descoberta):**
+```
+GET /structure/dataflow/BIS/{FLOW}?detail=allstubs&format=json
+```
+
+**Rate limit:** undocumented; BIS público "polite use" — 1 req/sec adequate.
+
+### 3.2 FRED — credit secondary
+
+| Consumer | Series ID | Frequency | Notes |
+|----------|-----------|-----------|-------|
+| L1 US credit-to-GDP derivation | `QUSPAMUSQTMKTP` | Quarterly | Total credit market; compare vs GDP |
+| L4 US household DSR | `TDSP` | Quarterly | Fed Financial Obligations Ratio — primary US path |
+| L4 US consumer DSR | `CDSP` | Quarterly | Consumer-only variant |
+| Credit card delinquency | `DRCCLACBS` | Quarterly | NPL proxy — QS Phase 2+ |
+| C&I loan delinquency | `DRTSCIS` | Quarterly | Business loans NPL |
+| Commercial mortgage delinquency | `DRCRELEXFACBS` | Quarterly | CRE NPL |
+
+**Consumer credit outstanding:** `TOTALSL` (total consumer credit), `REVOLSL` (revolving credit card), `NONREVSL` (non-revolving — auto, student).
+
+### 3.3 ECB SDW — EA credit
+
+**Base:** `https://data-api.ecb.europa.eu/service/data`
+
+| Dataflow | Example key | Contents |
+|----------|-------------|----------|
+| `BSI` (Balance Sheet Items) | `M.{C}.N.A.L20.A.1.U2.2240.Z01.E` | Total loans NFC + household |
+| `MIR` (MFI Interest Rates) | `M.{C}.B.{A2Z}.EUR.LEUR` | Loan interest rates EA |
+| `RPP` (Residential Property Prices) | `Q.{C}.N.TD.00.4.00` | For F1 valuations cross-cycle |
+
+### 3.4 BdP BPstat — Portugal
+
+**Base:** `https://bpstat.bportugal.pt/data/v1`
+**Auth:** none (public open data).
+**Format:** JSON direct.
+
+| Series | BPstat ID | Notes |
+|--------|-----------|-------|
+| PT private credit | `12559601` | Total loans to non-financial private |
+| PT household DSR proxy | derived via loans × implicit rate | Not published directly |
+
+**Redundant vs ECB SDW** — use ECB SDW como primary para consistency cross-country; BPstat fallback se ECB SDW unreachable.
+
+### 3.5 TE — credit breadth T2-T3
+
+**Base:** `https://api.tradingeconomics.com`
+
+| Consumer | Endpoint | Notes |
+|----------|----------|-------|
+| Private credit (T3 breadth) | `/country/{c}/indicators` Cat=Money subfilter "Private debt" | Variable coverage |
+| Loan growth | `/country/{c}/indicators` Cat=Money subfilter "Loans" | Monthly/quarterly |
+| Banking sector indicators | `/country/{c}/indicators` Cat=Money subfilter NPL | Mix — T1 confiável, T3 sparse |
+
+**Caveat:** TE `Private debt` é frequently a stock em local currency sem GDP ratio. Need to compute ratio locally vs GDP series (ver E1-activity). Fragile — prefer BIS.
+
+### 3.6 Scrape — rating agency press releases
+
+**Status:** **primary path para rating-spread overlay forward** (Phase 1 implementation).
+
+Per D0 audit TE `/ratings/historical/{country}` retorna latest 2022-09-09 (4Y stale) → **rejected**.
+
+**Source hierarchy (rewrite pendente per CSV rating-spread rows):**
+
+1. **Damodaran annual** — `pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html`
+   - File: `histimpl.xlsx` (historical implied country risk premium, annual since ~1994)
+   - Coverage: ~170 countries
+   - Licence: academic free with attribution
+   - Usage: **historical backfill only** (annual freq inadequate para daily overlay emissions; serve como sanity baseline).
+
+2. **S&P Global Ratings press releases** — `www.spglobal.com/ratings/en/research-insights/`
+   - Ethical scrape: polite rate ≤1 req/min, User-Agent identifying, respect robots.txt.
+   - Coverage: sovereign + corporate; filter por "sovereign rating action".
+   - Format: HTML — parse date, country, rating from/to, outlook, watchlist.
+   - Scope: recent (last 90 days free; historical paywalled).
+
+3. **Moody's** — `www.moodys.com/research` similar.
+4. **Fitch** — `www.fitchratings.com/research/sovereigns` similar.
+5. **DBRS** — `www.dbrsmorningstar.com/research` similar.
+
+**Backlog spec rewrite:** rating-spread overlay ainda contem fallback TE no spec v0.1. Bloco E planeia rewrite strip TE + add Damodaran + agency scrape. Ver `backlog/calibration-tasks.md CAL-001`.
+
+### 3.7 Scrape — CDS (overlay CRP)
+
+**Source:** `worldgovernmentbonds.com` — path único free para sovereign CDS 5Y em ~45 países.
+
+**Constraint:** scrape polite + ethical rate ≤1 req/5min (site não-industrial). Attribution required.
+
+**Alternative (Tier 3 pago):** Markit/S&P CDS Index, Bloomberg. Out-of-scope Phase 1.
+
+**D1 finding:** site responsive; structure stable last 18mo (scrape pattern documentable). Phase 1 implementação requer CSS-selector-based parser.
 
 ---
 
-**Documento de trabalho interno · 7365 Capital · SONAR Research · Abril 2026**
+## 4. Série catalog — por index / overlay
+
+Legenda igual a economic.md.
+
+### 4.1 L1 — Credit-to-GDP stock
+
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `credit_to_gdp_ratio` | BIS `WS_TC` (Q.{C}.P.M.{unit}) | FRED `QUSPAMUSQTMKTP` (US); ECB SDW BSI (EA members) | Q | 90 | L1 §2.1 |
+
+**Input for L2 gap computation** (Basel III one-sided HP filter λ=400 000).
+
+**D1 blocker:** WS_TC key unit code pending — see §3.1 note. L1 spec §7 adia implementação de real-value keys para fase de connector dev.
+
+### 4.2 L2 — Credit-to-GDP gap
+
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `credit_gap_hp_filtered` | BIS `WS_CREDIT_GAP` (pre-computed) | Compute locally from L1 raw | Q | 90 | L2 §2.1 |
+
+**Computation local (fallback):**
+```python
+from statsmodels.tsa.filters.hp_filter import hpfilter
+trend, _ = hpfilter(credit_to_gdp_log_quarterly, lamb=400_000)
+gap_pp = (credit_to_gdp - trend) × 100  # expressed in pp of GDP
+```
+
+**Basel III calibration** (BIS Working Paper 355): `λ = 400 000` para quarterly data (equivalent suavidade 30-year cycle).
+
+**Caching:** HP filter é expensive recomputação — cache per (country, vintage) key (ver spec `conventions/patterns.md` HP cache policy).
+
+### 4.3 L3 — Credit impulse
+
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `credit_impulse` | BIS `WS_TC` derived | Local compute | Q | 90 | L3 §2.1 |
+
+**Definição (Biggs-Mayer-Pick 2010):**
+```
+credit_impulse_t = (flow_credit_t - flow_credit_{t-4}) / GDP_t
+  where flow_credit_t = stock_credit_t - stock_credit_{t-1}
+```
+
+Segunda derivada do stock — captura mudanças de acceleração, não level.
+
+### 4.4 L4 — Debt service ratio (DSR)
+
+| Série | Pri | Ovr | Freq | Lat | Spec § |
+|-------|-----|-----|------|-----|--------|
+| `debt_service_ratio` | BIS `WS_DSR` Q.{C}.P | FRED `TDSP` (US household); compute localmente para non-BIS-32 | Q | 90 | L4 §2.1 |
+
+**BIS WS_DSR universe (32 países):** AR, AU, BE, BR, CA, CN, DE, DK, EA, ES, FI, FR, GB, GR, HK, ID, IE, IL, IN, IT, JP, KR, MX, NL, NO, PL, PT, RU, SE, TH, TR, US, ZA.
+
+**Computation local** (quando fora BIS 32):
+```
+DSR_t = (interest_payments_t + principal_repayments_t) / disposable_income_t
+```
+
+**Spec L4 §5:** QS (quality stress) via NPL é Phase 2+. MS (marginal stress) via DSR approaching thresholds é Phase 1 (implementação parcial).
+
+### 4.5 Overlay L2 — rating-spread
+
+| Série | Pri | Freq | Notes |
+|-------|-----|------|-------|
+| `rating_actions_sp` | Scrape S&P (Damodaran annual backfill) | Event-driven + annual | Emit daily overlay; hold between events |
+| `rating_actions_moodys` | Scrape Moody's | idem | idem |
+| `rating_actions_fitch` | Scrape Fitch | idem | idem |
+| `rating_actions_dbrs` | Scrape DBRS | idem | idem |
+| `notch_spread_calibration` | FRED `BAMLC0A0CM` + `BAMLH0A0HYM2` calibrated annually | Daily (ICE indices) | Global lookup table rating notch → spread bps |
+
+**Spec rewrite pending (Bloco E):** versão v0.1 do rating-spread spec assume TE fallback. Per D0 rejeitado. Bloco E planeia:
+- Remover fallback TE.
+- Add Damodaran annual (`histimpl.xlsx`) para backfill pre-2023.
+- Add scrape forward para eventos 2023+.
+- Calibrar `notch_spread_calibration` via regression of ICE BofA spreads on rating (CAL-020).
+
+**Licensing:** scrape press releases público via robots.txt compliance. Damodaran academic free.
+
+### 4.6 Overlay L2 — CRP (Country Risk Premium)
+
+| Série | Pri | Freq | Notes |
+|-------|-----|------|-------|
+| `cds_5y_sovereign` | Scrape `worldgovernmentbonds.com` | Daily | ~45 países live; ethical scrape |
+| `sovereign_yield_spread_vs_bench` | Derived from TE + FRED Bund/UST | Daily | Country 10Y − Bund (EA) / UST (USD) |
+| `equity_returns_vol` | TE `/markets/historical/{symbol}` + compute 5Y rolling σ | Daily → derived | Non-US indices via TE |
+| `sovereign_bond_returns_vol` | Derived — yfinance ETF proxy (`TLT`, `IEF`, ...) | Daily → derived | Phase 1 uses ETF proxy |
+
+**CRP overlay pattern:** "hierarchy best-of" (ver `conventions/patterns.md`):
+1. CDS se disponível (liquid ~45 países).
+2. Spread vs benchmark se yield data completa mas CDS illiquid.
+3. Equity/bond σ ratio × ERP (Damodaran method) como tertiary.
+
+**Consumer specs:** `cycles/credit-cccs.md §6` + overlay spec `crp.md`.
+
+---
+
+## 5. Fallback hierarchy
+
+### 5.1 Árvore de decisão CCCS
+
+```
+Para cada (series, country):
+    1. IF country in BIS_UNIVERSE AND series in BIS_DATAFLOW:
+         → BIS
+    2. ELIF country == "US" AND series has FRED native:
+         → FRED (TDSP, QUSPAMUSQTMKTP)
+    3. ELIF country in ECB_EA AND series in BSI/MIR:
+         → ECB SDW
+    4. ELIF country in TE_BREADTH AND TE covers:
+         → TE (breadth T2-T3)
+    5. ELSE:
+         → flag {SERIES}_{COUNTRY}_MISSING + CCCS degraded
+```
+
+### 5.2 Policy 1 aplicado
+
+Se CCCS tem 2 dos 3 sub-indices (CS, LC, MS) válidos (threshold P1):
+```
+valid = {CS, LC}  # hypothesis: MS missing
+total_weight_valid = 0.44 + 0.33 = 0.77
+re-weighted = {CS: 0.44/0.77, LC: 0.33/0.77}
+CCCS = 0.571 × CS + 0.429 × LC
+confidence = min(0.75, base)
+flag = [MS_MISSING, CCCS_REWEIGHTED]
+```
+
+Se ≥2 sub-indices missing → `CCCS = NULL`, flag `COVERAGE_INSUFFICIENT`.
+
+### 5.3 Override conditions
+
+- **BIS primary sempre** se country in BIS universe (latency aceitável; authoritative).
+- **FRED US override** para DSR (TDSP) — BIS WS_DSR US presente mas FRED TDSP tem finer granularity (household vs all-private).
+- **ECB SDW EA override** — EA aggregate BIS lagged; SDW fresher.
+
+---
+
+## 6. Known gaps e backlog
+
+### 6.1 Gaps críticos (BLOCKING)
+
+| Gap | Impacto | Mitigação | Backlog |
+|-----|---------|-----------|---------|
+| BIS WS_TC key unit code | L1 credit-to-GDP failing smoke test | Debug dimension code in Phase 1 connector dev | `CAL-019` |
+| TE rating data 4Y stale | Rating-spread overlay cannot use TE | Scrape agency + Damodaran | spec rewrite Bloco E, `CAL-001` |
+| FMP /api/stable 403 | Sem commodities/financial breadth | Parked P2+; no credit impact | `P2-014` |
+| BIS 43 universe gap (T3) | 43 T3 countries sem credit data nativo | Flag + CCCS degraded | — |
+| CDS scrape fragility | worldgovernmentbonds.com único path free | Monitor breakage; consider Tier 3 pago se fail | — |
+
+### 6.2 Gaps de qualidade (CORE)
+
+- **BIS publication lag:** BIS publica credit data Q+90 dias typical. CCCS cannot be daily-fresh; emit daily but cycle state changes only upon Q release.
+- **One-sided vs two-sided HP filter:** Basel III official é one-sided (eliminating future-leakage). `WS_CREDIT_GAP` é one-sided. Local compute deve replicar (`hpfilter` default é two-sided — fix: custom one-sided implementation).
+- **DSR local compute accuracy:** para países fora BIS-32, DSR depends on interest rates + debt stock + income. TE interest rates quality variable → accuracy bias.
+
+### 6.3 Out-of-scope Phase 0 / Phase 1
+
+- **QS (Quality Stress) sub-index** — NPL + default rates. Coverage BIS parcial + latency >90 dias. Phase 2 `P2-001` reintroduz QS.
+- **Sectorial granularity** (mortgage vs consumer vs C&I vs corporate bonds) — aggregate only Phase 1.
+- **Housing cycle** — parte de F1-valuations (financial.md), não CCCS.
+- **Minsky fragility layer** — Phase 3+, cross-cycle composite FCS.
+
+### 6.4 Calibration tasks
+
+- `CAL-001` — rating-spread spec rewrite (Bloco E).
+- `CAL-004` — CCCS weights empirical validation (v0.1 = BIS WP 355 derived).
+- `CAL-009` — HP filter λ sensitivity test.
+- `CAL-019` — BIS WS_TC key unit code debug.
+- `CAL-020` — notch→spread calibration (quarterly).
+
+---
+
+## 7. Licensing status
+
+| Fonte | Licença | Uso permitido |
+|-------|---------|--------------|
+| BIS | CC-BY-4.0 (public data mandate) | Full re-use with attribution |
+| FRED | Public domain | Sem restrições |
+| ECB SDW | ECB re-use (≈CC-BY) | Attribution |
+| BPstat | Open Data PT | Attribution |
+| TE | Commercial (tier pending) | Internal-only |
+| Damodaran | Academic free | Attribution "Damodaran, NYU Stern" |
+| S&P / Moody's / Fitch / DBRS press | Copyright — **scrape headlines + metadata only** | Cite agency; no full-text redistribution |
+| worldgovernmentbonds.com | Website TOS (attribution) | Polite rate + source cite |
+
+**Ethical scrape policy** (reminder governance/DATA.md): User-Agent identifies SONAR research; honor robots.txt; rate ≤1 req/min para non-industrial sites; cache aggressively para minimize requests.
+
+---
+
+## 8. Cross-refs
+
+### 8.1 Specs consumer
+
+- `docs/specs/indices/credit/L1-credit-to-gdp-stock.md`.
+- `docs/specs/indices/credit/L2-credit-to-gdp-gap.md`.
+- `docs/specs/indices/credit/L3-credit-impulse.md`.
+- `docs/specs/indices/credit/L4-dsr.md`.
+- `docs/specs/cycles/credit-cccs.md`.
+- `docs/specs/overlays/rating-spread.md` (rewrite pendente Bloco E).
+- `docs/specs/overlays/crp.md`.
+
+### 8.2 Outros cycles
+
+- `docs/specs/cycles/financial-fcs.md §6` — FCS F1 consome credit-to-GDP (bubble warning).
+- `docs/specs/cycles/monetary-msc.md §7` — MSC consulta spread via CRP overlay.
+
+### 8.3 Overlays partilhados
+
+- `crp.md` emite CRP daily → consumido em rating-spread + FCS F1.
+- `rating-spread.md` emite notch spread bps → feed default-spread lookup in CRP.
+
+### 8.4 Conventions
+
+- `conventions/normalization.md` — z-score + clip.
+- `conventions/composite-aggregation.md` — Policy 1 CCCS re-weight.
+- `conventions/patterns.md` — HP filter cache + versioning per-table rating.
+- `conventions/flags.md` — emitidos: `MS_MISSING`, `CCCS_REWEIGHTED`, `BIS_KEY_FAIL`, `CDS_SCRAPE_FAIL`, `RATING_STALE`, `COVERAGE_INSUFFICIENT`.
+
+### 8.5 Architecture / ADRs
+
+- `docs/ARCHITECTURE.md §L3 credit`.
+- `docs/adr/ADR-0002` — nine-layer.
+- `docs/adr/ADR-0003` — storage (credit tables quarterly frequency).
+
+### 8.6 Governance / backlog
+
+- `docs/governance/DATA.md` — scrape ethics.
+- `docs/backlog/calibration-tasks.md` — `CAL-001`, `CAL-004`, `CAL-009`, `CAL-019`, `CAL-020`.
+- `docs/backlog/phase2-items.md` — `P2-001` (QS), `P2-014` (FMP reactivation).
+- `docs/data_sources/D0_audit_report.md` — TE ratings stale finding.
+- `docs/data_sources/D1_coverage_matrix.csv` — rows 17-25 (CRP + rating-spread) + 45-48 (L1-L4).
+
+---
+
+*Última revisão: 2026-04-18 (Phase 0 Bloco D1 rewrite).*
