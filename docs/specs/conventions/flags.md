@@ -218,6 +218,7 @@ Flags transversais emitidas por múltiplas specs — contrato partilhado, não p
 | `ZLB_UNADJUSTED` | `indices/monetary/M1-effective-rates` | Shadow rate academic indisponível fora US+EA+UK+JP; M1 usa `policy_rate` observed com flag quando `policy_rate ≤ 0.25%`. Substitui `ZLB_REGIME` em countries sem shadow series | −0.10 |
 | `BREAKEVEN_PROXY_SURVEY` | `overlays/expected-inflation` | BEI (nominal − TIPS) indisponível (no linker market); substitute SPF/survey − term premium decomposition | co-emitted with `PROXY_APPLIED` |
 | `COVERAGE_TE_DEGRADED` | generic | TE rate limit / outage → T2-T3 breadth afectada; T1 coberto por native overrides; Policy 1 re-weight applicable | cap 0.70 |
+| `ATTRIBUTION_REQUIRED` | generic | Output cita data de source com mandatory attribution per [`../../governance/LICENSING.md`](../../governance/LICENSING.md) §3 (canonical strings). Consumer spec emits when propagating data to output layer | informational (none — operational routing) |
 
 ## Convenção de propagação
 
@@ -234,3 +235,7 @@ Reservadas — não emitir ainda. Promover ao catálogo principal quando owner s
 - `BACKFILLED` — row produzida por `pipelines/backfill-strategy`, não daily forward-run.
 
 *`SURVEY_MISSING` e `LINKER_UNAVAILABLE` foram promovidas para o catálogo principal em P3a (owner: `overlays/expected-inflation`).*
+
+## Deprecated
+
+- `LICENSE_REVIEW_NEEDED` — placeholder conceptual mencionado em `governance/DATA.md` pre-D4. Resolvido per-source em [`../../governance/LICENSING.md`](../../governance/LICENSING.md) §2 (2026-04-18 Bloco D4). Nunca emit em production; substituído por `ATTRIBUTION_REQUIRED` (catalogued §Generic acima).

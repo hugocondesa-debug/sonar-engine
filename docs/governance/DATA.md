@@ -67,14 +67,17 @@ Decisão ADR quando migração disparar (ADR-0003 gates). `pg_dump` daily + WAL 
 
 ## Licensing — data sources
 
-Critério de uso por tier:
+**Full audit per-source:** [`LICENSING.md`](LICENSING.md) (Bloco D4, 2026-04-18). Source licensing table, attribution strings canónicas, use case matrix (internal/dashboard/client/published/API) e publication checklist vivem lá.
 
-- **Free + attribution** (FRED, ECB SDW, BIS, IGCP, World Bank, OECD): OK para uso SONAR internal e editorial. Attribution em briefings quando números são directamente citados.
+Tiers de alto nível (superseded per-source em LICENSING.md §2):
+
+- **Free + attribution** (FRED, ECB SDW, BIS, OECD, Eurostat, INE): OK para uso SONAR internal e editorial. Attribution per canonical strings em LICENSING.md §3.
+- **Commercial ToS** (TE Premium): full liberty para 7365 Capital outputs per ToS interpretation (LICENSING.md §2 row 1).
 - **Licensed** (Bloomberg, Refinitiv, LSEG): **NÃO usar sem licença explícita**. Se spec referir, flag para Hugo decidir.
-- **Proprietary/paywall** (FT, Reuters, BIS certain series): caso a caso; assume não-disponível até prova em contrário.
-- **Scraping** (Yahoo Finance, IGCP HTML, alguns sites EM): ethical rate + terms-of-service check. Não usar se ToS proibir explicitamente.
+- **Academic free-use** (Shiller Yale, Damodaran NYU): attribution required per LICENSING.md §3.
+- **Scraping** (worldgovernmentbonds.com, AAII, CFTC, FINRA, agency press releases): ethical rate + robots.txt compliance per LICENSING.md §7. Output layer só consome composites (raw data audit-internal).
 
-Flag `LICENSE_REVIEW_NEEDED` em `docs/data_sources/*.md` quando source require adjudication.
+Flag `ATTRIBUTION_REQUIRED` catalogado em [`../specs/conventions/flags.md`](../specs/conventions/flags.md) (era `LICENSE_REVIEW_NEEDED` — resolved D4, deprecated).
 
 ## PII & compliance
 
