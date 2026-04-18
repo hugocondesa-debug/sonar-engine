@@ -1,0 +1,160 @@
+# SONAR v2 — Country tier classification
+# Phase 0 Bloco D1
+# Última revisão: 2026-04-18
+#
+# CRITÉRIOS DE CLASSIFICAÇÃO (precedence order):
+#
+# 1. Market liquidity — existência de sovereign bond market com yields
+#    diários em ≥6 tenores (sine qua non para overlays L2 NSS + CRP).
+#
+# 2. Data availability — cobertura em ≥2 das 3 source principais
+#    (TE macro indicators, FRED IR*/FXRT*, BIS WS_TC/DSR).
+#
+# 3. SONAR analytical relevance — relevância editorial 7365 Capital
+#    (Portugal-aware, Euro Area focus, G10 baseline, key EMs).
+#
+# TIERS:
+#
+#   T1 — Full coverage obligatório. Specs assumem todos os 4 cycles
+#        operacionais. Fixtures historical obrigatórios.
+#
+#   T2 — Full coverage best-effort. Cycles podem ter indices degradados
+#        (flags tipo F4_COVERAGE_SPARSE aceitáveis).
+#
+#   T3 — Partial coverage. ECS + CCCS + MSC + CRP overlay esperados;
+#        FCS frequentemente degradado (sem AAII/COT/positioning data).
+#
+#   T4 — Sparse / CRP-only. Suficiente para rating-spread + CRP
+#        via TE + agency scrape. Outros overlays opt-in per spec.
+#
+# NOTAS:
+#   - iso_code usa ISO 3166-1 alpha-2 uppercase (convenção CLAUDE.md §3).
+#   - EA (Euro Area aggregate) não é ISO 3166 oficial mas é tratado
+#     como T1 para ECB SDW consumer specs.
+#   - "default: T4" aplica-se a countries não listados explicitamente.
+
+tiers:
+
+  # =========================================================================
+  # T1 — 16 countries · full coverage obligatório
+  # =========================================================================
+  T1:
+    - { iso_code: US, country: United States }
+    - { iso_code: DE, country: Germany }
+    - { iso_code: FR, country: France }
+    - { iso_code: IT, country: Italy }
+    - { iso_code: ES, country: Spain }
+    - { iso_code: NL, country: Netherlands }
+    - { iso_code: GB, country: United Kingdom, aliases: [UK] }
+    - { iso_code: JP, country: Japan }
+    - { iso_code: CA, country: Canada }
+    - { iso_code: AU, country: Australia }
+    - { iso_code: NZ, country: New Zealand }
+    - { iso_code: CH, country: Switzerland }
+    - { iso_code: NO, country: Norway }
+    - { iso_code: SE, country: Sweden }
+    - { iso_code: PT, country: Portugal }          # home market operator
+    - { iso_code: EA, country: Euro Area }         # aggregate, ECB SDW
+
+  # =========================================================================
+  # T2 — 30 countries · major EMs + minor EU
+  # =========================================================================
+  T2:
+    # Major EMs
+    - { iso_code: CN, country: China }
+    - { iso_code: IN, country: India }
+    - { iso_code: BR, country: Brazil }
+    - { iso_code: MX, country: Mexico }
+    - { iso_code: KR, country: Korea Republic of }
+    - { iso_code: TR, country: Turkey }
+    - { iso_code: ZA, country: South Africa }
+    - { iso_code: RU, country: Russian Federation }
+    - { iso_code: ID, country: Indonesia }
+    - { iso_code: TH, country: Thailand }
+    - { iso_code: MY, country: Malaysia }
+    - { iso_code: CL, country: Chile }
+    - { iso_code: CO, country: Colombia }
+    - { iso_code: PE, country: Peru }
+    - { iso_code: IL, country: Israel }
+    - { iso_code: SA, country: Saudi Arabia }
+    - { iso_code: AE, country: United Arab Emirates }
+    - { iso_code: PL, country: Poland }
+    - { iso_code: CZ, country: Czech Republic }
+    - { iso_code: HU, country: Hungary }
+    - { iso_code: RO, country: Romania }
+    # EU/advanced economies not in T1
+    - { iso_code: IE, country: Ireland }
+    - { iso_code: GR, country: Greece }
+    - { iso_code: BE, country: Belgium }
+    - { iso_code: AT, country: Austria }
+    - { iso_code: FI, country: Finland }
+    - { iso_code: DK, country: Denmark }
+    # Asia advanced
+    - { iso_code: SG, country: Singapore }
+    - { iso_code: HK, country: Hong Kong }
+    - { iso_code: TW, country: Taiwan }
+
+  # =========================================================================
+  # T3 — 40 countries · frontier mas analyticamente relevantes
+  # =========================================================================
+  T3:
+    # Frontier Africa
+    - { iso_code: EG, country: Egypt }
+    - { iso_code: NG, country: Nigeria }
+    - { iso_code: KE, country: Kenya }
+    - { iso_code: MA, country: Morocco }
+    - { iso_code: GH, country: Ghana }
+    - { iso_code: TN, country: Tunisia }
+    - { iso_code: CI, country: Cote d'Ivoire }
+    # Frontier Asia
+    - { iso_code: PK, country: Pakistan }
+    - { iso_code: VN, country: Vietnam }
+    - { iso_code: PH, country: Philippines }
+    - { iso_code: BD, country: Bangladesh }
+    - { iso_code: LK, country: Sri Lanka }
+    - { iso_code: KH, country: Cambodia }
+    # LATAM
+    - { iso_code: AR, country: Argentina }
+    - { iso_code: VE, country: Venezuela }
+    - { iso_code: UY, country: Uruguay }
+    - { iso_code: DO, country: Dominican Republic }
+    - { iso_code: GT, country: Guatemala }
+    - { iso_code: CR, country: Costa Rica }
+    - { iso_code: PA, country: Panama }
+    # Middle East
+    - { iso_code: QA, country: Qatar }
+    - { iso_code: KW, country: Kuwait }
+    - { iso_code: OM, country: Oman }
+    - { iso_code: BH, country: Bahrain }
+    - { iso_code: JO, country: Jordan }
+    - { iso_code: LB, country: Lebanon }
+    - { iso_code: IQ, country: Iraq }
+    - { iso_code: IR, country: Iran Islamic Republic of }
+    # CIS + Eastern Europe
+    - { iso_code: UA, country: Ukraine }
+    - { iso_code: KZ, country: Kazakhstan }
+    - { iso_code: UZ, country: Uzbekistan }
+    - { iso_code: BY, country: Belarus }
+    - { iso_code: BG, country: Bulgaria }
+    - { iso_code: HR, country: Croatia }
+    - { iso_code: SK, country: Slovakia }
+    - { iso_code: SI, country: Slovenia }
+    - { iso_code: LT, country: Lithuania }
+    - { iso_code: LV, country: Latvia }
+    - { iso_code: EE, country: Estonia }
+    # Other
+    - { iso_code: IS, country: Iceland }
+    - { iso_code: CY, country: Cyprus }
+    - { iso_code: MT, country: Malta }
+    - { iso_code: LU, country: Luxembourg }
+
+  # T4 default — todos os restantes ~110 countries em ISO 3166-1 não
+  # listados explicitamente acima. Coverage: rating-spread + CRP via TE
+  # + agency scrape where available; outros overlays opt-in per spec.
+  #
+  # Examples T4 (não exhaustivo): MU, AO, ZM, TZ, UG, SN, GN, ML, BF,
+  # ET, RW, BW, NA, SL, CM, LR, MG, MW, MZ, NE, TD, SO, GM, ZW, AL, MK,
+  # ME, BA, XK, GE, AM, AZ, MD, MN, BN, MV, BT, LA, NP, MM, YE, SY, PG,
+  # FJ, NC, and all micro-states / territories.
+
+default: T4
