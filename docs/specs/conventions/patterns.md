@@ -106,9 +106,97 @@ bumps independentes:
 
 [`../overlays/nss-curves.md`](../overlays/nss-curves.md): 4 tabelas (spot/zero/forward/real) mas **mesma** `methodology_version` (`NSS_v0.1`). Todas bumps juntas porque dependem da mesma fit. Single version suficiente.
 
-## Quando NÃO aplicar nenhum dos 3
+## Padrão 4: TE primary + native overrides
 
-Padrão simples (single method, single table, single version) é o default. Forçar um padrão onde scope não justifica adiciona complexidade sem valor.
+### Definição
+
+L0 connectors de macro/markets data usam **Trading Economics como primary breadth source** (`/country/{c}` bulk endpoint cobre 75+ países × 150+ indicators/call) com **overrides nativos por (série, país) quando satisfazem triggers explícitos**. Native override substitui TE silenciosamente; TE é fallback auditável.
+
+### Quando aplicar
+
+- Série é consumida por specs L2-L3 para ≥ 2 países.
+- Existe ≥ 1 fonte nativa (FRED, BIS, ECB SDW, Eurostat, BPstat, central bank direct) que satisfaz ≥ 1 override trigger vs TE.
+- TE breadth cobre pelo menos T2+T3 (~46+43 países) para a série.
+
+### Template estrutural
+
+```
+primary: TE /country/{c}/indicators
+  ↓ loaded bulk daily 1 req per country
+override_matrix:
+  (series, country) → native_connector
+    └── activated per override_triggers (ver abaixo)
+connector resolution:
+  if (series, country) in override_matrix:
+      data = native_connector.fetch(...)
+      flag(source_used: native)
+  else:
+      data = te_bulk_cache.get(country, series)
+      flag(source_used: TE)
+```
+
+### Override triggers
+
+| Trigger | Descrição | Exemplo |
+|---------|-----------|---------|
+| **Freshness gap** | Nativo publica T+N com N < TE lag observado em D2 | FRED VIXCLS T+1 vs TE VIX:IND T+1 (parity — no override); Eurostat `une_rt_m` DE T+21 vs TE Unemployment Rate DE possibly T+30 (override) |
+| **Depth gap** | Nativo expõe granularidade que TE agrega ou não calcula | FRED `T10Y2Y` pre-computed slope vs TE spot yields por tenor (override FRED); FRED TIPS real yields `DFII*` (TE não expõe TIPS) |
+| **Authoritativeness** | Série tem only one authoritative source canónica | Fed policy rate = FRED `FEDFUNDS` / `DFEDTARU`+`DFEDTARL`; ECB policy rate = ECB SDW `FM`; BIS debt service ratio = BIS `WS_DSR` — TE não é source of truth semântico |
+| **TE broken/mismatch** | TE retorna 0 rows / wrong indicator name cross-country (D2 finding) | UK Unemployment Rate TE 0 rows → override Eurostat `une_rt_m geo=UK` |
+
+### Matriz domínio × primary × override
+
+| Domínio | TE primary? | Native override principal | Trigger dominante |
+|---------|-------------|--------------------------|-------------------|
+| Macro indicators (GDP, CPI, IP, retail, unemployment) | ✓ breadth | FRED (US), Eurostat (EA), INE (PT quando discovery resolve) | Freshness + authoritativeness per country |
+| Yield curves (sovereign tenors) | ~ ponto-a-ponto | FRED `DGS*` (US), Bundesbank Svensson (DE), BoE A-S (UK), MoF (JP) | Depth (Svensson/A-S pre-fitted) + authoritativeness |
+| FX | ✓ `/markets/{pair}:CUR` | — (TE é sufficient; FRED `DEXUSEU` etc. overlap) | — |
+| Commodities | ✓ `/markets/{sym}:COM` | FRED (WTI `DCOILWTICO`, gold `GOLDAMGBD228NLBM`) | Freshness (FRED delayed vs TE real-time) |
+| Equity indices | ✓ `/markets/{sym}:IND` | FRED `SP500` (US only) | Authoritativeness US; TE breadth mandatory non-US |
+| Credit spreads (OAS) | ✗ não confiável | FRED `BAMLC0A0CM`/`BAMLH0A0HYM2` (ICE BofA) | Depth + authoritativeness (ICE licensed) |
+| Rating actions | ✗ stale D0 | Damodaran annual + agency scrape forward | TE broken (4Y stale) + authoritativeness |
+| Central bank decisions (policy rate) | ~ breadth | FRED US, ECB SDW EA, native CB direct | Authoritativeness canonical |
+| Economic calendar (release dates) | ✓ `/calendar` | — | — (TE é canonical) |
+| Positioning data (AAII, COT, FINRA) | ✗ | aaii.com / cftc.gov / finra.org scrapes | TE não cobre |
+| On-chain crypto | ✗ | Out-of-scope Phase 1 | — |
+| Survey data (SPF, UMich) | ~ breadth | FRED (UMCSENT, EXPINF10YR), ECB SPF direct | Depth + authoritativeness |
+
+### Exemplo canónico
+
+Economic cycle ECS consume unemployment rate em 46 países (T1+T2). Pattern 4 em acção:
+
+- 46 países × 1 daily bulk `/country/{c}` call → populate TE cache.
+- Override matrix:
+  - US → FRED `UNRATE` (authoritativeness + freshness T+5 vs TE variable)
+  - EA aggregate → ECB SDW `STS` dataflow (TE não expõe aggregate)
+  - DE, FR, IT, ES, etc. → Eurostat `une_rt_m` (freshness T+21 confirmed D2)
+  - UK → Eurostat ou ONS direct (TE returnou 0 rows D2)
+  - PT → Eurostat mirror (INE broken D2)
+  - T2 EMs (BR, IN, MX, etc.) → TE primary (native connectors Phase 2+)
+- Consumer L3 spec `E3-labor` recebe unified series; flag `source_used` persistido por audit.
+
+### Evidence base
+
+- [`../../data_sources/D1_coverage_matrix.csv`](../../data_sources/D1_coverage_matrix.csv) — 67 rows matriz canónica (15 cols D1 + 3 cols D2 freshness).
+- [`../../data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) — 22 rows tested; D2 confirmou 3 override triggers (freshness, depth, authoritativeness) empiricamente.
+
+### Consequences + trade-offs
+
+- **TE é single-point-of-failure para breadth T2-T3**. Se TE rate limit hit OR outage, override matrix cobre T1 full mas T2+T3 degradado → flag `COVERAGE_TE_DEGRADED` + Policy 1 re-weight.
+- **Override matrix maintenance overhead**: per `(série, país)` entry requires spec + validation. Governance: maintained em `data_sources/*.md` per cycle; changes require PR dedicado.
+- **Silent override**: connector switch primary→native sem alert (by design — fallback automatic). Audit via `source_used` column em raw tables.
+
+### Contra-exemplo
+
+L4 cycle aggregation (ECS, CCCS, MSC, FCS): consome L3 indices, não raw data. Pattern 4 não aplica — cycles usam fail-mode de [`composite-aggregation.md`](composite-aggregation.md) Policy 1.
+
+### FROZEN status
+
+Alterações à lista de override triggers OR à tabela domínio×override requerem PR dedicado (consistente com Patterns 1-3). Adicionar (`série`, `país`) entries à override matrix em `data_sources/*.md` não é breaking change ao Pattern 4 per se; é operacional.
+
+## Quando NÃO aplicar nenhum dos 4
+
+Padrão simples (single method, single table, single version, single source) é o default. Forçar um padrão onde scope não justifica adiciona complexidade sem valor.
 
 ## Referências
 
@@ -116,4 +204,6 @@ Padrão simples (single method, single table, single version) é o default. For�
 - [`../overlays/erp-daily.md`](../overlays/erp-daily.md) — Parallel equals canónico
 - [`../overlays/crp.md`](../overlays/crp.md), [`../overlays/expected-inflation.md`](../overlays/expected-inflation.md) — Hierarchy best-of
 - [`../overlays/rating-spread.md`](../overlays/rating-spread.md) — Versioning per-table
+- [`../../data_sources/D1_coverage_matrix.csv`](../../data_sources/D1_coverage_matrix.csv), [`../../data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) — TE primary + native overrides evidence
 - [`methodology-versions.md`](methodology-versions.md) — formato e bump rules
+- [`proxies.md`](proxies.md) — proxy vs fallback distinction

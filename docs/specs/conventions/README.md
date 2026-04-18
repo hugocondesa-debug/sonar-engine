@@ -10,6 +10,10 @@ Contratos partilhados por **todas** as specs. Source of truth para naming, unida
 | [`exceptions.md`](./exceptions.md) | Hierarquia `SonarError` · 4 branches · 8 leaves | Nova exception → novo leaf aqui, nunca inline numa spec |
 | [`units.md`](./units.md) | Yields decimal vs display, bps, datas, confidence | Só em RFC — mudança aqui é breaking em toda a DB |
 | [`methodology-versions.md`](./methodology-versions.md) | Schema `{MODULE}_v{MAJOR}.{MINOR}` + bump rules | Toda revisão algorítmica mexe aqui |
+| [`patterns.md`](./patterns.md) | 4 architectural patterns (Parallel equals, Hierarchy best-of, Versioning per-table, TE primary + native overrides) | PR dedicado — FROZEN |
+| [`normalization.md`](./normalization.md) | `clip(50 + 16.67·z, 0, 100)` score formula | PR dedicado — FROZEN |
+| [`composite-aggregation.md`](./composite-aggregation.md) | Policy 1 re-weight fail-mode | PR dedicado — FROZEN |
+| [`proxies.md`](./proxies.md) | Proxies registry — proxy vs fallback vs placeholder distinction + registry table | PR dedicado — FROZEN |
 
 ## Regra cardinal
 
