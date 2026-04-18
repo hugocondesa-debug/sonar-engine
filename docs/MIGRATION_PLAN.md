@@ -1,383 +1,106 @@
-# SONAR v1 → v2 Migration Plan
+# SONAR v1 → v2 — Lessons Document
 
-Plano para arquivar o repo atual (`hugocondesa-debug/sonar`) e arrancar fresh.
+**Status**: v2.0 · Phase 0 Bloco C em curso
+**Última revisão**: 2026-04-18
 
----
+Lessons document v1→v2. **Não é plano de migração operacional** — v2 é greenfield rewrite, não fork de v1. Este ficheiro explica o que v1 ensinou, o que v2 fez diferente, e o que de v1 foi preservado em [`docs/reference/`](reference/) como knowledge base. Destinado a Hugo (operator) em 12m, colaborador futuro, auditor. Secundária: Claude Code que encontra decisão "estranha" em v2 e precisa contexto histórico.
 
-## Princípios
+## 1. Porque v2 não é fork de v1
 
-1. **Nada do v1 perdido** — tudo preservado como referência histórica
-2. **Aprendizagens documentadas** — "what worked, what didn't" escrito
-3. **Data migrate se útil** — historical DB pode migrar se schema compatível
-4. **Code não migrate by default** — v2 é greenfield rewrite
-5. **Manuais SIM migrate** — IP conceptual é o core asset
+v1 (2024-2026) acumulou debt técnico incompatível com continuidade: 434 indicadores em 19 connectors sem spec formal; schema drift cross-ciclo onde cada classificador inventava seu próprio layout; confidence não uniforme entre componentes impossibilitando agregação coerente; naming collision onde "sub-modelos" significava três coisas diferentes em partes diferentes do código; copy-paste de outputs externos (Damodaran ERP mensal, Bundesbank Svensson fitted, Shiller CAPE published) em vez de computação própria.
 
----
+Avaliação em 2026-04 concluiu: custo estimado de refactor in-place + introduzir specs post-facto para 434 indicadores existentes > custo de rewrite com specs-first discipline + número menor de indices bem delimitados (16 × 4-8 components). Decisão foi **greenfield v2** + preservação de v1 como knowledge base read-only. V1 original permanece em repo separado (`github.com/hugocondesa-debug/sonar`) arquivado; content conceptual relevante migrou para [`docs/reference/`](reference/) e [`docs/reference/archive/`](reference/archive/).
 
-## Phase 0.1 — Archive v1
+## 2. Diagnóstico v1 — 5 classes de debt
 
-### Passo 1 — Final snapshot v1
+### 2.1 Spec-less indicators
 
-```bash
-# Local clone atual
-cd /path/to/sonar-v1-local
-git status                    # ensure clean
-git pull                      # latest
-git log --oneline -20 > LAST_COMMITS.txt
-git branch -a > BRANCHES.txt
-du -sh .                      # size check
-```
+434 indicadores sem definição formal: fórmulas copy-pasted cross-file; mudanças silenciosas quando um ficheiro evoluía e outros não; zero testes de regressão; confidence intervals ad-hoc.
 
-### Passo 2 — Exportar learnings
+**v2 response**: specs-first mandatory. Template canónico em [`docs/specs/template.md`](specs/template.md) (10 secções + §11 non-requirements). Código em `sonar/` só com spec mergeado. 25 specs merged em Phase 0 Bloco B.
 
-Criar documento `v1_learnings.md` respondendo:
+### 2.2 Schema drift cross-ciclo
 
-**What worked well?**
-- Que connectors funcionaram bem?
-- Que metodologia de classificação foi validated?
-- Que decisões arquiteturais pagaram dividends?
-- Que data sources provaram reliable?
+Cada cycle inventava o seu próprio schema: column naming divergente entre tabelas; UNIQUE constraints inconsistentes; alguns carregavam `methodology_version`, outros não; foreign keys ad-hoc.
 
-**What didn't work?**
-- Technical debt identificado
-- Scope creep
-- Abstractions que não escalaram
-- Data sources que falharam
+**v2 response**: frozen contracts em [`docs/specs/conventions/`](specs/conventions/). `methodology_version TEXT NOT NULL` mandatory em toda row persistida. UNIQUE `(country_code, date, methodology_version)` como padrão. Bump rules MAJOR/MINOR formalizadas em [`methodology-versions.md`](specs/conventions/methodology-versions.md).
 
-**What changed in scope?**
-- v1 escopo vs v2 escopo claro
-- Why the rewrite (specific reasons)
-- Lessons for v2 architecture
+### 2.3 Confidence não uniforme
 
-**Migrable artifacts**:
-- List of connectors to re-implement (with priority)
-- List of SQL queries/views useful
-- List of research notebooks with insights
-- List of historical DB data worth migrating
+Cada indicador tinha semântica própria de confidence: alguns usavam float 0-1, outros 0-100, outros booleanos; missing data tratado diferente em cada lado; impossível agregar confidence cross-cycle de forma coerente.
 
-### Passo 3 — GitHub archive
+**v2 response**: Policy 1 (fail-mode re-weighting) uniforme cross-cycle — sub-index missing dispara `{INDEX}_MISSING` flag + re-weight proporcional + confidence cap 0.75. `≥ 3 of 4 indices required`; menos raise `InsufficientDataError`. Flags catalog + propagation rules em [`flags.md`](specs/conventions/flags.md).
 
-```bash
-# Opção A — rename + archive (mantém URL)
-# Na UI do GitHub:
-#   Settings → General → Rename → "sonar-v1-archive"
-#   Settings → General → Danger Zone → "Archive this repository"
+### 2.4 Naming collision
 
-# Opção B — move para nova org (se tiveres org separada)
-#   Settings → General → Transfer ownership
-```
+"Sub-modelos" significava simultaneamente: (a) calculadoras quantitativas reutilizáveis (NSS, ERP, CRP...), (b) componentes internos de um cycle score, (c) "cycle overlays" (Stagflation, Boom, etc.). Três conceitos ortogonais com mesmo nome.
 
-**Archived repo**:
-- Read-only
-- URL preserved
-- Can still view/clone but no pushes
-- Listed in profile as "Archived"
+**v2 response**: [`GLOSSARY.md`](GLOSSARY.md) canónico. Rename explícito **sub-modelos → Overlays (L2)**. Desambiguação formal: **Overlay (L2)** é calculadora quantitativa; **Overlay boolean** é coluna em `*_cycle_scores` (Stagflation/Boom/Dilemma/Bubble); **Regime (L5)** é cenário cruzado reificado (Phase 2+). Três termos distintos para três conceitos distintos.
 
-### Passo 4 — Backup local
+### 2.5 Published sources as input
 
-```bash
-# Full clone backup
-git clone --mirror https://github.com/hugocondesa-debug/sonar.git sonar-v1-mirror-2026-04-17.git
+Damodaran ERP mensal copy-pasted como input diário; Bundesbank Svensson fitted curves consumidas sem recompute; Shiller CAPE downloaded e inserido directamente. Consequência: dependência de cadências externas (mensal → diário nem sempre válido); zero rastreabilidade; drift silencioso quando sources atualizavam metodologia.
 
-# Bundle file (portable, single file)
-git bundle create sonar-v1-2026-04-17.bundle --all
+**v2 response**: **compute-don't-consume** como princípio #1 ([`ARCHITECTURE.md §2.1`](ARCHITECTURE.md)). Overlays calculam localmente; fontes published servem como cross-validation contínua via `XVAL_DRIFT` flag quando deviation excede target. ERP em v2: 4 methods paralelos (DCF, Gordon, EY, CAPE) com canonical = median; Damodaran mensal é target de validação, não input.
 
-# Store safely
-mv sonar-v1-mirror-2026-04-17.git ~/backups/
-mv sonar-v1-2026-04-17.bundle ~/backups/
+## 3. Principais renames v1 → v2
 
-# Encrypt if sensitive
-gpg -c sonar-v1-mirror-2026-04-17.git.tar
-```
+| v1 terminology | v2 terminology | Justificação |
+|---|---|---|
+| sub-modelos | **Overlays (L2)** | Colisão com "cycle overlays"; "overlay" captura melhor "calculador universal reutilizável cross-cycle" |
+| cycle overlays (Stagflation, Boom, Dilemma, Bubble) | **Overlay booleans (L4 columns)** / **Regimes (L5, Phase 2+)** | Desambiguação crítica; em v0.1 vivem como colunas booleanas em `*_cycle_scores`, migram para tabela L5 reificada em Phase 2+ |
+| 5-layer architecture | **9-layer architecture (L0-L8)** | L3 indices + L5 regimes + L8 pipelines explicitados; v1 fundia L3+L4 em "cycles" genérico e L8 em ad-hoc scripts |
+| `docs/methodology/` | **`docs/reference/`** | Knowledge base vs implementation plans separados; `reference/` é read-only histórico, `data_sources/` é operacional Phase 1+ |
 
-### Passo 5 — Data export
+## 4. O que foi preservado de v1
 
-Se v1 tinha database:
-```bash
-# SQLite export
-sqlite3 sonar.db ".dump" > sonar_v1_2026-04-17.sql
+- **Knowledge base conceptual** — 4 manuais v1 convertidos para [`docs/reference/`](reference/) (cycles/, indices/, overlays/). **32.063 linhas** totais, read-only. Fonte canónica para definições metodológicas; specs v2 referenciam directamente onde aplicável.
+- **Data source plans** — [`docs/data_sources/`](data_sources/) (4 ficheiros: economic, credit, monetary, financial). **4.312 linhas**. Catálogo de sources por ciclo com tier, endpoint, autenticação, rate limits, freshness. Revisão operacional em Bloco D Phase 0 antes de Phase 1 arrancar.
+- **Fixtures historical PT** — 2007 CRP ~20 bps · 2012 CRP peak ~1500 bps · 2009 DSR peak · 2012 CCCS distress · 2019 normalização · 2026 CRP ~54 bps. Anchors canónicos em specs de cycles + overlays como validation targets.
+- **Código v1 residual** (conceptual) — [`docs/reference/archive/v1-code/`](reference/archive/v1-code/) com `BaseConnector` v1 + `schema_v18.sql`. Read-only para inspecção de ideias reaproveitáveis durante Phase 1 (não como blueprint).
+- **CODING_STANDARDS-v1** — arquivado em [`docs/reference/archive/CODING_STANDARDS-v1.md`](reference/archive/CODING_STANDARDS-v1.md). Content relevante migra para `docs/governance/WORKFLOW.md` em Bloco 6.
 
-# CSV per table (for future analysis)
-for table in $(sqlite3 sonar.db ".tables"); do
-    sqlite3 -csv -header sonar.db "SELECT * FROM $table" > exports/$table.csv
-done
+## 5. O que NÃO foi preservado
 
-# Parquet format (compact, analysis-ready)
-python -c "
-import pandas as pd, sqlite3
-conn = sqlite3.connect('sonar.db')
-for table in pd.read_sql_query(\"SELECT name FROM sqlite_master WHERE type='table'\", conn)['name']:
-    df = pd.read_sql_query(f'SELECT * FROM {table}', conn)
-    df.to_parquet(f'exports/{table}.parquet')
-"
-```
+- **Listagem dos 434 indicadores v1** — não há inventário agregado. Cada spec v2 escolhe inputs do zero baseando-se em manuais conceptuais; resultado é ~50-80 input series concretos (16 indices × 4-8 components), não 434.
+- **Schemas SQL v1** — `schema_v18.sql` preservado em archive mas v2 usa SQLAlchemy 2.0 + Alembic migrations, schema redesenhado com `methodology_version` + confidence + flags em toda row.
+- **Confidence semantics v1** — v2 redefine confidence do zero (Policy 1 re-weight, cap 0.75, propagação formalizada).
+- **Dashboard v1** — Phase 3+ reconstrói (Streamlit MVP; React production condicional Phase 4+).
+- **Tests v1** — zero ported. Phase 1 requer pytest suite com fixtures historical PT desde o primeiro PR de código.
+- **Orquestração v1** — scripts ad-hoc substituídos por [`docs/specs/pipelines/`](specs/pipelines/) (6 stubs: daily-curves, daily-overlays, daily-indices, daily-cycles, weekly-integration, backfill-strategy).
+
+## 6. Princípios v2 como respostas ao debt v1
+
+| Debt v1 | Princípio v2 |
+|---|---|
+| Spec-less indicators | **Specs-first** — template obrigatório; código só com spec aprovado |
+| Schema drift | **Frozen contracts** em `docs/specs/conventions/`; PR dedicado para alterar |
+| Confidence não uniforme | **Policy 1** — re-weight uniforme cross-cycle + confidence cap 0.75 |
+| Naming collision | **GLOSSARY.md canónico** + desambiguações L2/L4/L5 explícitas |
+| Published sources as input | **Compute-don't-consume** (princípio #1) |
+| Calibração a olho | **Compute-before-calibrate** — placeholders declarados; recalibração empírica Phase 4 com ≥ 24m production data |
+| 5-layer implicit | **9-layer explicit (L0-L8)** com I/O contracts formais por camada |
+| Ad-hoc orchestration | **Specs-first for pipelines também** — 6 stubs pre-implementation |
+
+## 7. Porque greenfield > refactor
+
+Custo de mover 434 indicadores para specs formais post-facto — reverse-engineering de assumptions não documentadas, confidence semantics divergente, naming collisions entrelaçadas — estimado maior que custo de redefinir inputs de 16 indices bem delimitados desde zero. Rewrite permitiu ainda canonical approaches emergirem por convergência (median para ERP parallel methods, hierarchy best-of para CRP, `clip(50 + 16.67·z, 0, 100)` para normalização em 4 cycles independentes) em vez de cada componente inventar a sua — fenómeno impossível em refactor incremental onde conventions existentes constrangem escolhas.
+
+V1 como **knowledge base** é materialmente mais útil que v1 como código legacy: manuais conceptuais são referência consultável; código é friction com assumptions enterradas, tests inexistentes e dependencies drift. `docs/reference/` (32k linhas conceptuais) presta o serviço de "porquê"; código v1 em `docs/reference/archive/v1-code/` fica por completude, não por utilidade operacional.
+
+## 8. Arquivo v1 — localização operacional
+
+| Tipo | Path v2 | Estado |
+|---|---|---|
+| Repo v1 original | `github.com/hugocondesa-debug/sonar` (separado) | read-only, arquivado |
+| Manuais conceptuais | [`docs/reference/`](reference/) | read-only · 32.063 linhas |
+| Código v1 conceptual | [`docs/reference/archive/v1-code/`](reference/archive/v1-code/) | read-only · BaseConnector + schema v18 |
+| Standards v1 | [`docs/reference/archive/CODING_STANDARDS-v1.md`](reference/archive/CODING_STANDARDS-v1.md) | legacy · content migra para governance (Bloco 6) |
+| Incidents históricos | [`docs/security/incidents/`](security/incidents/) | post-mortems preserved (ex: `2026-04-17-pat-leak.md`) |
+| Data plans v1 (revistos) | [`docs/data_sources/`](data_sources/) | operacional Phase 1+ · 4.312 linhas |
+
+Critério de remoção do archive: **Phase 2 completa** (lessons absorvidas, L2-L4 implementados). `docs/reference/` (knowledge base conceptual) permanece indefinidamente.
 
 ---
 
-## Phase 0.2 — Create v2 repo
-
-### Passo 1 — Decide repo name
-
-Options (decide in BRIEF_FOR_DEBATE):
-- `sonar` (if archive renamed to `sonar-v1-archive`)
-- `sonar-engine`
-- `sonar-v2`
-
-### Passo 2 — Initialize
-
-```bash
-# Create on GitHub via UI or gh CLI
-gh repo create hugocondesa-debug/sonar \
-  --private \
-  --description "Motor analítico de ciclos macro + sub-modelos quantitativos" \
-  --gitignore Python \
-  --license "" \  # Decide licensing separately
-
-# Local clone
-gh repo clone hugocondesa-debug/sonar
-cd sonar
-```
-
-### Passo 3 — Bootstrap from this bundle
-
-```bash
-# Copy contents from /mnt/user-data/outputs/sonar-v2-bootstrap/
-# ... to repo root
-
-# Commit structure
-git add .
-git commit -m "Initial bootstrap — structure, docs, templates"
-git push
-```
-
-### Passo 4 — Enable GitHub features
-
-```bash
-# Enable issues, projects, wiki, discussions
-gh repo edit hugocondesa-debug/sonar \
-  --enable-issues \
-  --enable-projects \
-  --enable-wiki \
-  --enable-discussions
-```
-
-### Passo 5 — Branch protection
-
-Via UI: Settings → Branches → Branch protection rules:
-- Pattern: `main`
-- Require pull request before merging
-- Require status checks (CI)
-- Require conversation resolution
-- Include administrators (yourself too)
-- Restrict pushes
-
-### Passo 6 — Secrets setup (for CI)
-
-Via UI: Settings → Secrets and variables → Actions
-
-Add (gradually as needed):
-- `FRED_API_KEY`
-- `ECB_ACCESS` (if needed)
-- `TRADING_ECONOMICS_KEY` (shared)
-- Future: additional API keys
-
-### Passo 7 — Wiki initialization
-
-Via GitHub UI: navigate to Wiki tab, create first page. Use content from `/mnt/user-data/outputs/sonar-v2-bootstrap/wiki/`.
-
----
-
-## Phase 0.3 — Migrate assets
-
-### Manuais v1
-
-Source: `/mnt/user-data/outputs/manual_*/` no teu workspace atual
-Destination: `docs/methodology/` no v2 repo
-
-```bash
-# In your local v2 clone
-mkdir -p docs/methodology/{cycles,submodels}
-
-# Credit cycle manual
-cp /path/to/v1/manuals/Manual_Ciclo_Credito_COMPLETO.docx \
-   docs/methodology/cycles/credit_manual.docx
-# ... etc
-
-# Or convert to markdown if preferred
-pandoc Manual_Ciclo_Credito_COMPLETO.docx -o credit_manual.md
-```
-
-### Data plans
-
-Source: `SONAR_*_Data_Sources_Implementation_Plan.md`
-Destination: `docs/data_sources/`
-
-```bash
-cp /path/to/v1/plans/SONAR_Data_Sources_Implementation_Plan.md \
-   docs/data_sources/credit_plan.md
-# ... etc
-```
-
-### Research notebooks
-
-Source: v1 repo `notebooks/` (if existed)
-Destination: `notebooks/archived/v1/`
-
-Move, don't delete. Insights may be useful.
-
-### Useful code snippets
-
-From v1, extract:
-- Well-tested connectors (if any) → adapt to new base class
-- SQL views (if any) → adapt to new schema
-- Helper functions → curate for v2
-
-**Don't migrate**:
-- Whole `src/` wholesale
-- Old schemas
-- Unclear or untested code
-
----
-
-## Phase 0.4 — Learnings documentation
-
-### `docs/migration/v1_learnings.md` structure
-
-```markdown
-# SONAR v1 → v2 — Learnings
-
-**Date**: 2026-04-MM
-**Author**: Hugo
-
-## Timeline v1
-
-- Started: [date]
-- Major milestones: ...
-- Ended: 2026-04-MM (archived)
-
-## Technical summary
-
-### Stack
-- Language: Python
-- Database: ...
-- Orchestration: ...
-- Dashboard: ...
-
-### Modules built
-1. ...
-2. ...
-
-### Modules partial
-1. ...
-2. ...
-
-## What worked
-
-[Strengths to carry forward]
-
-## What didn't work
-
-[Anti-patterns to avoid]
-
-## Why rewrite (not refactor)
-
-[Specific reasons]
-
-## Scope evolution
-
-### v1 scope (original)
-[Description]
-
-### v1 scope (as built)
-[Description]
-
-### v2 scope (refined)
-[From current conversation / manuals]
-
-## Migrated assets
-
-- [ ] Manuais (5 × 6 parts)
-- [ ] Data plans (5)
-- [ ] Historical database (optional)
-- [ ] Specific connector code (X of Y)
-- [ ] Research notebooks (N archived)
-
-## Not migrated (and why)
-
-- Old code in `src/engine/` — replaced by new architecture
-- Old schema — rewritten from scratch
-- Old dashboard — Streamlit v2 is cleaner
-
-## First v2 priorities
-
-Based on v1 experience:
-1. ...
-2. ...
-3. ...
-```
-
----
-
-## Phase 0.5 — Parallel running (optional)
-
-If v1 has valuable historical data being generated:
-
-1. Keep v1 archive READ-only
-2. Extract historical state to CSV/Parquet
-3. Import to v2 DB once Phase 1 complete
-4. Gradually move all computation to v2
-5. Retire v1 fully once v2 validated
-
-**Critério para retirement**:
-- v2 reproduces v1's key outputs
-- Data migrated fully
-- v2 has passed 30 days of stable operation
-
----
-
-## Phase 0.6 — Communication
-
-If v1 was shared externally:
-- Notify users (if any)
-- Publish blog post / Substack about rewrite
-- Editorial angle: "Porque reescrevi o SONAR do zero" (great content!)
-
----
-
-## Checklist
-
-```
-[ ] PAT revogado (SECURITY_NOTICE)
-[ ] v1 snapshot feito (commits, branches docs)
-[ ] v1 learnings documented
-[ ] v1 database exportada (SQL dump + CSV + Parquet)
-[ ] v1 repo renamed to sonar-v1-archive
-[ ] v1 repo archived (read-only)
-[ ] v1 local backup em ~/backups/
-[ ] v2 repo criado (private)
-[ ] v2 bootstrap bundle committed
-[ ] v2 wiki inicializada
-[ ] v2 branch protection configurada
-[ ] v2 secrets setup (FRED_API_KEY)
-[ ] Manuais v1 migrados → docs/methodology/
-[ ] Data plans v1 migrados → docs/data_sources/
-[ ] v1_learnings.md escrito
-[ ] BRIEF_FOR_DEBATE resolvido (all decisions taken)
-[ ] ADRs iniciais escritos (at minimum: #1-#6)
-[ ] Phase 1 kickoff agendado
-```
-
-## Timeline
-
-Estimate: **1 semana intensiva** para completar Phase 0.1-0.6 se focado.
-
-Break-down:
-- Day 1: v1 archive + security cleanup + learnings doc
-- Day 2: v2 repo creation + bootstrap + wiki setup
-- Day 3: Manuais migration + data plans migration
-- Day 4: BRIEF_FOR_DEBATE resolution + ADRs
-- Day 5: Phase 1 planning + first commits
-
----
-
-*Migration plan v0.1 — execute once BRIEF_FOR_DEBATE decisions finalized.*
+*Phase 0 Bloco 4c · live document — atualiza quando novas lessons ou preservações v1 emerjam.*
