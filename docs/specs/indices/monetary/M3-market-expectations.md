@@ -1,6 +1,7 @@
 # M3 — Market-Implied Expectations — Spec
 
 > Layer L3 · index · cycle: monetary · slug: `m3-market-expectations` · methodology_version: `M3_MARKET_EXPECTATIONS_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -190,6 +191,9 @@ CREATE INDEX idx_m3_cd ON monetary_m3_market_expectations (country_code, date);
 - **Methodology**: [`docs/reference/indices/monetary/M3-market-expectations.md`](../../../reference/indices/monetary/M3-market-expectations.md) — Manual Cap 9 (Market-implied expectations).
 - **Composite design**: [`docs/reference/cycles/monetary.md`](../../../reference/cycles/monetary.md) Cap 15.5 (Sub-index EP weights 40/25/20/15) + Cap 15.6 (MSC weights).
 - **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §3 (Market-implied expectations) — OIS, fed funds futures, breakevens, dot plot.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 2 (Hierarchy best-of inherited from `expected-inflation` overlay); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (T1 linker countries + T2+ SURVEY-only).
+- **Proxies**: [`specs/conventions/proxies.md`](../../conventions/proxies.md) — `BREAKEVEN_PROXY_SURVEY` propagated from `expected-inflation` quando linker indisponível.
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/ECB SDW/BoJ/Miranda-Agrippino attribution).
 - **Papers**:
   - Kuttner K. (2001), "Monetary policy surprises and interest rates: Evidence from the Fed funds futures market", *JME* 47(3).
   - Gürkaynak R., Sack B., Swanson E. (2005), "Do Actions Speak Louder Than Words?", *Int. J. Central Banking* 1(1).

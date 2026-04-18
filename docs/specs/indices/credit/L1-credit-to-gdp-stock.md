@@ -1,6 +1,7 @@
 # L1 · Credit-to-GDP Stock — Spec
 
 > Layer L3 · indices/credit · slug: `l1-credit-to-gdp-stock` · methodology_version: `L1_CREDIT_GDP_STOCK_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -168,7 +169,10 @@ CREATE INDEX idx_l1_cgs_cd ON credit_to_gdp_stock (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/credit/L1-credit-to-gdp-stock.md`](../../../reference/indices/credit/L1-credit-to-gdp-stock.md) — Manual Ciclo de Crédito Cap 7.
-- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC`).
+- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC`); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §4 BIS WS_TC key format pending (CAL-019 Phase 1 dev); WS_DSR 7/7 countries OK confirming BIS SDMX v1 reliability.
+- **Architecture**: [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (BIS 43-country universe aligns com T1-T2 ADR-0005 scope; T3+ fora BIS → `DataUnavailableError` tier-4 degraded).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (BIS CC-BY-4.0 attribution).
+- **Backlog**: [`backlog/calibration-tasks.md`](../../../backlog/calibration-tasks.md) `CAL-019` — BIS WS_TC key unit format debug.
 - **Papers**:
   - Drehmann M., Borio C., Tsatsaronis K. (2010), "Anchoring countercyclical capital buffers", BIS WP 317.
   - Schularick M., Taylor A. (2012), "Credit Booms Gone Bust", *AER* 102(2).

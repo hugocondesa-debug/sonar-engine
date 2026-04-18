@@ -1,6 +1,7 @@
 # M2 — Taylor Rule Gaps — Spec
 
 > Layer L3 · index · cycle: monetary · slug: `m2-taylor-gaps` · methodology_version: `M2_TAYLOR_GAPS_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -195,6 +196,9 @@ CREATE INDEX idx_m2_cd ON monetary_m2_taylor_gaps (country_code, date);
 - **Methodology**: [`docs/reference/indices/monetary/M2-taylor-gaps.md`](../../../reference/indices/monetary/M2-taylor-gaps.md) — Manual Cap 8 (Taylor Rule gaps).
 - **Composite design**: [`docs/reference/cycles/monetary.md`](../../../reference/cycles/monetary.md) Cap 15.5 (Sub-index RD weights 30/25/30/15) + Cap 15.6 (MSC weights).
 - **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §2 (Taylor Rule inputs) — IMF WEO, OECD, AMECO output gaps.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (policy_rate native CB override per country); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (T1 US+EA+UK+CA full; T2+ cap 0.65 via R_STAR_PROXY `FIXED_2PCT` fallback).
+- **Proxies**: [`specs/conventions/proxies.md`](../../conventions/proxies.md) — `R_STAR_PROXY` entry quando HLW indisponível.
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/ECB SDW/NY Fed HLW attribution).
 - **Papers**:
   - Taylor J. B. (1993), "Discretion versus Policy Rules in Practice", *CRCS* 39.
   - Taylor J. B. (1999), "A Historical Analysis of Monetary Policy Rules", *NBER WP 6768*.

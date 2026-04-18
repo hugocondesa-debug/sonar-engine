@@ -1,6 +1,7 @@
 # F1 · Valuations — Spec
 
 > Layer L3 · indices/financial · slug: `F1-valuations` · methodology_version: `F1_VALUATIONS_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -190,7 +191,9 @@ CREATE INDEX idx_f1_cd ON f1_valuations (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/financial/F1-valuations.md`](../../../reference/indices/financial/F1-valuations.md) — manual cap 7. Composite formula em `docs/reference/cycles/financial.md` Cap 15.
-- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §3 (CAPE, Buffett, valuations) + §8 (real estate / BIS property gap).
+- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §3 (CAPE, Buffett, valuations) + §8 (real estate / BIS property gap); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 FRED `SP500` fresh + §8 OECD/BIS property gap accessible.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (CAPE + ERP via Shiller/Damodaran academic canonical sources); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (F1 T1 full; T2+ CAPE derived com lower confidence).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §2 rows 11-12 (Shiller + Damodaran academic free-use); §3 canonical attribution strings **required**: `"Shiller, R. J., Yale University"` + `"Damodaran, A., NYU Stern School of Business"`. Consumer emits `ATTRIBUTION_REQUIRED` flag.
 - **Papers**:
   - Shiller R. (2015), *Irrational Exuberance* (3rd ed.), Princeton.
   - Damodaran A. (2024), "Equity Risk Premiums: Determinants, Estimation and Implications", NYU Stern.

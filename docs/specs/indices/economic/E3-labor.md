@@ -1,6 +1,7 @@
 # E3 — Labor Market Depth — Spec
 
 > Layer L3 · index · cycle: `economic` · slug: `e3-labor` · methodology_version: `E3_LABOR_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -199,7 +200,9 @@ CREATE INDEX idx_e3_sahm ON idx_economic_e3_labor (country_code, sahm_triggered,
 
 - **Methodology**: [`docs/reference/indices/economic/E3-labor.md`](../../../reference/indices/economic/E3-labor.md) — Cap 9 do manual.
 - **Cycle context**: [`docs/reference/cycles/economic.md`](../../../reference/cycles/economic.md) §15.5 + §15.4 + §15.6.
-- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §5 (E3 series catalog) + §5.2 (Sahm automation) + §B.5 (Sahm alert priority P0).
+- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §5 (E3 series catalog) + §5.2 (Sahm automation) + §B.5 (Sahm alert priority P0); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 `UNRATE`/`SAHMREALTIME`/`PAYEMS`/`JTSJOL` fresh.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4; [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (NFP/JOLTS/Sahm são US-only by design — T1 scope).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/Eurostat/Atlanta Fed attribution).
 - **Papers**: Sahm C. (2019), "Direct Stimulus Payments to Individuals", Brookings — Sahm Rule construction. Diamond P., Mortensen D., Pissarides C. (DMP) on matching theory (Cap 12.2 reference).
 - **Cross-validation**: FRED `SAHMCURRENT` (real-time Sahm) — SONAR internal computation must match within ±0.05pp; NBER recession dating 1970-present (Sahm triggered in every recession, zero false positives target).
 

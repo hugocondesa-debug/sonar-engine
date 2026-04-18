@@ -1,6 +1,7 @@
 # E1 — Activity (Coincident) — Spec
 
 > Layer L3 · index · cycle: `economic` · slug: `e1-activity` · methodology_version: `E1_ACTIVITY_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -172,8 +173,10 @@ CREATE INDEX idx_e1_cd ON idx_economic_e1_activity (country_code, date);
 
 - **Methodology**: [`docs/reference/indices/economic/E1-activity.md`](../../../reference/indices/economic/E1-activity.md) — Cap 7 do manual.
 - **Cycle context**: [`docs/reference/cycles/economic.md`](../../../reference/cycles/economic.md) §15.5 (sub-index structure) + §15.4 (normalization Layer 1).
-- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §3 (E1 series catalog).
-- **Cross-validation**: Chicago Fed CFNAI (`CFNAIMA3`); Conference Board Coincident Index (`USSLIND`); ADS Index (Philly Fed). Targets: SONAR `score_normalized` correlation com CFNAI ≥ 0.80 over 2000-2024.
+- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §3 (E1 series catalog); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 FRED core series fresh.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (TE primary + native overrides); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (tier scope).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/Eurostat attribution).
+- **Cross-validation**: Chicago Fed CFNAI (`CFNAIMA3`); ADS Index (Philly Fed). Targets: SONAR `score_normalized` correlation com CFNAI ≥ 0.80 over 2000-2024. (Nota: Conference Board Coincident Index `USSLIND` descontinuado 2020 per D2 — removido desta lista.)
 
 ## 11. Non-requirements
 

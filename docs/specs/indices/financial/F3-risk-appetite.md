@@ -1,6 +1,7 @@
 # F3 · Risk Appetite — Spec
 
 > Layer L3 · indices/financial · slug: `F3-risk-appetite` · methodology_version: `F3_RISK_APPETITE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -193,7 +194,9 @@ CREATE INDEX idx_f3_cd ON f3_risk_appetite (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/financial/F3-risk-appetite.md`](../../../reference/indices/financial/F3-risk-appetite.md) — manual cap 9.
-- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §5 (VIX, MOVE, spreads, FCI).
+- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §5 (VIX, MOVE, spreads, FCI); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 `VIXCLS` fresh; MOVE via Yahoo scrape per LICENSING §7 (não FRED — externa ICE data license).
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (VIX/MOVE scrape Yahoo para non-US/EM); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (VOL_PROXY_GLOBAL flag + tier-4 cap).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED ICE BofA attribution + Chicago Fed NFCI + ECB CISS) + §7 Yahoo scrape ethics para MOVE.
 - **Overlap with `cycles/monetary-msc.M4_FCI`**: M4 é o **canonical FCI** computation per country (Layer 1 do MSC). F3 *consume* o `fci_level` raw como input, mas mantém z-score normalization próprio (20Y rolling vs M4's MSC-specific window). Os dois indices reportam dimensões diferentes — M4 stance monetária via condições financeiras agregadas; F3 risk appetite ciclo financeiro. **Recommended**: future v0.2 → F3 reads `M4_FCI.fci_level` directamente em vez de `connectors/fred(NFCI)` para consistência cross-cycle. Documentado em `cycles/financial-fcs` Cap 15 §integração.
 - **Papers**:
   - Bloom N. (2009), "The Impact of Uncertainty Shocks", *Econometrica* 77(3).

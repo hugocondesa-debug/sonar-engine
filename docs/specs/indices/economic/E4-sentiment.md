@@ -1,6 +1,7 @@
 # E4 — Sentiment & Expectations — Spec
 
 > Layer L3 · index · cycle: `economic` · slug: `e4-sentiment` · methodology_version: `E4_SENTIMENT_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -207,7 +208,9 @@ CREATE INDEX idx_e4_cd ON idx_economic_e4_sentiment (country_code, date);
 
 - **Methodology**: [`docs/reference/indices/economic/E4-sentiment.md`](../../../reference/indices/economic/E4-sentiment.md) — Cap 10 do manual.
 - **Cycle context**: [`docs/reference/cycles/economic.md`](../../../reference/cycles/economic.md) §15.5 + §15.4 + §15.6 + §16.6 (stagflation diagnostics).
-- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §6 (E4 series catalog) + §6.9 (EPU access).
+- **Data sources**: [`docs/data_sources/economic.md`](../../../data_sources/economic.md) §6 (E4 series catalog) + §6.9 (EPU access); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 `UMCSENT`/`VIXCLS` fresh (Conference Board `CSCICP03USM665S` OECD-mirror série não testada D-block — verify freshness Phase 1, potential stale risk per FRED-mirror pattern observed em OECDLOLITOAASTSAM).
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (global proxy VIX per Pattern 4 matrix).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED/Eurostat/DG ECFIN attribution); EPU public academic use.
 - **Papers**:
   - Baker S., Bloom N., Davis S. (2016), "Measuring Economic Policy Uncertainty", *QJE* 131(4) — EPU index methodology.
   - Curtin R. (2019), "Consumer Expectations: Micro Foundations and Macro Impact", Cambridge — UMich survey methodology.

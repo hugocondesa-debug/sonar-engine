@@ -1,6 +1,7 @@
 # L2 · Credit-to-GDP Gap — Spec
 
 > Layer L3 · indices/credit · slug: `l2-credit-to-gdp-gap` · methodology_version: `L2_CREDIT_GDP_GAP_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -186,7 +187,10 @@ CREATE INDEX idx_l2_cgg_cd ON credit_to_gdp_gap (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/credit/L2-credit-to-gdp-gap.md`](../../../reference/indices/credit/L2-credit-to-gdp-gap.md) — Manual Cap 8.
-- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC` gaps cross-validation).
+- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC` gaps cross-validation); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §4 BIS findings.
+- **Architecture**: [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (L2 scope = T1-T2 BIS universe; tier-4 raise `DataUnavailableError` inherited from L1).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (BIS CC-BY-4.0).
+- **Backlog**: `CAL-019` (BIS WS_TC key pending) afecta L1 input → L2 fail propagado via `InsufficientDataError`.
 - **Papers**:
   - Drehmann M., Borio C., Tsatsaronis K. (2010), "Anchoring countercyclical capital buffers", BIS WP 317.
   - Drehmann M., Juselius M. (2014), "Evaluating early warning indicators of banking crises", *IJF* 30(3).

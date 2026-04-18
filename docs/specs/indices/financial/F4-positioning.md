@@ -1,6 +1,7 @@
 # F4 · Positioning — Spec
 
 > Layer L3 · indices/financial · slug: `F4-positioning` · methodology_version: `F4_POSITIONING_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -216,7 +217,9 @@ CREATE INDEX idx_f4_cd ON f4_positioning (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/financial/F4-positioning.md`](../../../reference/indices/financial/F4-positioning.md) — manual cap 10.
-- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §6 (AAII, P/C, COT, margin, IPO).
+- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §6 (AAII, P/C, COT, margin, IPO); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §7 scrape sources (AAII/COT/FINRA) audit-internal per Override 2.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (US-centric por design — F4 non-US via AAII_PROXY global); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (F4 US-only T1; T2+ degraded com `AAII_PROXY` re-weight FCS Policy 1).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §4 use case matrix (output composites-only per Override 2 — raw scrape data NÃO aparece em output layer) + §7 scraping ethics codification (robots.txt compliance, polite rate ≤1 req/min non-industrial, User-Agent research identification, quarterly re-verification).
 - **Papers**:
   - Brown G., Cliff M. (2004), "Investor Sentiment and the Near-Term Stock Market", *J. Empirical Finance* 11(1).
   - Han B. (2008), "Investor Sentiment and Option Prices", *RFS* 21(1).

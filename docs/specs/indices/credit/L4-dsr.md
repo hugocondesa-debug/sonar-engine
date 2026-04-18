@@ -1,6 +1,7 @@
 # L4 · Debt Service Ratio (DSR) — Spec
 
 > Layer L3 · indices/credit · slug: `l4-dsr` · methodology_version: `L4_DSR_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -212,7 +213,9 @@ CREATE INDEX idx_l4_dsr_cd ON dsr (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/credit/L4-dsr.md`](../../../reference/indices/credit/L4-dsr.md) — Manual Cap 10.
-- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_DSR`) + § 1.2 (ECB `MIR`).
+- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_DSR`) + § 1.2 (ECB `MIR`); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §4 **BIS WS_DSR 7/7 countries OK** (PT/US/DE/JP/GB/TR/BR) — production-ready per empirical validation.
+- **Architecture**: [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (WS_DSR 32-country universe aligned T1-T2; approximation `o1`/`o2` fallback para T3+).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (BIS CC-BY-4.0 + ECB attribution).
 - **Papers**:
   - Drehmann M., Juselius M. (2012), "Do debt service costs affect macroeconomic and financial stability?", BIS Quarterly Review.
   - Drehmann M., Juselius M. (2014), "Evaluating early warning indicators of banking crises", *IJF* 30(3) — AUC 0.89 horizonte 1-2Y.

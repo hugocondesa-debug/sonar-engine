@@ -1,6 +1,7 @@
 # F2 · Momentum — Spec
 
 > Layer L3 · indices/financial · slug: `F2-momentum` · methodology_version: `F2_MOMENTUM_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -198,7 +199,10 @@ CREATE INDEX idx_f2_cd ON f2_momentum (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/financial/F2-momentum.md`](../../../reference/indices/financial/F2-momentum.md) — manual cap 8.
-- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §4 (momentum / breadth) + §5 (cross-asset).
+- **Data sources**: [`docs/data_sources/financial.md`](../../../data_sources/financial.md) §4 (momentum / breadth) + §5 (cross-asset); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 FRED `SP500` fresh; **breadth MA200 data gap confirmed D-block** (free source não existe).
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (TE markets breadth para non-US indices); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (breadth `BREADTH_PROXY` flag + cap 0.75 non-US/EM per tier degradation).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED attribution; TE markets attribution recommended).
+- **Backlog**: [`backlog/phase2-items.md`](../../../backlog/phase2-items.md) `P2-002` — F2 breadth MA200 data provider OR constituents compute (Phase 2+ decision).
 - **Papers**:
   - Jegadeesh N., Titman S. (1993), "Returns to Buying Winners and Selling Losers", *J. Finance* 48(1).
   - Asness C., Frazzini A., Pedersen L. (2013), "Quality Minus Junk", *J. Financial Econ.*.

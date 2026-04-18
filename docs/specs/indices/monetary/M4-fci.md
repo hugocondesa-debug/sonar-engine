@@ -1,6 +1,7 @@
 # M4 — Financial Conditions Index — Spec
 
 > Layer L3 · index · cycle: monetary · slug: `m4-fci` · methodology_version: `M4_FCI_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -198,7 +199,9 @@ CREATE INDEX idx_m4_cd ON monetary_m4_fci (country_code, date);
 - **Methodology**: [`docs/reference/indices/monetary/M4-fci.md`](../../../reference/indices/monetary/M4-fci.md) — Manual Cap 10 (Financial Conditions Indices).
 - **Composite design**: [`docs/reference/cycles/monetary.md`](../../../reference/cycles/monetary.md) Cap 15.5 (Sub-index FC weights 55/25/20) + Cap 15.6 (MSC weights).
 - **Custom FCI for Portugal**: Cap 10.6 — components DFR/10Y_PT/spread/PSI-20/NEER/MIR_PT/VSTOXX with weights 20/20/15/10/15/15/5 (normalized to FC composite 30/25/20/15/10).
-- **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §4 (FCI) + §4.5 (custom PT FCI).
+- **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §4 (FCI) + §4.5 (custom PT FCI); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 FRED `NFCI` fresh; ECB SDW CISS dataflow key verify Phase 1 dev (D2 testou ESI key — different dataflow from CISS; CISS key format pendente empirical confirmation).
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (custom-FCI path para non-US/EA per ADR-0005 T2+); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (NFCI_CHICAGO = US T1 only; CUSTOM_SONAR = T1+T2+ where ≥5/7 components).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED public domain + ECB SDW attribution).
 - **Papers**:
   - Brave S., Butters R. A. (2011), "Monitoring Financial Stability: A Financial Conditions Index Approach", *FRB Chicago Economic Perspectives* 35(1) — NFCI methodology.
   - Hatzius J. et al. (2010), "Financial Conditions Indexes: A Fresh Look after the Financial Crisis", *NBER WP 16150* — GS FCI.

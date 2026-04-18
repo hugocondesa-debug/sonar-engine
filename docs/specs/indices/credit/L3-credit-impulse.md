@@ -1,6 +1,7 @@
 # L3 · Credit Impulse — Spec
 
 > Layer L3 · indices/credit · slug: `l3-credit-impulse` · methodology_version: `L3_CREDIT_IMPULSE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
 
 ## 1. Purpose
 
@@ -183,7 +184,10 @@ CREATE INDEX idx_l3_ci_cd ON credit_impulse (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/indices/credit/L3-credit-impulse.md`](../../../reference/indices/credit/L3-credit-impulse.md) — Manual Cap 9.
-- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC`) + § 6.1 (Eurostat `namq_10_gdp`).
+- **Data sources**: [`docs/data_sources/credit.md`](../../../data_sources/credit.md) § Camada 1.1 (BIS `WS_TC`) + § 6.1 (Eurostat `namq_10_gdp`); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §4 BIS WS_TC dependency + §6 Eurostat GDP fresh.
+- **Architecture**: [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (L3 scope follows L1 inheritance; tier-4 degraded).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (BIS CC-BY-4.0 + Eurostat CC-BY-4.0).
+- **Backlog**: `CAL-019` (BIS WS_TC key pending) afecta L3 via credit_stock_lcu input.
 - **Papers**:
   - Biggs M., Mayer T., Pick A. (2010), "Credit and Economic Recovery: Demystifying Phoenix Miracles", DNB WP 218.
   - Mian A., Sufi A. (2018), "Credit Supply and Housing Speculation", NBER WP 24823 (segment breakdown rationale).
