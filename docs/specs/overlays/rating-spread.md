@@ -1,6 +1,8 @@
 # Rating-to-Spread Mapping — Spec
 
-> Layer L2 · overlay · slug: `rating-spread` · methodology_version: `RATING_SPREAD_v0.1` (consolidated); `RATING_AGENCY_v0.1` (per-agency raw); `RATING_CALIBRATION_v0.1` (notch→spread table).
+> Layer L2 · overlay · slug: `rating-spread` · methodology_version: `RATING_SPREAD_v0.2` (consolidated); `RATING_AGENCY_v0.1` (per-agency raw); `RATING_CALIBRATION_v0.1` (notch→spread table).
+> Last review: 2026-04-19 (Phase 0 Bloco E1)
+> v0.2 rationale (breaking): remove `te_ratings` fallback — rejected em D0 audit (latest observation 2022-09; 4Y stale). Add `damodaran_annual_historical` como pre-2023 baseline backfill + agency scrape connectors forward per D0+D2 findings. Per `conventions/methodology-versions.md` — MINOR bump porque schema inalterado (fallback source swap).
 
 ## 1. Purpose
 
@@ -21,14 +23,14 @@ Consolidar ratings sovereign das 4 agências (S&P, Moody's, Fitch, DBRS) numa SO
 | `watch` | `Literal \| None` | `"watch_positive"` \| `"watch_negative"` \| `"watch_developing"` \| `None` | connector |
 | `action_date` | `date` | last rating action date | connector |
 
-**Primary connectors** (event-driven, polled every 4h in `pipelines/daily`):
+**Primary connectors** (event-driven agency scrape polled every 4h in `pipelines/daily`; Damodaran annual pre-2023 baseline):
 
-| Agency | Connector | Fallback |
-|---|---|---|
-| S&P Global Ratings | `connectors/sp_ratings` | `te_ratings` |
-| Moody's Investors Service | `connectors/moodys_ratings` | `te_ratings` |
-| Fitch Ratings | `connectors/fitch_ratings` | `te_ratings` |
-| DBRS Morningstar | `connectors/dbrs_ratings` | `ecb_ecaf` (EA collateral list) |
+| Agency | Primary (forward) | Historical backfill (pre-2023) | Fallback |
+|---|---|---|---|
+| S&P Global Ratings | `connectors/sp_ratings` | `connectors/damodaran_annual_historical` | — (TE rejected D0 — 4Y stale) |
+| Moody's Investors Service | `connectors/moodys_ratings` | `connectors/damodaran_annual_historical` | — (TE rejected D0) |
+| Fitch Ratings | `connectors/fitch_ratings` | `connectors/damodaran_annual_historical` | — (TE rejected D0) |
+| DBRS Morningstar | `connectors/dbrs_ratings` | `connectors/damodaran_annual_historical` | `ecb_ecaf` (EA collateral list) |
 
 ### Calibration inputs (notch → spread)
 
@@ -36,6 +38,7 @@ Consolidar ratings sovereign das 4 agências (S&P, Moody's, Fitch, DBRS) numa SO
 |---|---|---|---|
 | `moodys_default_study_json` | `dict` | cumulative PD por Moody's grade, 1983-2024 sov + 1920-2024 corp | `connectors/moodys_default_study` (annual PDF) |
 | `ice_bofa_spread_bps` | `dict[grade,int]` | 5Y rolling median OAS (AA, A, BBB, BB, B, CCC) | `connectors/fred` (`BAMLC0A0CM`, `BAMLH0A0HYM2`, `BAMLEMCBPIOAS`) |
+| `damodaran_historical_ratings_xlsx` | `dict[country,year → rating]` | Damodaran `histimpl.xlsx` annual sovereign ratings since 1994 (~170 countries) | `connectors/damodaran_annual_historical` |
 | `recovery_assumption` | `float` | default 0.40 (Moody's sov baseline) | config |
 
 ### Parameters (config)
@@ -64,7 +67,7 @@ Três classes de output, versionadas independentemente. `ratings_agency_raw` + `
 | Output | Storage | `methodology_version` |
 |---|---|---|
 | Per-agency raw notch | `ratings_agency_raw` | `RATING_AGENCY_v0.1` |
-| Consolidated country notch | `ratings_consolidated` | `RATING_SPREAD_v0.1` |
+| Consolidated country notch | `ratings_consolidated` | `RATING_SPREAD_v0.2` |
 | Calibrated notch → spread table | `ratings_spread_calibration` | `RATING_CALIBRATION_v0.1` |
 
 **Downstream consumption contract** (shape target for `overlays/crp`):
@@ -119,6 +122,7 @@ actuarial_spread_bps = PD_5Y_annualized * (1 - recovery_assumption) * 10_000
 
 ### Pipeline per rating event (event-driven, 4h poll)
 
+0. **Source selection** (per v0.2): if `date < 2023-01-01` use `connectors/damodaran_annual_historical` como backfill source (annual granularity — rating persistido para dates intra-year até próxima annual release); else use agency scrape connectors forward (event-driven 4h poll).
 1. Poll each agency connector; diff against last stored `action_date` per `(country, agency, rating_type)`.
 2. New/changed action → validate `rating_raw` domain; map → `sonar_notch_base` via LOOKUP_TABLE (§13.3 reference).
 3. Apply outlook + watch modifiers → `notch_adjusted`.
@@ -173,7 +177,7 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | Country tier 4 (TR/AR/VE hyperinflation) | wider ranges; `EM_COVERAGE` | cap 0.70 |
 | Stored `methodology_version` ≠ runtime | raise `VersionMismatchError` | n/a |
 | Calibration row missing para `notch_int` | raise `CalibrationError`; no persist | n/a |
-| Connector empty (site down) | `DataUnavailableError` → fallback `te_ratings` | `OVERLAY_MISS` downstream |
+| Connector empty (site down) | `DataUnavailableError` → fallback `damodaran_annual_historical` (if `date < 2024-01`) else emit `OVERLAY_MISS` downstream | `OVERLAY_MISS` downstream |
 
 ## 7. Test fixtures
 
@@ -235,7 +239,7 @@ CREATE TABLE ratings_consolidated (
     default_spread_bps       INTEGER,                     -- NULL if notch=0
     calibration_date         DATE,
     rating_cds_deviation_pct REAL,
-    methodology_version      TEXT    NOT NULL,            -- 'RATING_SPREAD_v0.1'
+    methodology_version      TEXT    NOT NULL,            -- 'RATING_SPREAD_v0.2'
     confidence               REAL    NOT NULL CHECK (confidence BETWEEN 0 AND 1),
     flags                    TEXT,
     created_at               TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -274,7 +278,10 @@ CREATE INDEX idx_rsc_notch ON ratings_spread_calibration (sonar_notch_int, calib
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/rating-spread.md`](../../reference/overlays/rating-spread.md) — Manual dos Sub-Modelos Parte V, caps 13-15.
-- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ 1.3 (FRED ICE BofA), 2.1 (OAS por rating).
+- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ 1.3 (FRED ICE BofA), 2.1 (OAS por rating), §3.6 scrape agency + Damodaran annual historical; [`data_sources/D0_audit_report.md`](../../data_sources/D0_audit_report.md) (TE ratings rejected — 4Y stale finding); [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §2.4 confirming TE path 404.
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 2 (rating-spread é fallback path em CRP hierarchy); §Pattern 3 (Versioning per-table — agency/consolidated/calibration independent bumps).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §2 row 17 agency press releases (factual cite + paraphrase rationale per Override 3); §3 attribution strings per agency; §4 use case matrix — historical rating database audit-internal only, not distributable.
+- **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — rating-spread é input para CRP rating-implied proxy entry.
 - **Papers**:
   - Moody's Investors Service (2024), "Annual Default Study: Corporate Default and Recovery Rates, 1920-2023" + "Sovereign Default and Recovery Rates, 1983-2023".
   - Elton et al. (2001), "Explaining the Rate Spread on Corporate Bonds", *J. Finance* 56(1).
@@ -295,4 +302,5 @@ Scope boundaries. O que este overlay **não** faz:
 - Does not cover non-sovereign entities (corporates, supranationals, municipals) — v2 escopo é sovereign.
 - Does not integrate minor agencies (Scope, R&I, JCR) — 4 majors only em v2.
 - Does not re-rate em response a market moves — ratings são institutional opinions; market-implied ratings (Merton DD) são escopo separado em `integration/diagnostics`.
+- Does not use TE (Trading Economics) ratings como primary ou fallback — rejected em D0 audit (2026-04-18) porque TE `/ratings/historical/{country}` endpoint retornou latest 2022-09-09 (~4Y stale). Per v0.2 bump: `damodaran_annual_historical` substitui TE para pre-2023 backfill; agency scrape forward para ≥ 2023.
 
