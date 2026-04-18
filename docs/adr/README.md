@@ -43,6 +43,7 @@ Este tipo de mudança vive em commits Conventional Commits ([`../ROADMAP.md`](..
 | 0002 | [Arquitectura 9-layer](ADR-0002-arquitectura-9-layer.md) | Accepted | 2026-04-18 | Stack L0-L8 explícito com indices L3 + regimes L5 + pipelines L8 reificados. |
 | 0003 | [DB path SQLite → Postgres](ADR-0003-db-path-sqlite-postgres.md) | Accepted | 2026-04-18 | SQLite MVP Phase 0-1; Postgres condicional Phase 2+ (4 gates explícitos). |
 | 0004 | [AI collaboration model](ADR-0004-ai-collaboration-model.md) | Accepted | 2026-04-18 | Claude chat (decisões) + Claude Code (execução VPS) + humano always last mile. |
+| 0005 | [Country tiers classification](ADR-0005-country-tiers-classification.md) | Accepted | 2026-04-18 | 4-tier T1-T4 classification conforme `country_tiers.yaml`; Phase 1 scheduling + fail-mode integration. |
 
 ## Workflow
 
