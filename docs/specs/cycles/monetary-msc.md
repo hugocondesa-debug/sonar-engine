@@ -1,6 +1,7 @@
 # Monetary Stance Composite (MSC) — Spec
 
 > Layer L4 · cycle · slug: `monetary-msc` · methodology_version: `MSC_COMPOSITE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E3)
 
 ## 1. Purpose
 
@@ -55,7 +56,7 @@ Os três componentes CS são agregados em `cs_score_0_100` (weights internos 40/
 
 - ≥ 3 dos 5 inputs `{M1, M2, M3, M4, CS_direct}` presentes em storage com `confidence ≥ 0.50` para `(country_code, date)`; senão raise `InsufficientDataError`.
 - Todos os L3 índices consumidos partilham `(country_code, date)` e `date` é business day local.
-- `methodology_version` de cada L3 row bate com runtime expected (`M1_EFFECTIVE_RATES_v0.1`, `M2_TAYLOR_GAPS_v0.1`, `M3_MARKET_EXPECTATIONS_v0.1`, `M4_FCI_v0.1`); senão raise `VersionMismatchError`.
+- `methodology_version` de cada L3 row bate com runtime expected (`M1_EFFECTIVE_RATES_v0.2` post-Bloco E2 DFEDTAR swap, `M2_TAYLOR_GAPS_v0.1`, `M3_MARKET_EXPECTATIONS_v0.1`, `M4_FCI_v0.1`); senão raise `VersionMismatchError`.
 - **CS connectors são Phase 2+**: em Phase 0-1 (bootstrap), `cs_hawkish_score`, `fed_dissent_count`, `dot_plot_drift_bps` são `NULL`; MSC funciona com 4 inputs (M1/M2/M3/M4) via re-weight (flag `COMM_SIGNAL_MISSING`, confidence cap 0.75). Não bloqueia rollout inicial.
 - Para Dilemma trigger: `m3_anchor_status` lido de M3 enrichment (passthrough de `overlays/expected-inflation`). ECS é best-effort — se `cycles/economic-ecs` não existir ainda para `(country_code, date)`, Dilemma é emitido com `DILEMMA_NO_ECS` flag e `dilemma_overlay_active = 0`.
 
@@ -240,7 +241,11 @@ CREATE INDEX idx_msc_cd ON monetary_cycle_scores (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/cycles/monetary.md`](../../reference/cycles/monetary.md) Caps 15 (MSC composite design — 15.3 arquitectura em 3 layers, 15.5 sub-indices, 15.6 pesos canónicos, 15.7 robustness, 15.8 bands, 15.10 MSC×CCCS matriz) + 16 (Dilemma overlay — 16.2 operational triggers, 16.7 dilemma_score computation).
-- **Upstream specs L3**: [`M1`](../indices/monetary/M1-effective-rates.md), [`M2`](../indices/monetary/M2-taylor-gaps.md), [`M3`](../indices/monetary/M3-market-expectations.md), [`M4`](../indices/monetary/M4-fci.md).
+- **Upstream specs L3**: [`M1`](../indices/monetary/M1-effective-rates.md) (v0.2 post-Bloco E2 DFEDTAR swap), [`M2`](../indices/monetary/M2-taylor-gaps.md), [`M3`](../indices/monetary/M3-market-expectations.md), [`M4`](../indices/monetary/M4-fci.md).
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 4 (TE primary + native overrides upstream per M1-M4); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (MSC T1 US+EA+UK+JP full; T1 outros + T2 `M1_only_mode` simplified via COMM_SIGNAL_MISSING + MS/RD fallbacks inherited from upstream).
+- **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — `R_STAR_PROXY` (EA proxy para PT/IE/NL) + shadow rate policy_rate + `ZLB_UNADJUSTED` fora dos 4 países academic (inherited from M1 v0.2); `BREAKEVEN_PROXY_SURVEY` inherited from M3 via expected-inflation overlay.
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (FRED + ECB SDW + native CBs + Atlanta Fed/Krippner academic attribution inherited via M1-M4 upstream).
+- **D-block evidence**: [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §3 FRED `NFCI`/`FEDFUNDS` fresh + M1 v0.2 bump rationale (DFEDTAR discontinued 2008-12); ECB SDW CISS key format pending Phase 1 dev (CAL next).
 - **Overlays consumed indirectly via M3**: [`expected-inflation`](../overlays/expected-inflation.md) (anchor_status for Dilemma).
 - **Data sources**: [`docs/data_sources/monetary.md`](../../data_sources/monetary.md) §7 (communication signals — NLP, dissent rate, dot plot — Tier 2/3 Phase 2+).
 - **Conventions**: [`flags`](../conventions/flags.md) · [`exceptions`](../conventions/exceptions.md) · [`units`](../conventions/units.md) · [`methodology-versions`](../conventions/methodology-versions.md).
@@ -264,4 +269,5 @@ CREATE INDEX idx_msc_cd ON monetary_cycle_scores (country_code, date);
 - Does not emit intraday — daily EOD batch; policy decisions tracked separately em `policy_decisions` table.
 - Does not substitute BC official communication framework (FOMC SEP, ECB MPA narrative) — SONAR é analytical; official communiqués são cross-check only.
 - Does not backfill pre-1995 — M1 shadow rate series sparse; M2 Taylor requires HLW r* (starts ~1961 US, later others); coverage limit via `lookback_years` em L3.
+- Does not apply tier-aware MSC simplification at spec level — T2+ `M1_only_mode` (simplified MSC) é L3 M1-specific per M1 v0.2 + Phase 1 pipeline integration; MSC composite spec continua expecting ≥3/5 inputs globally per ADR-0005 degraded scope.
 

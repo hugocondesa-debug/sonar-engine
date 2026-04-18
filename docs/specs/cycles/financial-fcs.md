@@ -1,6 +1,7 @@
 # Financial Cycle Score (FCS) — Spec
 
 > Layer L4 · cycle: financial · slug: `financial-fcs` · methodology_version: `FCS_COMPOSITE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E3)
 
 ## 1. Purpose
 
@@ -16,7 +17,7 @@ Compute o **Financial Cycle Score** per `(country, date)` — composite `[0, 100
 | `f2_score_0_100` | `float` | F2 momentum composite | `indices/financial/F2-momentum.f2_momentum.score_normalized` |
 | `f3_score_0_100` | `float` | F3 risk-appetite composite | `indices/financial/F3-risk-appetite.f3_risk_appetite.score_normalized` |
 | `f4_score_0_100` | `float` \| `None` | F4 positioning (tier-conditional; ver Policy 4) | `indices/financial/F4-positioning.f4_positioning.score_normalized` |
-| `country_tier` | `int` | `1..4` per `config/countries.yaml` | config |
+| `country_tier` | `int` | `1..4` per `docs/data_sources/country_tiers.yaml` (canonical per ADR-0005) | config |
 
 ### Cross-cycle reads (diagnostic / overlay inputs, NOT composite components)
 
@@ -28,7 +29,7 @@ Compute o **Financial Cycle Score** per `(country, date)` — composite `[0, 100
 
 ### Country tier policy (F4 conditional — Policy 4)
 
-Tier list materializada em `config/countries.yaml` (Phase 1); a spec referencia canonicamente esse ficheiro e lista abaixo apenas para traceability.
+Tier list materializada em [`docs/data_sources/country_tiers.yaml`](../../data_sources/country_tiers.yaml) per ADR-0005 (canonical artifact Bloco D1 2026-04-18); Phase 1 pipeline runtime lê este YAML directamente. Spec referencia canonicamente esse ficheiro e lista abaixo apenas para traceability.
 
 | Tier | Countries | F4 handling | Confidence cap on re-weight |
 |---|---|---|---|
@@ -39,7 +40,7 @@ Tier list materializada em `config/countries.yaml` (Phase 1); a spec referencia 
 
 ### Preconditions
 
-- `country_tier` resolvido via `config/countries.yaml`; `UnknownConnectorError` se country ausente.
+- `country_tier` resolvido via [`docs/data_sources/country_tiers.yaml`](../../data_sources/country_tiers.yaml) (ADR-0005 canonical); `UnknownConnectorError` se country ausente (default T4 per YAML `default: T4`).
 - `F1, F2, F3` rows existem para `(country_code, date)` com respective `methodology_version` ≥ `v0.1` e `confidence ≥ 0.30`; stored versions batem runtime ou raise `VersionMismatchError`.
 - **Policy 1 baseline**: ≥ 3 sub-indices disponíveis senão raise `InsufficientDataError`; re-weight renormaliza proporcionalmente os restantes.
 - **Policy 4 (F4 tier-conditional)**: Tier 1 obriga F4 presente; Tier 2-4 aceitam F4 `NULL`.
@@ -128,7 +129,7 @@ components_json = {"fcs": score, "credit_gap_pp": …, "property_gap_pp": …}
 
 **Pipeline per `(country_code, date)`**:
 
-1. Resolve `country_tier` via `config/countries.yaml`. Load `F1, F2, F3, F4` rows; validate `methodology_version` (raise `VersionMismatchError` se mismatch).
+1. Resolve `country_tier` via [`docs/data_sources/country_tiers.yaml`](../../data_sources/country_tiers.yaml) (ADR-0005 canonical). Load `F1, F2, F3, F4` rows; validate `methodology_version` (raise `VersionMismatchError` se mismatch).
 2. Apply **Policy 4**:
    - Tier 1 e F4 `NULL` → raise `InsufficientDataError` (no row persisted).
    - Tier 2-3 e F4 `NULL` → set F4 weight = 0, flag `F4_COVERAGE_SPARSE`, cap confidence ≤ 0.80.
@@ -156,7 +157,7 @@ components_json = {"fcs": score, "credit_gap_pp": …, "property_gap_pp": …}
 | `pandas` | 2.1 | history lookup (hysteresis, carry-forward) |
 | `sqlalchemy` | 2.0 | persistence, prior-row lookup |
 | `pydantic` | 2.6 | `bubble_warning_components_json` validation |
-| `pyyaml` | 6.0 | read `config/countries.yaml` |
+| `pyyaml` | 6.0 | read `docs/data_sources/country_tiers.yaml` (ADR-0005) |
 
 No network calls — all inputs pre-computed em L3 tables / connectors.
 
@@ -181,7 +182,7 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | Prior-day row missing (cold-start OR gap > 1 BD) | commit raw regime; `regime_persistence_days = 1`; flag `REGIME_BOOTSTRAP` (proposed) | −0.05 |
 | Hysteresis holds (raw ≠ committed regime) | persist committed regime; informational flag `REGIME_HYSTERESIS_HOLD` (proposed) | none |
 | Score computed `outside [0, 100]` post-renorm | raise `OutOfBoundsError` (bug upstream) | n/a |
-| `country_code` não presente em `config/countries.yaml` | raise `UnknownConnectorError` | n/a |
+| `country_code` não presente em `docs/data_sources/country_tiers.yaml` (nem default T4) | raise `UnknownConnectorError` | n/a |
 
 ## 7. Test fixtures
 
@@ -253,7 +254,10 @@ CREATE INDEX idx_fcs_cd ON financial_cycle_scores (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/cycles/financial.md`](../../reference/cycles/financial.md) — caps 15 (FCS design + weights + state classification), 16 (Bubble Warning overlay), 4.6-4.7 (state definitions), 15.11 (walk-forward robustness).
-- **Data sources**: [`docs/data_sources/financial.md`](../../data_sources/financial.md) §BIS overlay (`financial_bis_overlay`), §FCS composite.
+- **Data sources**: [`docs/data_sources/financial.md`](../../data_sources/financial.md) §BIS overlay (`financial_bis_overlay`), §FCS composite; [`data_sources/country_tiers.yaml`](../../data_sources/country_tiers.yaml) (ADR-0005 tier assignments).
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 4 (TE markets breadth + native overrides upstream via F1-F4); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (**FCS Policy 4 é a instantiation canonical da tier classification — T1 F4 required, T2-3 F4 optional cap 0.80, T4 F4 ignored cap 0.75**).
+- **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — F4 non-US via `AAII_PROXY` (inherited from F4 spec); F3 via `VOL_PROXY_GLOBAL` / `MOVE_PROXY`.
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (Shiller/Damodaran via F1 + FRED via F2-F3 attribution inherited) + §7 scrape ethics (F4 positioning composites-only per Override 2).
 - **Peer specs**:
   - `indices/financial/F1-valuations` · `F2-momentum` · `F3-risk-appetite` · `F4-positioning` (L3 inputs).
   - `indices/monetary/M4-fci` (cross-cycle diagnostic).

@@ -1,6 +1,7 @@
 # Credit Cycle Composite Score (CCCS) — Spec
 
 > Layer L4 · cycles · slug: `credit-cccs` · methodology_version: `CCCS_COMPOSITE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E3)
 
 ## 1. Purpose
 
@@ -265,6 +266,9 @@ CREATE INDEX idx_cccs_cd ON credit_cycle_scores (country_code, date);
 
 - **Methodology**: [`docs/reference/cycles/credit-cccs.md`](../../reference/cycles/credit-cccs.md) — Manual Ciclo de Crédito Parte V, Caps 15 (composite), 16 (phase classification), 17 (cross-cycle interactions).
 - **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) (L1-L4 upstream) + `data_sources/financial.md` (F3, F4 upstream).
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 2 (Hierarchy best-of inherited from CRP overlay cascade) + §Pattern 4 (TE primary + native overrides upstream); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (BIS 43 universe aligned T1+T2 majority; T3+ fora → L1-L4 raise `DataUnavailableError` → CCCS `InsufficientDataError` per Policy 1).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (BIS CC-BY-4.0 + ECB/Eurostat + FRED via L3 upstream).
+- **D-block evidence**: [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §4 BIS WS_DSR 7/7 OK (L4 production-ready); WS_TC key pending (CAL-019 Phase 1 affects L1-L2-L3 — CCCS inheritance via `StaleDataError` se L1-L4 quarterly refresh falhar).
 - **Papers**:
   - Drehmann M., Borio C., Tsatsaronis K. (2010), "Anchoring countercyclical capital buffers", BIS WP 317 (CCyB gap threshold logic).
   - Drehmann M., Juselius M. (2014), "Evaluating early warning indicators of banking crises", *IJF* 30(3) (DSR 0.89 AUC 1-2Y).
@@ -286,4 +290,5 @@ Scope boundaries. O que este componente **não** faz — pertence a outro módul
 - Does **not** persist L5 `credit_regimes` table (regime duration, transition matrix) — Phase 2+ spec; v0.1 apenas emite `regime` + `regime_persistence_days` inline em `credit_cycle_scores`.
 - Does **not** re-fetch L1-L4 ou F3-F4 raw inputs — puro L3/L3-to-L4 aggregator sobre SONAR tables. Connector calls vivem upstream.
 - Does **not** emit alerts editoriais — `boom_overlay_active=1` é informational trigger; narrativa + thresholds de alerta vivem em `outputs/editorial` playbook.
+- Does **not** apply tier-aware confidence cap beyond Policy 1 + QS absent cap — per-tier integration (T2 0.85 / T3 fail / T4 fail) é Phase 1+ pipeline layer per ADR-0005 §Consequences; CCCS assume L1-L4 input rows herdam `EM_COVERAGE` upstream quando applicable.
 

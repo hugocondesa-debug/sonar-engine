@@ -1,6 +1,7 @@
 # ECS — Economic Cycle Score (composite) — Spec
 
 > Layer L4 · cycle · slug: `economic-ecs` · methodology_version: `ECS_COMPOSITE_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E3)
 
 ## 1. Purpose
 
@@ -25,7 +26,7 @@ Compose the 4 economic sub-indices (E1 Activity, E2 Leading, E3 Labor, E4 Sentim
 Invariantes antes da invocação — cada sub-index é input independente. Nenhuma dependência entre E1↔E4 (Cap 15.5: paralelo by design).
 
 - **E1 Activity**: row existe em `idx_economic_e1_activity` para `(country_code, date_eom)` com `methodology_version = E1_ACTIVITY_v0.1` **e** `confidence ≥ 0.50`. Senão: índice considerado unavailable → Policy 1 re-weighting.
-- **E2 Leading**: idem, `methodology_version = E2_LEADING_v0.1`, `confidence ≥ 0.50`.
+- **E2 Leading**: idem, `methodology_version = E2_LEADING_v0.2` (post-Bloco E2 bump per D2 USSLIND removal; CAL-023 pending), `confidence ≥ 0.50`.
 - **E3 Labor**: idem, `methodology_version = E3_LABOR_v0.1`, `confidence ≥ 0.50`. `sahm_triggered` column lido junto.
 - **E4 Sentiment**: idem, `methodology_version = E4_SENTIMENT_v0.1`, `confidence ≥ 0.50`.
 - **Stagflation inputs**: `cpi_yoy` ≤ 45 dias stale para mês de `date`; `unemployment_rate` ≤ 45 dias.
@@ -223,6 +224,9 @@ CREATE INDEX idx_ecs_regime ON economic_cycle_scores (country_code, regime, date
 
 - **Methodology**: [`docs/reference/cycles/economic.md`](../../reference/cycles/economic.md) — Manual do Ciclo Económico, Parte V Cap 15 (Composite design), Cap 16 (Stagflation overlay), Cap 17 (Matriz 4-way).
 - **Indices consumed**: [`docs/specs/indices/economic/README.md`](../../indices/economic/README.md) (E1-E4 overview + canonical weights).
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 4 (TE primary + native overrides upstream per E1-E4); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (Policy 1 cap 0.75 já aplicado; tier-conditional confidence cap T2 0.85 / T3 0.65 / T4 fail é Phase 1+ integration).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (attribution inherited via E1-E4 upstream: FRED/Eurostat/OECD/ECB SDW).
+- **D-block evidence**: [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §3 E1-E4 coverage confirmed; E2 v0.2 bump cascades aqui via precondition update.
 - **Cross-validation targets**: hit-ratio vs **NBER** (US recession dating) e **CEPR** (EA recession dating) com walk-forward backtest. Pagan-Sossounov agreement target ≥ 87% per reference.
 - **Papers**:
   - Burns A., Mitchell W. (1946), *Measuring Business Cycles*, NBER — foundational cycle framework.
@@ -240,4 +244,6 @@ CREATE INDEX idx_ecs_regime ON economic_cycle_scores (country_code, regime, date
 - Does not implement matriz 4-way aqui — classificação cross-cycle (ECS × CCCS × MSC × FCS) vive em [`integration/matriz-4way`](../integration/) (Phase 2+).
 - Does not enforce regime transition direction — anti-whipsaw é symmetric (applies para upgrades e downgrades).
 - Does not expose `prev_regime` / buffer state externally — internal state machine; consumers get only canonical persisted row.
+- Does not apply tier-aware confidence cap beyond Policy 1 (re-weight at 0.75) — per-tier caps (T2 0.85, T3 0.65, T4 fail) são Phase 1+ pipeline integration per ADR-0005 §Consequences; ECS spec-level assume sub-indices inherem tier caps upstream.
+- Does not re-derive sub-indices post-bump upstream (ex: E2 v0.1 → v0.2 em Bloco E2) — ECS consume sub-index rows verbatim via methodology_version match; precondition E2 aceita v0.2 para compatibility.
 
