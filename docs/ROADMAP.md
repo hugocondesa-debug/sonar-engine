@@ -1,470 +1,187 @@
 # SONAR v2 — Roadmap
 
-Plano de desenvolvimento faseado. Cada phase tem deliverables, critérios de aceite e estimativa de esforço.
+**Status**: v2.0 · Phase 0 Bloco C em curso
+**Última revisão**: 2026-04-18
 
----
+Sequência de fases SONAR v2. Sem datas absolutas — solo operator, critério de saída por fase é o gate. Fase seguinte arranca quando anterior satisfaz critério, não por calendário. Ficheiro live; revisão a cada phase gate.
 
-## Phase 0 — Bootstrap (1-2 semanas)
+## Princípios do roadmap
 
-**Goal**: estabelecer foundations antes de escrever código significativo.
+- **Ship-first**: vertical slice Phase 1 (L0 → L4 funcional num ciclo económico completo) antes de expandir horizontal Phase 2. Prova arquitectura, descobre friction.
+- **Compute-before-calibrate**: placeholders declarados em specs ficam placeholders até ≥ 24m de production data existir para recalibração empírica. Recalibração é Phase 4, não antes.
+- **Specs precede code**: cada fase tem specs mergeáveis como pre-requisito. Nenhum código novo sem spec aprovado.
+- **Dependências respeitam 9-layer ordering**: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8. Pular camadas só quando documentado.
+- **Out-of-scope explícito por fase**: evita scope creep e mantém gates tractable.
+- **Discovery precede implementation**: nenhum connector em código sem spec de fonte completa em `docs/data_sources/`. Inventário exaustivo de endpoints, autenticação, rate limits, freshness, licensing é pre-requisito de Phase 1.
 
-### Deliverables
+## Phase 0 — Bootstrap & Specs
 
-- [ ] Security: PAT revogado, novo token criado (fine-grained)
-- [ ] V1 repo arquivado (renomeado, marcado read-only)
-- [ ] V2 repo criado fresh
-- [ ] Repository structure scaffolded
-- [ ] Documentation base commitada (README, ARCHITECTURE, etc.)
-- [ ] `pyproject.toml` configurado
-- [ ] CI skeleton (lint + test runners)
-- [ ] Pre-commit hooks setup
-- [ ] `.env.example` template
-- [ ] GitHub Wiki criada com páginas base
-- [ ] Manuais v1 migrados para `docs/methodology/`
-- [ ] Data plans v1 migrados para `docs/data_sources/`
-- [ ] BRIEF_FOR_DEBATE resolvido — decisões chave tomadas
-- [ ] ADRs iniciais escritos (linguagem, DB, orquestração, licensing)
+**Foco**: documentação arquitectural + specs operacionais completos + contratos partilhados congelados.
 
-### Critérios de aceite
+**Critério de saída** (gate para Phase 1):
 
-- Repo clona, `pip install -e ".[dev]"` funciona
-- `pytest` corre (zero tests ainda, mas não erra)
-- `ruff check` e `mypy` passam em código vazio
-- CI triggera em push e passa
-- Documentação renderiza em GitHub (README + wiki)
-- Todos os decisores do BRIEF_FOR_DEBATE têm ADR assinado
+- Bloco A (Fundações): [`ARCHITECTURE.md`](ARCHITECTURE.md), [`CLAUDE.md`](../CLAUDE.md) done.
+- Bloco B (Specs): 25 specs mergeadas em `docs/specs/` (commits `97ee9ae`, `1a66686`, `95744d3`) — **done 2026-04-18**.
+- Bloco C (Documentação): ROADMAP (este), `REPOSITORY_STRUCTURE.md`, `MIGRATION_PLAN.md`, `GLOSSARY.md`, 4 ADRs P0 (linguagem Python 3.11+, arquitectura 9-layer, SQLite MVP → Postgres path, AI collaboration model), `docs/governance/` (6 ficheiros: README, WORKFLOW, DOCUMENTATION, DECISIONS, DATA, AI_COLLABORATION), `docs/specs/conventions/` novas (`patterns.md`, `normalization.md`, `composite-aggregation.md`), `docs/backlog/` (`calibration-tasks.md`, `phase2-items.md`), flags refactor (compression + namespace cleanup).
+- Bloco D (Data Discovery): inventário exaustivo de fontes em `docs/data_sources/` — todas as séries necessárias para L2 + L3 + L4 catalogadas com endpoint, autenticação (API key / scrape / download), rate limit conhecido, freshness (latência), histórico disponível, coverage por país, licensing/TOS flag. Pré-requisito para primeiro connector de Phase 1.
 
-### Esforço
+**Scope**: zero código de produção. Apenas documentação + contratos partilhados + catalogação de fontes (sem ingestão).
 
-Principalmente write/review documentation. ~20-30 horas.
+**Out-of-scope nesta fase**: connectors (L0), db schema DDL aplicado (L1), overlays implementation (L2), qualquer módulo em `sonar/`.
 
----
+**Dependências**: nenhuma (ponto de partida).
 
-## Phase 1 — Data foundation (3-4 semanas)
+**Decisões pendentes**: — (Phase 0 resolve as decisões P0 via ADRs).
 
-**Goal**: pipeline end-to-end com um connector completo, uma tabela na DB, um output simples. Prove que a arquitetura funciona.
+## Phase 1 — Vertical Slice End-to-End (L0 → L4)
 
-### Deliverables
+**Foco**: um pipeline diário completo para 1 ciclo inteiro (Economic), estreito mas funcional — prova que 9-layer arquitectura corre end-to-end com composite + regime classification de verdade.
 
-- [ ] `sonar/settings.py` com pydantic config completo
-- [ ] `sonar/db/models.py` com schema v18 mínimo (5 tables)
-- [ ] Alembic migrations setup, first migration
-- [ ] `sonar/connectors/base.py` — abstract interface
-- [ ] `sonar/connectors/fred.py` — fully implemented
-- [ ] Unit tests para FRED connector (mocked HTTP)
-- [ ] Integration test: fetch real data, store to SQLite, verify
-- [ ] CLI command: `sonar fetch fred --series DGS10 --date 2026-04-17`
-- [ ] Logging estruturado
-- [ ] `.env.example` com todas as API keys documentadas
-- [ ] Dev environment documented in `docs/operations/DEV_SETUP.md`
+**Critério de saída** (gate para Phase 2):
 
-### Critérios de aceite
+- **L2**: `overlays/nss-curves` em produção diária, emitindo 4 curve families (spot/zero/forward/real) para US + PT.
+- **L3**: 4 indices economic em produção diária (US + PT): `E1-activity`, `E2-leading`, `E3-labor`, `E4-sentiment` — Economic cycle completo.
+- **L4**: `cycles/economic-ecs` em produção diária com composite real (4 indices), regime classification hysteresis funcional, overlay booleans (Stagflation/Boom/Dilemma triggers quando condições satisfeitas). Policy 1 re-weight testável mas não default path.
+- **Cobertura**: 2 países (US + PT). PT como first-class PT-aware validation.
+- **Persistência**: SQLite com schema canónico gerido via Alembic migrations. UNIQUE constraints enforced. `methodology_version` em toda row.
+- **Testing**: pytest suite com ≥ 3 fixtures históricos PT (2009 DSR peak, 2012 CCCS distress, 2019 normalização) + US reference fixture.
+- **Pipelines**: `daily-curves` + `daily-indices` + `daily-cycles` funcionais, orquestrados conforme decisão BRIEF §3.
+- **CI/CD**: GitHub Actions básico — lint (ruff), type-check (mypy), tests (pytest), bloqueia merge se red.
+- **Commits**: Conventional Commits em PT-PT enforced (commit-msg hook opcional).
 
-- `sonar fetch fred --series DGS10` retorna yield e armazena em DB
-- Query SQL direta à DB mostra dados corretos
-- Unit tests coverage >80% em módulo FRED
-- Integration test corre e passa em CI (com API key secret)
-- Logs são human-readable e debugging-useful
+**Scope**:
 
-### Esforço
+- `BaseConnector` abstract class + connectors necessários ao scope economic (FRED para US macro: yields, CPI, LEI, PMI, claims, unemployment, Sahm; IGCP para PT sovereign; BPStat/INE para PT macro equivalents; ECB SDW para EA reference; OECD para CLI). Lista exacta resulta do inventário Bloco D Phase 0.
+- `sonar/db/` schema + Alembic migrations para tabelas L1 + L2 + L3 + L4 necessárias ao slice.
+- `sonar/overlays/nss_curves/` implementation completa conforme [`specs/overlays/nss-curves.md`](specs/overlays/nss-curves.md).
+- `sonar/indices/economic/` com 4 subpackages (`e1_activity/`, `e2_leading/`, `e3_labor/`, `e4_sentiment/`) conforme respectivos specs em [`specs/indices/economic/`](specs/indices/economic/).
+- `sonar/cycles/economic_ecs/` conforme [`specs/cycles/economic-ecs.md`](specs/cycles/economic-ecs.md).
+- `sonar/pipelines/` orchestration (APScheduler ou cron — ver decisão).
+- `sonar/cli/` Typer stub (`sonar run daily-curves`, `sonar run daily-cycles`, `sonar query ecs --country=PT --date=latest`).
 
-~40-60 horas. Maior parte é setup infra e learning curve.
+**Out-of-scope nesta fase**: os outros 4 overlays (ERP, CRP, rating-spread, expected-inflation), os outros 12 indices (L1-4, M1-4, F1-4), os outros 3 cycles (CCCS, MSC, FCS), L5 regimes como tabela própria (fica como colunas booleanas em ECS), L6 integration, L7 outputs além de CLI minimum, L8 `weekly-integration` e `backfill-strategy`.
 
----
+**Dependências**: Phase 0 done (gate passado).
 
-## Phase 2 — Connectors expansion (3-4 semanas)
+**Decisões pendentes**:
 
-**Goal**: coverage dos data sources essenciais para Tier 1 MVP.
+- [`BRIEF_FOR_DEBATE.md`](BRIEF_FOR_DEBATE.md) §3 — orchestrator (cron vs APScheduler vs Prefect); decidir antes de `daily-*` em produção.
+- §7 — code quality tools (ruff + mypy + pytest confirmados; validar no primeiro PR de código).
+- §10 — deployment scenario (VPS + GH Actions scheduled já definido); validar no primeiro daily run.
 
-### Deliverables — connectors
+## Phase 2 — Horizontal Expansion (L2 – L4 completos)
 
-- [ ] `ecb_sdw.py` — ECB Statistical Data Warehouse
-- [ ] `bis.py` — BIS statistics
-- [ ] `eurostat.py`
-- [ ] `bpstat.py` — Banco de Portugal
-- [ ] `igcp.py` — Portuguese sovereign
-- [ ] `treasury_gov.py` — US Treasury daily
-- [ ] `bundesbank.py` — Svensson fitted curves
-- [ ] `boe.py` — BoE Anderson-Sleath curves
-- [ ] `shiller.py` — ie_data.xls download
-- [ ] `damodaran.py` — monthly histimpl.xlsx (validation only)
-- [ ] `wgb_cds.py` — worldgovernmentbonds.com scrape
-- [ ] `multpl.py` — multpl.com scrape
+**Foco**: cobertura completa de overlays + indices + cycles em velocity. Aproveitar padrões validados no vertical slice.
 
-### Deliverables — infra
+**Critério de saída** (gate para Phase 3):
 
-- [ ] Connector registry + auto-discovery
-- [ ] Rate limiting wrapper (httpx + asyncio)
-- [ ] Cache layer (disk + TTL)
-- [ ] Retry logic with exponential backoff
-- [ ] Error handling consistent across connectors
-- [ ] Metrics: success/fail rate per connector
+- **L2 overlays** — 5 em produção: `nss-curves`, `erp-daily`, `crp`, `rating-spread`, `expected-inflation`.
+- **L3 indices** — 16 em produção: E1-4, L1-4, M1-4, F1-4.
+- **L4 cycles** — 4 em produção: ECS, CCCS, MSC, FCS.
+- **Cobertura países** — 10-15 (T1 + T2: US, DE, UK, JP, FR, IT, ES, CA, AU, PT, IE, NL, SE, CH; T4 EM opcional caso-a-caso).
+- **Postgres migration** — **condicional**; executar apenas se um dos gates [`ARCHITECTURE.md §10`](ARCHITECTURE.md) satisfeito (multi-user OR concurrent writes OR DB > 30 GB OR cloud 24/7 deployment). Se nenhum: ficar em SQLite e documentar decisão.
+- **L5 regimes** — bootstrap: Stagflation, Boom, Dilemma, Bubble Warning migrados de colunas booleanas (v0.1) para tabela própria `regimes/` com `active`, `intensity`, `duration_days`. Transition probabilities começam a ser tracked.
+- **F4 tier policy enforcement** — T1 required; T2-3 best-effort com `F4_COVERAGE_SPARSE`; T4 ignored.
+- **F3 ↔ M4 divergence diagnostic** — `f3_m4_divergence` column persistida em `financial_cycle_scores`; `F3_M4_DIVERGENCE` flag emitted quando `|divergence| > 15`.
+- **Walk-forward backtest infrastructure** — harness pronto mesmo sem calibração final aplicada (calibração é Phase 4). Permite correr backtests sob demanda.
 
-### Critérios de aceite
-
-- Todos connectors têm >80% unit test coverage
-- Integration tests pass em CI weekly (full fetch)
-- Pipeline diário completa em <15 min para todos connectors
-- DB populada com histórico de 1 ano para sanity-check
+**Scope**: implementation em velocity com padrões do vertical slice Phase 1. Specs já existem — é tradução para código.
 
-### Esforço
+**Out-of-scope nesta fase**: L6 integration full (`matriz-4way`, `diagnostics/`, `cost-of-capital`), L7 outputs rich (editorial pipeline, dashboard, alerts além de logs), calibração empírica de placeholders.
 
-~80-120 horas. Muitas fontes similares após primeiras 3-4.
+**Dependências**: Phase 1 done + padrões arquiteturais validados no vertical slice (normalization formula confirmada, hysteresis state machine testada, confidence propagation funcional).
 
----
+**Decisões pendentes**:
 
-## Phase 3 — Sub-models (4-6 semanas)
+- BRIEF §2 — Postgres migration trigger avaliado contra os 4 gates.
+- §9 — testing strategy para scale (property tests expansion via hypothesis, integration test fixtures).
 
-**Goal**: cinco sub-models operacionais, Portugal coverage incluído.
+## Phase 3 — Integration & Outputs (L6 + L7)
 
-### Phase 3a — Yield curves (2 semanas)
+**Foco**: composição cross-country / cross-cycle + consumo humano e machine.
 
-- [ ] `nss_fitter.py` — Python library with scipy
-- [ ] `bootstrap.py` — zero curve derivation
-- [ ] `forwards.py` — forward rate computation
-- [ ] `real_curves.py` — real yield (direct + derived)
-- [ ] `validation.py` — cross-check vs Fed GSW, Bundesbank, BoE
-- [ ] Orchestrator: fit all 15+ countries daily
-- [ ] Portugal curve via IGCP + ECB SDW working
-- [ ] Cross-validation target met: RMSE <5bps, vs BC-published <10bps
+**Critério de saída** (gate para Phase 4):
 
-### Phase 3b — ERP daily (2 semanas)
-
-- [ ] Four methods implemented (DCF, Gordon, simple, CAPE)
-- [ ] S&P 500 (US) primary implementation
-- [ ] STOXX 600, FTSE, TOPIX extensions
-- [ ] Damodaran monthly cross-validation working (<20bps deviation target)
-- [ ] FactSet Earnings Insight scraper operational
-- [ ] S&P DJI buyback quarterly integrated
+- **L6 matriz-4way** — classificação `ECS × CCCS × MSC × FCS → 16 estados canónicos + outliers` persistida diariamente.
+- **L6 cost-of-capital** por país — composite `risk_free_country + β · ERP_mature + CRP_country` com β sourcing documentado, emitido para T1 + T2 + PT.
+- **L6 diagnostics** — 4 composites: `bubble-detection` (FCS + BIS credit gap + BIS property gap), `minsky-fragility` (CCCS + DSR z-score), `real-estate-cycle` (property gap + mortgage rates + CRE REIT), `risk-appetite-regime` (F3 + VIX + credit spreads).
+- **L7 CLI** — Typer completo: `sonar query`, `sonar export`, `sonar diagnose`, `sonar run <pipeline>`, `sonar replay <date-range>`.
+- **L7 FastAPI** — JSON endpoints `/v1/cycles/{country}/{date}`, `/v1/overlays/{slug}/{country}/{date}`, `/v1/matriz-4way/{country}/{date}`, OpenAPI auto-gen.
+- **L7 editorial pipeline** — angle detection (regime changes, overlay activations, cross-cycle patterns) + briefing generator + markdown templates para Substack ("A Equação").
+- **L7 alerts** — threshold breach (CRP spikes, CAPE extremes), regime shifts (ECS → RECESSION, FCS → EUPHORIA), via email + Telegram.
+- **Dashboard** — Streamlit MVP interno com páginas: overview, cycles status, overlay breakdown, cross-country comparison, regime timeline.
 
-### Phase 3c — CRP (1 semana)
-
-- [ ] CDS-based approach primary
-- [ ] Sovereign spread fallback
-- [ ] Vol ratio computation per country (5Y rolling)
-- [ ] CRP for 30+ countries
-- [ ] Portugal CRP ~54bps validated
+**Scope**: human + machine consumption. DB backend já decidido em Phase 2 (SQLite ou Postgres).
 
-### Phase 3d — Rating + expected inflation (1-2 semanas)
+**Out-of-scope nesta fase**: React dashboard produção, MCP server reactivate, calibração empírica dos 40 placeholders, public wiki / OSS licensing move.
 
-- [ ] Rating agency scrapers (S&P, Moody's, Fitch, DBRS)
-- [ ] SONAR common scale conversion
-- [ ] Moody's Annual Default Study parsing
-- [ ] Rating-to-spread table calibrated
-- [ ] Expected inflation via breakevens (direct countries)
-- [ ] Expected inflation derived for Portugal (EA + differential)
-- [ ] 5y5y forward computation
-- [ ] SPF + Michigan + ECB SPF surveys integrated
+**Dependências**: Phase 2 done + ≥ 12m de production data acumulados em Phase 1-2 (permite editorial pipeline ter histórico para contextualizar).
 
-### Critérios de aceite Phase 3
+**Decisões pendentes**:
 
-- All five sub-models produce daily outputs
-- Portugal coverage complete (all five)
-- Cross-validations within targets documented in manual
-- DB has historical backfill where possible (US yield curves 1990+, etc.)
-- Cost of capital can be computed end-to-end for Portugal equity
+- BRIEF §4 — dashboard tech (Streamlit confirmado MVP; React é Phase 4).
+- §16 — editorial workflow (semi-automated: SONAR draft, Hugo edita voice).
 
-### Esforço
-
-~160-200 horas. The methodology-heavy phase.
-
----
-
-## Phase 4 — Cycle classification (4-5 semanas)
-
-**Goal**: quatro ciclos com scores + overlays, integrating sub-model outputs.
-
-### Deliverables
-
-- [ ] ECS (Economic Cycle Score)
-  - [ ] E1 Activity, E2 Leading, E3 Labor, E4 Sentiment sub-components
-  - [ ] Composite scoring 0-100
-  - [ ] Stagflation overlay
-- [ ] CCCS (Credit Cycle Score)
-  - [ ] Credit expansion metrics
-  - [ ] Delinquency, charge-offs
-  - [ ] Bank lending standards
-  - [ ] Boom overlay
-- [ ] MSC (Monetary Stance Composite)
-  - [ ] Policy rate vs neutral
-  - [ ] Yield curve slope (from sub-model!)
-  - [ ] BC balance sheet metrics
-  - [ ] Dilemma overlay
-- [ ] FCS (Financial Cycle Score)
-  - [ ] F1 Valuations (uses ERP from sub-model!)
-  - [ ] F2 Momentum
-  - [ ] F3 Risk appetite
-  - [ ] F4 Positioning
-  - [ ] Bubble Warning overlay (uses BIS credit gap)
+## Phase 4 — Calibração Empírica & Scale
 
-### Critérios de aceite
+**Foco**: substituir placeholders por calibração real + production-grade ops + abertura condicional do projecto.
 
-- Each cycle has testable score given known historical inputs
-- Cross-validation vs manual-documented historical states
-- Pipeline computes all four daily in <5 min
-- Portugal-specific CCCS produces sensible trajectory 2005-2026
+**Critério de saída** (não há Phase 5 formal — Phase 4 é steady state com backlog perpétuo):
 
-### Esforço
+- **40 placeholders recalibrados** com ≥ 24m production data: 20 index bands, 8 cycle weights + regime bands, 5 credit phase bands per country, 4 overlay params, 3 monetary params. Backlog operacional em [`backlog/calibration-tasks.md`](backlog/calibration-tasks.md).
+- **Walk-forward backtests** executados:
+  - ECS: hit-ratio vs NBER (US) + CEPR (EA), target ≥ 87% Pagan-Sossounov agreement.
+  - FCS: Pagan-Sossounov bear/bull dating, bubble episodes 1998/2007/2021.
+  - MSC: transition frequencies vs regime changes identificados (2004-06 Fed hike, 2013 taper tantrum, 2019 cut, 2022 hiking).
+  - CCCS: crisis-prediction AUC vs Moody's default study events.
+- **Cycle weights re-optimized** se backtest justificar MAJOR bump de `methodology_version` (ex: `ECS_COMPOSITE_v0.1` → `_v1.0` com rebackfill full).
+- **Dashboard produção** — React/TypeScript, condicional a (a) fund launch OR (b) Streamlit limitations hit (performance, embedding, multi-user).
+- **MCP server exposure** — cloudflared tunnel reactivate, endpoints `sonar.hugocondesa.com` + `mcp.hugocondesa.com`, autorização explícita requerida.
+- **Repo visibility** re-avaliado conforme decisão de licensing.
 
-~100-140 horas.
+**Scope**: maturação operacional + opcionalmente abertura do projecto (OSS / source-available / open-core).
 
----
-
-## Phase 5 — Integration (2-3 semanas)
+**Out-of-scope nesta fase**:
 
-**Goal**: unify cycles + sub-models em integrated state + diagnostics.
+- Expansão agressiva Tier 4 EM — fica oportunística, caso-a-caso. Não é fase.
+- F3 ↔ M4 reconciliation v0.2 (shared source single normalization) — conditional a evidence de systematic drift > ad-hoc `F3_M4_DIVERGENCE` events.
 
-### Deliverables
+**Dependências**: Phase 3 done + ≥ 24m mínimo de production data (contado desde Phase 1 go-live).
 
-- [ ] Matriz 4-way classifier
-  - [ ] Six canonical patterns detection
-  - [ ] Five critical configurations detection
-  - [ ] Transition probability (basic)
-- [ ] Four diagnostics aplicados:
-  - [ ] Bubble detection composite
-  - [ ] Risk appetite regime (R1-R4)
-  - [ ] Real estate cycle phase
-  - [ ] Minsky fragility composite
-- [ ] Cost of capital framework
-  - [ ] Country-specific computation (Portuguese equity, Brazilian bank, etc.)
-  - [ ] Real vs nominal options
-  - [ ] Currency-aware (EUR, USD, BRL, etc.)
-- [ ] Alerts system
-  - [ ] Threshold breach detection
-  - [ ] Regime shift detection
-  - [ ] Alert publishing (log + email/Telegram stub)
+**Decisões pendentes**:
 
-### Critérios de aceite
+- BRIEF §5 — licensing (proprietary vs source-available vs open-core).
+- §11 — repo visibility (private → public condicional).
+- §13 — naming final (sonar vs sonar-engine vs sonar-core).
+- §14 — docs strategy (repo `docs/` source + optional wiki mirror).
+- §15 — AI assistance workflow maduro (Claude Code + Claude chat + Copilot opcional).
 
-- EDP DCF worked example produces cost of equity 7.55% (matches manual)
-- Brazilian bank cross-border DCF framework validated
-- Current (April 2026) integrated state matches manual's described state for Portugal
+## Não-fases (backlog perpétuo fora do roadmap)
 
-### Esforço
+Itens que **não são fase** mas vivem como backlog oportunista, tratados quando evidence justificar:
 
-~80-100 horas.
+- **F3 ↔ M4 reconciliation v0.2** — conditional a evidence de systematic drift entre `indices/monetary/M4-fci` e `indices/financial/F3-risk-appetite`; se `F3_M4_DIVERGENCE` flag fire > X% dos dias em janela 12m, abrir RFC para shared source.
+- **Tier 4 EM deep coverage** — oportunística, caso-a-caso; driven por editorial demand ou client request, não roadmap.
+- **Governance review cadence** — trimestral; vive em [`governance/REVIEW.md`](governance/REVIEW.md), não aqui.
+- **Spec template evolution** — melhorias iterativas a [`specs/template.md`](specs/template.md) como aprendizagens acumulam.
+- **Conventions catalog growth** — `flags.md`, `exceptions.md` crescem organicamente; PR dedicado por entrada.
 
----
+## Mapping fase ↔ documentos
 
-## Phase 6 — Outputs & editorial pipeline (3-4 semanas)
+| Phase | Specs relevantes | Docs estratégicos | ADRs |
+|---|---|---|---|
+| 0 | [`conventions/`](specs/conventions/) (4 files) | `ARCHITECTURE.md`, `../CLAUDE.md`, este ROADMAP, `REPOSITORY_STRUCTURE.md`, `MIGRATION_PLAN.md`, `GLOSSARY.md` | ADR-0001 linguagem · ADR-0002 9-layer · ADR-0003 db path · ADR-0004 AI collab |
+| 1 | [`overlays/nss-curves`](specs/overlays/nss-curves.md), [`indices/economic/`](specs/indices/economic/) (E1-E4), [`cycles/economic-ecs`](specs/cycles/economic-ecs.md), [`pipelines/daily-*`](specs/pipelines/) | `governance/WORKFLOW.md` | ADRs P1 (orchestrator final, CI/CD, schema versioning) |
+| 2 | 5 overlays + 16 indices + 4 cycles completos | `governance/DATA.md` | ADRs P2 (Postgres gate, L5 regime schema, F4 tier enforcement) |
+| 3 | [`integration/`](specs/integration/) (a criar), [`outputs/`](specs/outputs/) (a criar) | `governance/AI_COLLABORATION.md` | ADRs P3 (dashboard tech final, editorial workflow, alerts stack) |
+| 4 | (sem specs novas — bumps MAJOR `methodology_version` em specs existentes) | [`backlog/calibration-tasks.md`](backlog/calibration-tasks.md) | ADRs P4 (licensing, repo visibility, MCP exposure) |
 
-**Goal**: make SONAR outputs consumable — API, CLI, briefings, charts.
+## Como este ficheiro é actualizado
 
-### Deliverables
+`ROADMAP.md` é **live document**. Três tipos de update:
 
-- [ ] CLI completa via Typer
-  - [ ] `sonar pipeline daily`
-  - [ ] `sonar pipeline event <type>`
-  - [ ] `sonar query cycle <country> <date>`
-  - [ ] `sonar query cost-of-capital <country>`
-  - [ ] `sonar briefing daily`
-  - [ ] `sonar validate connectors`
-- [ ] FastAPI internal API
-  - [ ] `/cycles/{country}/latest`
-  - [ ] `/submodels/{submodel}/{country}/latest`
-  - [ ] `/integration/cost_of_capital/{country}`
-  - [ ] `/alerts/active`
-  - [ ] OpenAPI docs auto-generated
-- [ ] Editorial pipeline
-  - [ ] Angle detection based on data state
-  - [ ] Daily briefing generator
-  - [ ] Angle templates (markdown)
-  - [ ] Chart generation (matplotlib/plotly)
-- [ ] Exporters
-  - [ ] JSON for integration
-  - [ ] Markdown for documentation
-  - [ ] CSV for Excel analysis
+- **Phase gate satisfied** — atualizar header (status + última revisão) + mover fase done para referência histórica no topo do respectivo gate. Commit: `docs(roadmap): phase N gate passed`.
+- **Scope move entre fases** — exige ADR. Commit: `docs(roadmap): move <item> de Phase N para Phase M (ADR-XXXX)`.
+- **Cosmetic** (tipo, link, clarificação sem mudar scope) — directo. Commit: `docs(roadmap): clarify <subject>`.
 
-### Critérios de aceite
-
-- Can run daily pipeline and get editorial briefing output
-- API endpoints return data matching DB
-- First editorial angle produces publishable draft
-
-### Esforço
-
-~80-100 horas.
-
----
-
-## Phase 7 — Dashboard v1 (3-4 semanas)
-
-**Goal**: Streamlit MVP dashboard para uso pessoal e demo.
-
-### Deliverables
-
-- [ ] Streamlit app structure
-- [ ] Home page: SONAR integrated state snapshot
-- [ ] Cycle pages: one per cycle with history + current
-- [ ] Sub-model pages: yield curves, ERP, CRP, expected inflation
-- [ ] Matriz 4-way visualization
-- [ ] Cost of capital calculator (interactive)
-- [ ] Country comparison tool
-- [ ] Historical animation
-- [ ] Alerts panel
-
-### Critérios de aceite
-
-- Dashboard deployable locally (`streamlit run`)
-- All data loads from SONAR DB
-- Interactive charts responsive
-- Portugal focus clear
-
-### Esforço
-
-~60-80 horas.
-
----
-
-## Phase 8 — Operationalization (2-3 semanas)
-
-**Goal**: production-grade operations.
-
-### Deliverables
-
-- [ ] Automated daily pipeline
-  - [ ] Cron or GitHub Actions
-  - [ ] Failure alerting (email + Telegram)
-  - [ ] Success metrics logged
-- [ ] Monitoring dashboard
-  - [ ] Connector health
-  - [ ] Sub-model drift vs validations
-  - [ ] DB size tracking
-- [ ] Backup strategy
-  - [ ] Daily SQLite backup
-  - [ ] Weekly encrypted cloud push (S3/B2)
-  - [ ] Restore runbook tested
-- [ ] Documentation
-  - [ ] Operations runbooks
-  - [ ] Troubleshooting guide
-  - [ ] Common issues + fixes
-
-### Critérios de aceite
-
-- Pipeline runs reliably for 30 days without manual intervention
-- Backup + restore tested successfully
-- Runbooks allow recovery from common failures
-
-### Esforço
-
-~40-60 horas.
-
----
-
-## Phase 9 — Backtesting framework (3-4 semanas)
-
-**Goal**: validate SONAR historical signal quality.
-
-### Deliverables
-
-- [ ] Historical backfill complete (where data permits)
-- [ ] Backtesting engine
-  - [ ] Compute historical cycle states
-  - [ ] Simulate forward returns
-  - [ ] Compare vs benchmarks
-- [ ] Performance reports
-  - [ ] Signal quality per cycle
-  - [ ] Matriz 4-way predictive power
-  - [ ] Portfolio simulation per playbook
-- [ ] Statistical validation
-  - [ ] Pagan-Sossounov agreement (>87% target per manual)
-  - [ ] ERP predictive power (correlation with forward returns)
-  - [ ] CRP stability analysis
-
-### Critérios de aceite
-
-- Backtests match manual-documented historical episodes
-- Signal quality documented per sub-module
-- Credibility established for potential fund launch
-
-### Esforço
-
-~80-100 horas.
-
----
-
-## Phase 10+ — Future expansions
-
-### v2.5 — EM expansion
-- Frontier market coverage
-- Alternative data sources (news sentiment, satellite)
-- Political risk scoring
-
-### v3 — Fund-ready
-- Multi-asset strategy engine
-- Portfolio construction automation
-- Transaction cost integration
-- Institutional reporting
-
-### v3.5 — Dashboard production
-- React + TypeScript
-- Deployed to cloud
-- Multi-user (if needed)
-- Enterprise features (SSO, audit logs)
-
-### v4 — AI augmentation
-- LLM-powered editorial angle generation
-- Automated research summarization
-- Anomaly detection ML
-- Narrative context synthesis
-
----
-
-## Critical path
-
-Fases que bloqueiam seguintes:
-
-```
-Phase 0 (Bootstrap)
-   ↓
-Phase 1 (Data foundation)
-   ↓
-Phase 2 (Connectors) ─┬─ Phase 3 (Sub-models)
-                       │        ↓
-                       └─ Phase 4 (Cycles)
-                              ↓
-                         Phase 5 (Integration)
-                              ↓
-                         Phase 6 (Outputs) ─── Phase 7 (Dashboard)
-                              ↓
-                         Phase 8 (Ops)
-                              ↓
-                         Phase 9 (Backtesting)
-```
-
-## Estimativa agregada
-
-Assumindo 10-15 horas/semana de desenvolvimento:
-
-| Range | Total effort | Duration (at 10-15h/wk) |
-|---|---|---|
-| Phase 0-3 (MVP) | ~300-400h | 5-7 meses |
-| Phase 0-6 (full v2) | ~600-800h | 10-14 meses |
-| Phase 0-9 (complete) | ~800-1000h | 14-20 meses |
-
-**Recommendation**: target Phase 0-3 as MVP (~6 months), then iterate based on which of Phase 4-9 delivers most value for editorial and fund-preparation goals.
-
-## Parallel work possible
-
-Com time extra ou colaboração:
-- Phase 3a, 3b, 3c, 3d podem paralelizar
-- Phase 7 (dashboard) pode começar logo que Phase 5 entregue algo
-- Phase 9 (backtesting) pode começar em paralelo com Phase 4-5
-
-## Risk mitigation
-
-Potential risks + mitigations:
-
-| Risk | Mitigation |
-|---|---|
-| Rating agency scrapers break | Build multiple fallback strategies, graceful degradation |
-| Damodaran stops publishing | SONAR has own computation — validation only |
-| FactSet PDF format changes | Monitor, alert, manual fallback |
-| API rate limits hit | Caching layer, scheduling spread, backup sources |
-| Methodology drift over time | Version control, regular calibration reviews |
-| Portugal data quality issues | Cross-check multiple sources (IGCP, ECB SDW, MTS) |
-| Single-person bottleneck | Prioritize documentation, run-books, automation |
-
----
-
-*Roadmap v0.1 — to be refined continuously. Tracked as GitHub Milestones.*
+Estado actual (2026-04-18): **Phase 0 Bloco C em curso**. Bloco A (Fundações) + Bloco B (Specs) done. Bloco C parcial — ARCHITECTURE (`0308cbf`), CLAUDE.md (`3a2f863`), ROADMAP (este commit pendente) done; REPOSITORY_STRUCTURE, MIGRATION_PLAN, GLOSSARY, ADRs, governance, conventions novas, backlog, flags refactor em fila. Bloco D (Data Discovery) pendente no final de Phase 0, antes de Phase 1 arrancar.
