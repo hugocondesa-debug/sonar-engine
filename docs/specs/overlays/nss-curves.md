@@ -1,6 +1,7 @@
 # NSS Yield Curves — Spec
 
 > Layer L2 · overlay · slug: `nss-curves` · methodology_version: `NSS_v0.1`
+> Last review: 2026-04-19 (Phase 0 Bloco E1)
 
 ## 1. Purpose
 
@@ -16,17 +17,18 @@ Fit Nelson-Siegel-Svensson (6-param) to observed sovereign yields per country-da
 | `date` | `date` | business day local to country | param |
 | `curve_input_type` | `Literal` | `"par"` \| `"zero"` \| `"linker_real"` | connector |
 
-**Per country-date primary connector** (fallback order):
+**Per country-date primary connector** (fallback order, aligned com ADR-0005 country tiers + Pattern 4 TE primary + native overrides):
 
-| Country tier | Primary | Secondary | Cross-validation target |
+| Country group | Primary | Secondary | Cross-validation target |
 |---|---|---|---|
-| Tier 1 US | `connectors/treasury_gov` (par) | `connectors/fred` (DGS*) | Fed GSW NSS <10 bps |
-| Tier 1 DE/EA-AAA | `connectors/bundesbank` (Svensson) | `connectors/ecb_sdw` | Bundesbank <5 bps |
-| Tier 1 UK | `connectors/boe_yieldcurves` (Anderson-Sleath) | — | BoE <10 bps |
-| Tier 1 JP | `connectors/mof_japan` | — | MoF <10 bps |
-| Tier 2 FR/IT/ES/CA/AU | own CB / Treasury | `fred` | <15 bps |
-| Tier 3 PT/IE/NL/SE/CH | `connectors/igcp` (PT) / `ecb_sdw` (others) | — | ECB SDW <15 bps |
-| Tier 4 CN/IN/BR/TR/MX | `fred` / Bloomberg (manual) | — | wider CI, no target |
+| T1 US | `connectors/treasury_gov` (par) | `connectors/fred` (DGS*) | Fed GSW NSS <10 bps |
+| T1 DE/EA-AAA | `connectors/bundesbank` (Svensson) | `connectors/ecb_sdw` | Bundesbank <5 bps |
+| T1 UK | `connectors/boe_yieldcurves` (Anderson-Sleath) | — | BoE <10 bps |
+| T1 JP | `connectors/mof_japan` | — | MoF <10 bps |
+| T1 FR/IT/ES/NL/CA/AU/CH/NO/SE/NZ | own CB / Treasury | `ecb_sdw` (EA members) / `fred` (mirrors) | <15 bps |
+| T1 PT | `connectors/igcp` | `ecb_sdw` (PT 10Y mirror) | ECB SDW <15 bps |
+| T2 EMs (CN/IN/BR/MX/TR/ZA/KR/...) | `connectors/te` `/country/{c}/indicators` sovereign yields per tenor (Pattern 4 primary) | native CB where available (BCB/RBI/CBRT/...) | wider CI; target <30 bps vs TE sanity |
+| T3+ | `connectors/te` breadth quando disponível; ≥6 tenores required senão raise `InsufficientDataError` | — | no target (EM coverage caveat) |
 
 ## 3. Outputs
 
@@ -213,7 +215,9 @@ CREATE INDEX idx_ycr_cd ON yield_curves_real (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/nss-curves.md`](../../reference/overlays/nss-curves.md) — caps 4-6 do Manual dos Sub-Modelos.
-- **Data sources**: [`docs/data_sources/monetary.md`](../../data_sources/monetary.md) § yield curves.
+- **Data sources**: [`docs/data_sources/monetary.md`](../../data_sources/monetary.md) § yield curves; [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §3 FRED DGS* fresh; §8 OECD CLI (related forward curves).
+- **Architecture**: [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (tier scope); [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 4 (TE primary + native overrides).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (FRED/Bundesbank/BoE/MoF attribution).
 - **Papers**:
   - Nelson C., Siegel A. (1987), "Parsimonious Modeling of Yield Curves", *Journal of Business* 60(4).
   - Svensson L. (1994), "Estimating and Interpreting Forward Interest Rates", *NBER WP 4871*.

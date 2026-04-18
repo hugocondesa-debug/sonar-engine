@@ -1,6 +1,7 @@
 # Country Risk Premium — Spec
 
 > Layer L2 · overlay · slug: `crp` · methodology_version: `CRP_CANONICAL_v0.1` (canonical summary); per-method versions em §4.
+> Last review: 2026-04-19 (Phase 0 Bloco E1)
 
 ## 1. Purpose
 
@@ -30,8 +31,8 @@ Benchmark country is its own 0-bps anchor (DE CRP = 0; US CRP = 0 for USD-denomi
 | `sov_yield_benchmark_pct` | SOV_SPREAD | `float` | `yield_curves_spot` benchmark row (same tenor) |
 | `consolidated_sonar_notch` | RATING | `float` | `overlays/rating-spread.ratings_consolidated (country, date, rating_type='FC')` |
 | `default_spread_bps` | RATING | `int` | `overlays/rating-spread.ratings_spread_calibration (sonar_notch_int, calibration_date)` |
-| `equity_returns_daily` | vol | `pd.Series` | `connectors/twelvedata` (PSI-20, IBEX, FTSE MIB, BOVESPA, …); 5Y rolling, ≥ 750 obs |
-| `bond_returns_daily` | vol | `pd.Series` | `connectors/te` / `yfinance` sovereign long-bond price series; 5Y rolling, ≥ 750 obs |
+| `equity_returns_daily` | vol | `pd.Series` | `connectors/twelvedata` (PSI-20, IBEX, FTSE MIB, BOVESPA, …); 5Y rolling, ≥ 750 obs. **Phase 2+ verify ToS** — twelvedata tier/licensing não validado em D-block. |
+| `bond_returns_daily` | vol | `pd.Series` | `connectors/te` / `yfinance` sovereign long-bond price series; 5Y rolling, ≥ 750 obs. **Phase 2+ verify** — yfinance scrape estability não validado em D-block. |
 | `damodaran_standard_ratio` | vol fallback | `float` | `config/crp.yaml` (default `1.5`) |
 
 ### Parameters (config)
@@ -274,7 +275,10 @@ CREATE INDEX idx_crp_canonical_cd ON crp_canonical (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/crp.md`](../../reference/overlays/crp.md) — Manual dos Sub-Modelos Parte IV, caps 10-12.
-- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ 2.2 (CDS/iTraxx licensing), § 1.3 (FRED); [`docs/data_sources/financial.md`](../../data_sources/financial.md) § equity/bond volatility.
+- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ CDS scrape WGB + spreads; [`docs/data_sources/financial.md`](../../data_sources/financial.md) § equity/bond volatility; [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) (twelvedata/yfinance não testados).
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 2 (Hierarchy best-of — CDS > SOV_SPREAD > RATING); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (CRP applicable T1-T4; T4 é CRP+rating-spread only per ADR-0005 §Decision).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 attribution + §4 use case matrix (agency ratings, WGB scrape, CDS sources); Override 3 (agency factual cite + paraphrase rationale).
+- **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — CDS rating-implied fallback registrado; vol_ratio Damodaran standard placeholder.
 - **Upstream specs**: [`overlays/nss-curves`](nss-curves.md) (risk-free), [`overlays/rating-spread`](rating-spread.md) (§3 `ratings_consolidated` + §8 `ratings_spread_calibration`).
 - **Papers**:
   - Damodaran A. (2024), "Country Risk: Determinants, Measures and Implications", NYU Stern (annual update).

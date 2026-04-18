@@ -1,6 +1,7 @@
 # Expected Inflation — Spec
 
 > Layer L2 · overlay · slug: `expected-inflation` · methodology_version: `EXP_INF_CANONICAL_v0.1` (canonical hierarchy); per-method versions em §4.
+> Last review: 2026-04-19 (Phase 0 Bloco E1)
 
 ## 1. Purpose
 
@@ -22,8 +23,8 @@ Produz term structure diária de expected inflation (`1Y`, `2Y`, `5Y`, `5y5y` fo
 | BoE DMP 1Y/3Y | `boe_dmp` | quarterly | SURVEY |
 | BoJ Tankan 1Y/3Y/5Y | `boj_tankan` | quarterly | SURVEY |
 | IMF WEO CPI 1Y/5Y | `imf_weo` | semi-annual | SURVEY (EM) |
-| FocusEconomics 1Y/5Y | `focuseconomics` (CSV, Tier 3 EM) | monthly | SURVEY (EM) |
-| `pt_hicp_yoy`, `ea_hicp_yoy` | `ine` + `eurostat` (`prc_hicp_manr`) | monthly | DERIVED (PT diff) |
+| FocusEconomics 1Y/5Y | `focuseconomics` (CSV, Tier 3 EM) — **Phase 2+ verify ToS** | monthly | SURVEY (EM) |
+| `pt_hicp_yoy`, `ea_hicp_yoy` | `eurostat` (`prc_hicp_manr geo=PT/U2`) — INE endpoint broken per D2 CAL-022; proxy `INE_MIRROR_EUROSTAT` applied | monthly | DERIVED (PT diff) |
 | BdP *Perspetivas Económicas* | `bdp_bpstat` | quarterly | cross-check only |
 
 ### Hierarchy per country-tenor (primary → fallback)
@@ -149,6 +150,8 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | `5Y` ou `10Y` absent → `5y5y` uncomputable | `5y5y = NULL`; flag `ANCHOR_UNCOMPUTABLE` no canonical | −0.10 |
 | `|BEI_10Y − SURVEY_10Y| > 100 bps` | flag `INFLATION_METHOD_DIVERGENCE` | canonical −0.10 |
 | Country `CN`/`TR`/`AR` (no operative BC target) | skip `anchor_status`; flag `NO_TARGET` | (no impact) |
+| Country sem linker + SURVEY path único (JP 5Y+, most T2+ EMs) | emit canonical via SURVEY; flags `BREAKEVEN_PROXY_SURVEY` + `PROXY_APPLIED` per proxies.md entry | −0.10 (per `PROXY_APPLIED` multiplicative) |
+| PT HICP source = Eurostat mirror (INE endpoint broken D2) | flag `INE_MIRROR_EUROSTAT` + `PROXY_APPLIED` em DERIVED row | −0.10 |
 | Hyperinflation (AR, TR acima 25% YoY) | widen confidence interval; flag `EM_COVERAGE` | cap 0.50 |
 | Canonical requires ≥ 1 method row; se 0 | raise `InsufficientDataError` | n/a |
 | Stored input `methodology_version` ≠ runtime | raise `VersionMismatchError` | n/a |
@@ -263,7 +266,10 @@ CREATE INDEX idx_exp_canonical_cd ON exp_inflation_canonical (country_code, date
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/expected-inflation.md`](../../reference/overlays/expected-inflation.md) — Manual dos Sub-Modelos Parte V caps 16-17.
-- **Data sources**: [`docs/data_sources/monetary.md`](../../data_sources/monetary.md) §§3.3 breakevens/swaps, 5 surveys; [`docs/data_sources/economic.md`](../../data_sources/economic.md) §§3 INE HICP + 6.1 Michigan.
+- **Data sources**: [`docs/data_sources/monetary.md`](../../data_sources/monetary.md) §§3.3 breakevens/swaps, 5 surveys; [`docs/data_sources/economic.md`](../../data_sources/economic.md) §§3 INE HICP + 6.1 Michigan; [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §7 INE broken + §6 Eurostat HICP fresh.
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 2 (Hierarchy best-of — BEI > SWAP > DERIVED > SURVEY > CONSENSUS); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (T1 linker countries + T2+ SURVEY path).
+- **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — `BREAKEVEN_PROXY_SURVEY` (survey + term premium decomposition); `INE_MIRROR_EUROSTAT` (PT HICP via Eurostat mirror).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 (FRED BEI + ECB SDW swap + Eurostat HICP + survey providers attribution).
 - **Papers**:
   - D'Amico S., Kim D., Wei M. (2018), "Tips from TIPS: The Informational Content of Treasury Inflation-Protected Security Prices", *JFQA* 53(1).
   - Gürkaynak R., Sack B., Wright J. (2010), "The TIPS Yield Curve and Inflation Compensation", *AEJ: Macro* 2(1).

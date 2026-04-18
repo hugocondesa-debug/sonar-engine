@@ -1,6 +1,7 @@
 # ERP Daily — Spec
 
 > Layer L2 · overlay · slug: `erp-daily` · methodology_version: `ERP_CANONICAL_v0.1` (canonical summary); per-method versions em §4.
+> Last review: 2026-04-19 (Phase 0 Bloco E1)
 
 ## 1. Purpose
 
@@ -21,7 +22,7 @@ Compute daily Equity Risk Premium para **4 mature markets** (US S&P 500, EA STOX
 
 | Input | Type | Source connector | Used by |
 |---|---|---|---|
-| `index_level` | `float` (EOD close) | per-market (FRED US; Stoxx/FTSE/TSE feeds others) | DCF, EY, CAPE |
+| `index_level` | `float` (EOD close) | FRED `SP500` (US); TE `/markets/historical/{SXXP,FTAS,TPX}:IND` (EA/UK/JP) per Pattern 4 | DCF, EY, CAPE |
 | `trailing_earnings` | `float` | `shiller` (US); `factset_insight` (PDF, others) | CAPE denom, EY anchor |
 | `forward_earnings_est` | `float` | `factset_insight` | DCF, EY |
 | `dividend_yield_pct` | `float` decimal | `multpl` (US); index-provider (EA/UK/JP) | Gordon |
@@ -262,7 +263,9 @@ CREATE INDEX idx_erp_canonical_md ON erp_canonical (market_index, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/erp-daily.md`](../../reference/overlays/erp-daily.md) — Manual dos Sub-Modelos Parte III (caps 7-9).
-- **Data sources**: [`docs/data_sources/financial.md`](../../data_sources/financial.md) §§ equity risk premium, CAPE, earnings, buybacks.
+- **Data sources**: [`docs/data_sources/financial.md`](../../data_sources/financial.md) §§ equity risk premium, CAPE, earnings, buybacks; [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) §3 FRED SP500 fresh + §2.3 TE markets SXXP/NKY/DAX/TPX confirmed.
+- **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 4 (TE primary + native overrides para non-US index levels); Pattern 1 Parallel equals (4-methods ERP canonical).
+- **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 attribution strings (Shiller, Damodaran, FRED); Shiller + Damodaran academic free-use + citation required per §2 rows 11-12.
 - **Papers**:
   - Damodaran A. (2024), "Equity Risk Premiums: Determinants, Estimation and Implications", NYU Stern (annual update).
   - Shiller R. (2015), *Irrational Exuberance* (3rd ed.), Princeton — CAPE construction.
