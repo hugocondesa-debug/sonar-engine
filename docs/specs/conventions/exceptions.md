@@ -2,8 +2,6 @@
 
 Todas as exceptions lançadas por código em `sonar/` herdam de `SonarError`. Specs referenciam nomes exactos; nunca redefinem. Aliases são proibidos — UMA exception por condição.
 
-Complementa `docs/CODING_STANDARDS.md §7` (regras de raise/catch/log).
-
 ## Árvore
 
 ```
