@@ -1,6 +1,8 @@
 # M1 — Effective Rates & Shadow Rates — Spec
 
-> Layer L3 · index · cycle: monetary · slug: `m1-effective-rates` · methodology_version: `M1_EFFECTIVE_RATES_v0.1`
+> Layer L3 · index · cycle: monetary · slug: `m1-effective-rates` · methodology_version: `M1_EFFECTIVE_RATES_v0.2`
+> Last review: 2026-04-19 (Phase 0 Bloco E2)
+> v0.2 rationale (breaking): remove `DFEDTAR` (single-rate) como US policy primary source — descontinuado 2008-12-16 quando Fed adoptou target range. Substitute por `DFEDTARU` + `DFEDTARL` pair (midpoint) ou `FEDFUNDS` effective rate per D2 empirical (2026-04-18: DFEDTAR last 2008-12-15, 6 333d stale). Per `conventions/methodology-versions.md` — MINOR bump porque schema inalterado (source pair swap).
 
 ## 1. Purpose
 
@@ -10,7 +12,7 @@ Mede o **stance monetário absoluto atual** por país via uma única métrica no
 
 | Nome | Tipo | Constraints | Source |
 |---|---|---|---|
-| `policy_rate_pct` | `float` (decimal) | `[-0.02, 0.30]` | `connectors/fred` (US `DFEDTAR*`/`EFFR`), `connectors/ecb_sdw` (DFR), `connectors/boe_database` (Bank Rate), `connectors/boj` (BoJ), `connectors/bis_cbpol` (fallback) |
+| `policy_rate_pct` | `float` (decimal) | `[-0.02, 0.30]` | `connectors/fred` US post-2008: `DFEDTARU`+`DFEDTARL` pair midpoint `(upper+lower)/2` OR `FEDFUNDS` effective rate (emit `FED_TARGET_RANGE` flag); pre-2008: `DFEDTAR` legacy discontinued. `connectors/ecb_sdw` (DFR), `connectors/boe_database` (Bank Rate), `connectors/boj` (BoJ), `connectors/bis_cbpol` (fallback) |
 | `shadow_rate_pct` | `float` (decimal) | `[-0.10, 0.10]`; opcional (live só durante ZLB) | `connectors/krippner` (US/EA/UK/JP/CA/AU/NZ live), `connectors/wu_xia_atlanta` (US histórico ≤ 2022) |
 | `nss_short_end_pct` | `float` (decimal) | `yield_curves_spot.fitted_yields_json["3M"]`; `confidence ≥ 0.50` | `overlays/nss-curves` |
 | `expected_inflation_pct` | `float` (decimal) | `5Y` decimal de `expected_inflation_tenors_json` | `overlays/expected-inflation` (canonical) |
@@ -44,7 +46,7 @@ Uma row per `(country_code, date)` em `monetary_m1_effective_rates`.
 | `lookback_years` | `int` | years | persisted (default 30) |
 | `confidence` | `float` | 0-1 | per `units.md` |
 | `flags` | `str (CSV)` | — | per `flags.md` |
-| `methodology_version` | `str` | — | `M1_EFFECTIVE_RATES_v0.1` |
+| `methodology_version` | `str` | — | `M1_EFFECTIVE_RATES_v0.2` |
 
 **Canonical JSON shape** (`components_json`):
 
@@ -119,8 +121,10 @@ Flags → [`conventions/flags.md`](../../conventions/flags.md). Exceptions → [
 | `r_star` quarterly fetch > 95 dias | use most-recent + flag `CALIBRATION_STALE` | −0.15 |
 | `shadow_rate_pct` (Krippner) age > 35 dias durante ZLB | use cache + flag `STALE` | −0.20 |
 | Krippner vs policy rate diverge > 25 bps em regime non-ZLB | flag `SHADOW_DIVERGE` (proposed) — emit policy rate, log diagnostic | −0.05 |
-| Country sem HLW r* (PT, IE, NL, ...) | use EA proxy + flag `R_STAR_PROXY` (proposed) | cap 0.75 |
+| Country sem HLW r* (PT, IE, NL, ...) | use EA proxy + flag `R_STAR_PROXY` | cap 0.75 |
 | Country tier 4 (CN, IN, BR, TR, MX) | r* = fixed 1.5% real proxy; flag `EM_COVERAGE` | cap 0.60 |
+| US post-2008: policy rate via `DFEDTARU`+`DFEDTARL` pair midpoint ou `FEDFUNDS` | emit `FED_TARGET_RANGE` informational flag per v0.2 | informational (none) |
+| Shadow rate indisponível para country fora {US, EA, UK, JP} (Krippner/Wu-Xia scope 4 países) AND `policy_rate ≤ 0.25%` | emit `ZLB_UNADJUSTED` + `PROXY_APPLIED` per `proxies.md`; `shadow_rate_pct = policy_rate_pct` (no unconventional policy stance assumption) | −0.10 |
 | `lookback_years` < 30 disponível | use `min(available, 20)`; flag `INSUFFICIENT_HISTORY` (proposed) | cap 0.70 |
 | Balance sheet data missing (BoJ delayed) | drop BS component; reweight `[0.55/0.45/0]`; flag `OVERLAY_MISS` | −0.10 |
 | Stored upstream `methodology_version` ≠ runtime | raise `VersionMismatchError` | n/a |
@@ -146,7 +150,7 @@ CREATE TABLE monetary_m1_effective_rates (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
     country_code          TEXT    NOT NULL,
     date                  DATE    NOT NULL,
-    methodology_version   TEXT    NOT NULL,                -- 'M1_EFFECTIVE_RATES_v0.1'
+    methodology_version   TEXT    NOT NULL,                -- 'M1_EFFECTIVE_RATES_v0.2'
     score_normalized      REAL    NOT NULL CHECK (score_normalized BETWEEN 0 AND 100),
     score_raw             REAL    NOT NULL,                -- pp (decimal); stance_vs_neutral
     policy_rate_pct       REAL    NOT NULL,                -- decimal
@@ -176,7 +180,11 @@ CREATE INDEX idx_m1_cd ON monetary_m1_effective_rates (country_code, date);
 
 - **Methodology**: [`docs/reference/indices/monetary/M1-effective-rates.md`](../../../reference/indices/monetary/M1-effective-rates.md) — Manual Cap 7 (Effective rates & shadow rates).
 - **Composite design**: [`docs/reference/cycles/monetary.md`](../../../reference/cycles/monetary.md) Cap 15.5 (Sub-index ES weights 50/35/15) + Cap 15.6 (MSC weights).
-- **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §1 (Shadow rates) + §1.4 (HLW r*) + §6 (balance sheets).
+- **Data sources**: [`docs/data_sources/monetary.md`](../../../data_sources/monetary.md) §1 (Shadow rates) + §1.4 (HLW r*) + §6 (balance sheets); [`data_sources/D2_empirical_validation.md`](../../../data_sources/D2_empirical_validation.md) §3 **`DFEDTAR` DISCONTINUED 2008-12-15** (6 333d stale — swap para DFEDTARU/DFEDTARL pair per v0.2); FRED FEDFUNDS + ECB SDW `FM` policy rates fresh.
+- **Architecture**: [`specs/conventions/patterns.md`](../../conventions/patterns.md) §Pattern 4 (FRED US override + ECB SDW EA + native CB pattern); [`adr/ADR-0005-country-tiers-classification.md`](../../../adr/ADR-0005-country-tiers-classification.md) (shadow rate T1 scope = US+EA+UK+JP; T1 restantes + T2+ usam ZLB_UNADJUSTED).
+- **Proxies**: [`specs/conventions/proxies.md`](../../conventions/proxies.md) — `FED_TARGET_RANGE` (regime-change upgrade DFEDTARU/DFEDTARL) + `R_STAR_PROXY` (EA proxy para PT/IE/NL) + shadow rate proxy entry (policy_rate + ZLB flag fora dos 4 países academic).
+- **Licensing**: [`governance/LICENSING.md`](../../../governance/LICENSING.md) §3 (FRED public domain + ECB SDW + Atlanta Fed Wu-Xia + Krippner ljkmfa academic free-use + NY Fed HLW public domain attribution).
+- **Backlog**: [`backlog/calibration-tasks.md`](../../../backlog/calibration-tasks.md) `CAL-024` — Policy rate US series swap v0.2 implementation Phase 1 connector dev validation.
 - **Papers**:
   - Wu J. C., Xia F. D. (2016), "Measuring the Macroeconomic Impact of Monetary Policy at the Zero Lower Bound", *JMCB* 48(2-3).
   - Krippner L. (2015), *Zero Lower Bound Term Structure Modeling*, Palgrave.
@@ -193,3 +201,4 @@ CREATE INDEX idx_m1_cd ON monetary_m1_effective_rates (country_code, date);
 - Does not handle EA-aggregate vs national breakdown beyond PT proxy — IT/ES periphery seguem mesma lógica EA-anchor + spread (futuro).
 - Does not substitute BC official communication ("hawkish dot plot") — quantitative-only; communication scoring é spec futura `connectors/communication-nlp`.
 - Does not auto-detect ZLB regime — operator define `zlb_threshold_pct = 0.005` em config; switch rule em §4 step 2.
+- Does not use `DFEDTAR` (single-rate legacy) como US policy primary — **rejected em D2 empirical** (2026-04-18: last observation 2008-12-15, série descontinuada pós-Fed target range regime). Per v0.2 bump: use `DFEDTARU`+`DFEDTARL` pair midpoint OR `FEDFUNDS` effective rate, com `FED_TARGET_RANGE` informational flag.
