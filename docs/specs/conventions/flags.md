@@ -210,6 +210,14 @@ Flags transversais emitidas por múltiplas specs — contrato partilhado, não p
 | `OVERLAY_MISS` | generic | Consumer reads overlay X for `(country, date)` mas row não existe | cap 0.60 (no consumer) |
 | `REGIME_BOOTSTRAP` | generic | First row per `(country, cycle)` — sem prev state; hysteresis suspended, regime derivado do raw band | informational (none) |
 | `REGIME_HYSTERESIS_HOLD` | generic | Regime transition attempted mas rejected por anti-whipsaw (`|Δscore| ≤ 5` OR persistence `< 3 BD`) | −0.05 |
+| `PROXY_APPLIED` | generic | Série canónica substituída por proxy registado em [`proxies.md`](proxies.md) — co-emitted com flag específica por proxy ID | −0.10 (multiplicativo; ≥2 proxies compoundable até −0.20) |
+| `INE_MIRROR_EUROSTAT` | generic | Portugal indicadores via Eurostat mirror (INE endpoint broken per D2; CAL-022 pending) | co-emitted with `PROXY_APPLIED` |
+| `LEI_US_PROXY` | `indices/economic/E2-leading` | US LEI via proxy (USSLIND descontinued 2020 per D2); suffix especifica proxy escolhido (`USPHCI`, `ECRI`, `CB_SCRAPE`). Decision pending CAL-023 | co-emitted with `PROXY_APPLIED` |
+| `OECD_CLI_DIRECT` | `indices/economic/E2-leading` | OECD CLI via SDMX-JSON 2.0 direct (FRED mirror `OECDLOLITOAASTSAM` deprecated per D2 — stale 2022-11) | informational (not a proxy — source swap; no confidence impact) |
+| `FED_TARGET_RANGE` | `indices/monetary/M1-effective-rates` | US policy rate via `DFEDTARU`+`DFEDTARL` pair (DFEDTAR discontinued 2008-12 quando Fed adoptou target range) | informational (regime-change upgrade; no confidence impact) |
+| `ZLB_UNADJUSTED` | `indices/monetary/M1-effective-rates` | Shadow rate academic indisponível fora US+EA+UK+JP; M1 usa `policy_rate` observed com flag quando `policy_rate ≤ 0.25%`. Substitui `ZLB_REGIME` em countries sem shadow series | −0.10 |
+| `BREAKEVEN_PROXY_SURVEY` | `overlays/expected-inflation` | BEI (nominal − TIPS) indisponível (no linker market); substitute SPF/survey − term premium decomposition | co-emitted with `PROXY_APPLIED` |
+| `COVERAGE_TE_DEGRADED` | generic | TE rate limit / outage → T2-T3 breadth afectada; T1 coberto por native overrides; Policy 1 re-weight applicable | cap 0.70 |
 
 ## Convenção de propagação
 
