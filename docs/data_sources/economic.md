@@ -157,8 +157,8 @@ Ver D0 §7 para findings complete.
 | E1 US Industrial Production | `INDPRO` | Monthly | ~15d |
 | E1 US Retail Sales | `RSAFS` | Monthly | ~15d |
 | E2 yield slope 10Y-2Y | `T10Y2Y` (pre-computed) | Daily | ~1d |
-| E2 OECD CLI US | `OECDLOLITOAASTSAM` | Monthly | ~30d |
-| E2 LEI proxy | `USSLIND` (Philly Fed State Leading Index — public) | Monthly | ~30d |
+| E2 OECD CLI US | `OECDLOLITOAASTSAM` | Monthly | ~110d (**DEPRECATED per D2 2026-04-18** — série parou 2022-11; usar OECD direct) |
+| E2 LEI proxy | `USSLIND` (Philly Fed State Leading Index — **DESCONTINUADO 2020** per D2) | Monthly | — (GAP; `CAL-023`) |
 | E2 ISM PMI mirror | `NAPMMPI` (**descontinuado** FRED; usar ISM direct) | — | — |
 | E3 US Unemployment | `UNRATE` | Monthly | ~5d after jobs report |
 | E3 Sahm Rule | `SAHMREALTIME` (FRED-computed) | Monthly | ~5d |
@@ -192,7 +192,7 @@ Onde `{COUNTRY}` é código OECD 3-letter (`USA`, `DEU`, `FRA`, `PRT`, ...). Lis
 
 **Coverage real:** ~35 countries (M36/G20 + selecionados). T1 cobertura total; T2 parcial; T3 reduzida.
 
-**FRED mirror** (preferível para US por consistency): `OECDLOLITOAASTSAM`.
+**FRED mirror** (`OECDLOLITOAASTSAM`): DEPRECATED — D2 empirical (2026-04-18) confirma série stale desde 2022-11 (1 264d lag). Usar OECD direct SDMX-JSON 2.0 como primary.
 
 ### 3.4 ECB SDW — Statistical Data Warehouse
 
@@ -286,13 +286,13 @@ Legenda: `Pri` = primary recommendation; `Ovr` = override Tier 1; `Freq` = frequ
 | Série | Pri | Ovr | Freq | Lat | Spec § |
 |-------|-----|-----|------|-----|--------|
 | `yield_curve_slope_10y_2y` | FRED `T10Y2Y` (US pre-computed); derived from NSS overlay (other countries) | — | D | 1 | E2 §2.1 |
-| `oecd_cli` | OECD SDMX `MEI_CLI/LOLITOAA.{C}.M` | FRED `OECDLOLITOAASTSAM` (US mirror) | M | 30 | E2 §2.2 |
-| `lei_conference_board` | SCRAPE Conference Board (US only — paywall) | FRED `USSLIND` (Philly Fed state proxy) | M | 30 | E2 §2.3 |
+| `oecd_cli` | OECD SDMX `MEI_CLI/LOLITOAA.{C}.M` (SDMX-JSON 2.0) | — (FRED `OECDLOLITOAASTSAM` DEPRECATED per D2) | M | ~110 | E2 §2.2 |
+| `lei_conference_board` | SCRAPE Conference Board (US only — paywall) | GAP per D2 — `USSLIND` descontinuado 2020; `CAL-023` alternative | M | — | E2 §2.3 |
 | `pmi_manufacturing` | TE `/country/{c}/indicators` subfilter PMI | FRED `NAPMMPI` (**deprecated** — descontinuado 2017); ISM direct scrape (backlog) | M | 2 | E2 §2.4 |
 
 **Computation slope:** feed da overlay `nss-curves` (ver `monetary.md §4.2` — NSS emits smooth curve; ECS consome ponto 10Y - 2Y).
 
-**LEI status:** Conference Board LEI full (US) é paywalled desde ~2020 (membership). Proxy viable: `USSLIND` (Philly Fed coincident-leading composite, public). Limitação: USSLIND é state-level coincident, não national forward. Marker `AUXILIARY` per CSV (non-blocking).
+**LEI status:** Conference Board LEI full (US) é paywalled desde ~2020 (membership). Proxy antigamente viable via `USSLIND` (Philly Fed state leading index) DESCONTINUADO 2020 per D2 empirical (2026-04-18). US E2 LEI = GAP actual — CAL-023 pendente (alternatives: Philly Fed ADS index `USPHCI`, Conference Board scrape paid, ECRI Weekly Leading Index scrape). Marker `BLOCKING` update per next CSV revision.
 
 **PMI**: TE breadth confirma PMI Manufacturing headline para 60+ countries. Sub-components (New Orders, Employment, Prices) geralmente paywalled S&P Global — Phase 2 backlog P2-007.
 
@@ -380,7 +380,7 @@ Ver `docs/specs/conventions/composite-aggregation.md` Policy 1.
 | Gap | Impacto | Mitigação curto-prazo | Backlog item |
 |-----|---------|----------------------|--------------|
 | TCMB endpoint indisponível | E1+E3 Turkey sem path nativo | TE breadth suficiente; flag `TCMB_NATIVE_MISSING` informativo | `CAL-018` |
-| Conference Board LEI paywall | E2 US LEI sem path directo | Philly Fed state proxy `USSLIND` | `P2-007` (LEI upgrade) |
+| Conference Board LEI paywall | E2 US LEI sem path directo | GAP — `USSLIND` descontinuado 2020 per D2; alternatives pendentes | `CAL-023` + `P2-007` |
 | S&P Global PMI sub-components paywall | E2 PMI só headline | Usar headline; sub-comps Phase 3+ | `P2-007` |
 | OECD CLI country coverage | E2 ~T2+ parcial; T3 sem CLI | Re-weight E2 sem CLI | `P2-009` (multi-source LEI composite) |
 

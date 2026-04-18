@@ -73,6 +73,21 @@ Dataset BIS curto (trimestral, ~30-40 anos per country mas regime changes infreq
 | CAL-018 | `indices/credit/L4-dsr.md:118` | Band classification thresholds | (per spec) | DSR peak events (2009 PT, 2012 ES, etc.) |
 | CAL-019 | `indices/credit/README.md:139` | Phase bands gerais Cap 15.8 (umbrella) | (per spec) | BIS crisis chronicle + country-specific regime dating |
 
+## Horizonte Phase 1 pre-connector — D2 data source gaps
+
+Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementação de specs antes do Phase 1 connector dev.
+
+### CAL-023 — US E2 LEI alternative source
+
+- **Surfaced:** D2 empirical validation 2026-04-18 (commit: post-D2 hotfix).
+- **Problem:** `USSLIND` (Philly Fed State Leading Index) descontinuado 2020 per D2 findings (last update 2020-09; 2 268d stale vs 2026-04-18). Conference Board LEI permanece paywalled. US E2 LEI é GAP actual.
+- **Candidate replacements:**
+  - Philly Fed ADS Business Conditions Index (`USPHCI` FRED? — validar).
+  - ECRI Weekly Leading Index (paywall nível limited; scrape?).
+  - Conference Board LEI scrape (ethical).
+  - State-level aggregation manual (Philly Fed state indexes individuais ainda publicados).
+- **Horizon:** Phase 1 pre-connector dev (blocks E2 spec implementation sem alternative).
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.

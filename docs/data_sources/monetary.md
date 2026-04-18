@@ -115,7 +115,7 @@ confidence = 0.40  # low — only reflects level, não stance completo
 
 | Consumer | Series ID | Freq | Notes |
 |----------|-----------|------|-------|
-| M1 US policy rate | `DFEDTAR` (target range midpoint), `FEDFUNDS` (effective) | Daily | Fed Funds |
+| M1 US policy rate | `DFEDTARU` (upper bound) + `DFEDTARL` (lower bound) pós-2008; `FEDFUNDS` (effective rate daily) | Daily | Fed Funds. Nota: série antiga `DFEDTAR` descontinuada 2008-12-16 quando Fed adoptou target range. |
 | M1 EA policy rate | `ECBMRRFR` (MRO rate) | Daily | Mirror ECB |
 | M1 UK policy rate | `IR3TIB01GBM156N` (OECD mirror BoE) | Monthly | — |
 | M1 JP policy rate | `INTDSRJPM193N` | Monthly | — |
