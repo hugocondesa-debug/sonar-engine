@@ -38,7 +38,7 @@ Four sibling records per `(country, date)`; all share `methodology_version` and 
 |---|---|---|
 | Spot curve | `{params: {β0..β3, λ1, λ2}, fitted: {tenor: pct}, rmse_bps, confidence}` | `yield_curves_spot` |
 | Zero curve | `{zero_rates: {tenor: pct}, method: "nss_derived" \| "bootstrap"}` | `yield_curves_zero` |
-| Forward curve | `{forwards: {"1y1y","1y2y","1y5y","5y5y","10y10y": pct}}` | `yield_curves_forwards` |
+| Forward curve | `{forwards: {"1y1y","2y1y","1y2y","1y5y","5y5y","10y10y": pct}}` | `yield_curves_forwards` |
 | Real curve | `{real_yields: {tenor: pct}, method: "direct_linker" \| "derived"}` | `yield_curves_real` |
 
 Standard output tenors (spot/zero): `["1M","3M","6M","1Y","2Y","3Y","5Y","7Y","10Y","15Y","20Y","30Y"]`.
@@ -116,7 +116,7 @@ Stored in `tests/fixtures/nss-curves/` as `<id>.json` pairs.
 | `pt_2024_01_02` | 7 IGCP OT tenors | `fitted_10Y ≈ ECB SDW PT 10Y ± 15 bps`, `confidence ≥ 0.80` | ±15 bps |
 | `pt_sparse_5` | 5 tenors | raises `InsufficientDataError` | n/a |
 | `tr_2024_01_02` | TR sparse, high vol | `confidence ≤ 0.70`, flag `EM_COVERAGE` set | — |
-| `nss_failure_synthetic` | synthetic multi-hump extreme | `NSS_FAIL` flag, falls back to spline | — |
+| `nss_failure_synthetic` | synthetic multi-hump extreme | `NSS_FAIL` flag, falls back to linear interp | — |
 | `forward_5y5y_us_2024_01_02` | from fixture `us_2024_01_02` | `5y5y ≈ 0.0385 ± 10 bps` (= 3.85% display); matches FRED `T5YIFR` | ±10 bps |
 | `real_us_2024_01_02` | TIPS 5/7/10/20/30Y | `real_10Y ≈ 0.0185` (= 1.85%), breakeven `10Y ≈ 0.0220` (= 2.20%) | ±15 bps |
 
@@ -162,6 +162,7 @@ CREATE TABLE yield_curves_zero (
     UNIQUE (country_code, date, methodology_version)
 );
 CREATE INDEX idx_ycz_cd ON yield_curves_zero (country_code, date);
+CREATE INDEX idx_ycz_fitid ON yield_curves_zero (fit_id);
 
 CREATE TABLE yield_curves_forwards (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,6 +179,7 @@ CREATE TABLE yield_curves_forwards (
     UNIQUE (country_code, date, methodology_version)
 );
 CREATE INDEX idx_ycf_cd ON yield_curves_forwards (country_code, date);
+CREATE INDEX idx_ycf_fitid ON yield_curves_forwards (fit_id);
 
 CREATE TABLE yield_curves_real (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,6 +197,7 @@ CREATE TABLE yield_curves_real (
     UNIQUE (country_code, date, methodology_version)
 );
 CREATE INDEX idx_ycr_cd ON yield_curves_real (country_code, date);
+CREATE INDEX idx_ycr_fitid ON yield_curves_real (fit_id);
 ```
 
 ## 9. Consumers
