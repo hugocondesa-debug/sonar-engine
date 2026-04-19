@@ -21,12 +21,17 @@ from sonar.db.models import (
     NSSYieldCurveReal,
     NSSYieldCurveSpot,
     NSSYieldCurveZero,
+    RatingsAgencyRaw,
+    RatingsConsolidated,
 )
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from sqlalchemy.orm import Session
 
     from sonar.overlays.nss import NSSFitResult
+    from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
 
 
 class DuplicatePersistError(Exception):
@@ -140,6 +145,98 @@ def persist_nss_fit_result(
             err = (
                 f"Fit already persisted: country={result.country_code}, "
                 f"date={result.observation_date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def persist_rating_agency_row(
+    session: Session,
+    row: RatingAgencyRaw,
+    *,
+    country_code: str,
+    observation_date: date,
+    rating_id: str,
+    source_connector: str,
+    methodology_version: str,
+) -> None:
+    """Persist a single per-agency raw rating row.
+
+    No atomic-set semantics here — each agency row stands alone and the
+    consolidator joins them by ``(country, date, rating_type)`` later.
+    Re-persisting the same triplet raises ``DuplicatePersistError``.
+    """
+    from sonar.overlays.rating_spread import _compute_confidence  # local import — avoid cycle
+
+    confidence = _compute_confidence(flags=[], agencies_count=1)  # per-agency baseline 1.0
+    db_row = RatingsAgencyRaw(
+        rating_id=rating_id,
+        country_code=country_code,
+        date=observation_date,
+        agency=row.agency,
+        rating_type=row.rating_type,
+        rating_raw=row.rating_raw,
+        sonar_notch_base=row.base_notch,
+        outlook=row.outlook,
+        watch=row.watch,
+        notch_adjusted=row.notch_adjusted,
+        action_date=row.action_date,
+        source_connector=source_connector,
+        methodology_version=methodology_version,
+        confidence=confidence,
+    )
+    try:
+        session.add(db_row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"Rating agency row already persisted: country={country_code}, "
+                f"date={observation_date}, agency={row.agency}, "
+                f"rating_type={row.rating_type}, version={methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def persist_rating_consolidated(
+    session: Session,
+    consolidated: ConsolidatedRating,
+    *,
+    calibration_date: date | None = None,
+    methodology_version: str = "RATING_SPREAD_v0.2",
+) -> None:
+    """Persist a consolidated rating row."""
+    from sonar.overlays.rating_spread import _compute_confidence  # noqa: F401 — for symmetry
+
+    db_row = RatingsConsolidated(
+        rating_id=str(consolidated.rating_id),
+        country_code=consolidated.country_code,
+        date=consolidated.observation_date,
+        rating_type=consolidated.rating_type,
+        consolidated_sonar_notch=consolidated.consolidated_sonar_notch,
+        notch_fractional=consolidated.notch_fractional,
+        agencies_count=consolidated.agencies_count,
+        agencies_json=json.dumps(consolidated.agencies),
+        outlook_composite=consolidated.outlook_composite,
+        watch_composite=consolidated.watch_composite,
+        default_spread_bps=consolidated.default_spread_bps,
+        calibration_date=calibration_date,
+        methodology_version=methodology_version,
+        confidence=consolidated.confidence,
+        flags=_flags_to_csv(consolidated.flags),
+    )
+    try:
+        session.add(db_row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"Consolidated rating already persisted: country={consolidated.country_code}, "
+                f"date={consolidated.observation_date}, "
+                f"rating_type={consolidated.rating_type}, version={methodology_version}"
             )
             raise DuplicatePersistError(err) from e
         raise
