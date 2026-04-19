@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FIT_BOUNDS",
+    "LINKER_MIN_OBSERVATIONS",
     "METHODOLOGY_VERSION",
     "MIN_OBSERVATIONS",
     "MIN_OBSERVATIONS_FOR_SVENSSON",
@@ -93,6 +94,13 @@ FIT_BOUNDS: tuple[tuple[float, float], ...] = (
 
 MIN_OBSERVATIONS: int = 6
 MIN_OBSERVATIONS_FOR_SVENSSON: int = 9  # below this, use 4-param NS (spec §6)
+
+# CAL-033: linker (TIPS / inflation-indexed) curves are published only at the
+# long-end (Fed publishes DFII5/7/10/20/30 — 5 tenors, no short-end). Spec §6
+# row 1 nominal threshold (n_obs<6 raises) is preserved; linker_real curves
+# accept n_obs>=5. Carve-out is implementation-detail within the linker_real
+# code path; nominal callers see no change. No NSS_v0.1 bump.
+LINKER_MIN_OBSERVATIONS: int = 5
 
 # Decimal yield range per units.md §Yields (-5% to 30% expressed as decimal).
 YIELD_RANGE: tuple[float, float] = (-0.05, 0.30)
@@ -277,8 +285,11 @@ def _params_as_args(
 
 def _validate_inputs(inputs: NSSInput) -> None:
     n = len(inputs.tenors_years)
-    if n < MIN_OBSERVATIONS:
-        msg = f"NSS requires >={MIN_OBSERVATIONS} observations, got {n}"
+    threshold = (
+        LINKER_MIN_OBSERVATIONS if inputs.curve_input_type == "linker_real" else MIN_OBSERVATIONS
+    )
+    if n < threshold:
+        msg = f"NSS requires >={threshold} observations, got {n}"
         raise InsufficientDataError(msg)
     if len(inputs.yields) != n:
         msg = f"tenors ({n}) and yields ({len(inputs.yields)}) length mismatch"

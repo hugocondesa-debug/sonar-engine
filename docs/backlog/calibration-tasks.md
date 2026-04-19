@@ -139,22 +139,13 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-033 — US real curve direct-linker blocked by TIPS coverage
 
-- **Priority:** MEDIUM
-- **Trigger:** Day 3 AM live fetch — DFII5/7/10/20/30 = 5 tenors confirmed
-  in FRED (DFII7 alive); still below `MIN_OBSERVATIONS=6` per spec §6 row 1.
-  Real curve direct-linker fit raises `InsufficientDataError`; US real
-  curve = `None` regardless of TIPS connector availability.
-- **Options:**
-  - **(a)** Relax `MIN_OBSERVATIONS` to 5 for linker-only fits (recommended —
-    unblocks immediately; documented carve-out in spec §6).
-  - **(b)** Synthesize short-end TIPS via nominal − BEI (requires
-    `overlays/expected-inflation` short-end + adds derivation flag).
-  - **(c)** Defer entirely to derived path via `overlays/expected-inflation`
-    (skip direct-linker for US; pulls forward dependency on overlay not
-    yet built).
-- **Recommendation:** (a). DFII7 confirmed live → 5 tenors stable;
-  carve-out is contained and reversible if richer linker source emerges.
-- **Unblock trigger:** Week 2 Day 3 PM — option (a) implementation.
+- **Priority:** MEDIUM → CLOSED 2026-04-20 (option (a))
+- **Resolution:** `LINKER_MIN_OBSERVATIONS = 5` constant added to
+  `src/sonar/overlays/nss.py`; `_validate_inputs` consults
+  `inputs.curve_input_type` and uses the lower threshold for
+  `linker_real` only. Nominal path retains `MIN_OBSERVATIONS=6` per
+  spec §6 row 1. No NSS_v0.1 bump (carve-out is implementation-detail
+  inside the linker_real branch).
 
 ### CAL-034 — Spec §7 RMSE tolerance revision (Fed GSW benchmark)
 

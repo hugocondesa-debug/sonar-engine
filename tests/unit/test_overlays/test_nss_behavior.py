@@ -141,6 +141,47 @@ class TestMultiHumpStress:
         assert "HIGH_RMSE" in spot.flags
 
 
+class TestLinkerThreshold:
+    """CAL-033: linker_real curves accept n_obs>=5 (TIPS coverage carve-out)."""
+
+    def test_linker_5_tenors_fits(self) -> None:
+        # US TIPS DFII5/7/10/20/30 — 5 tenors below MIN_OBSERVATIONS=6.
+        inp = nss.NSSInput(
+            tenors_years=np.array([5.0, 7.0, 10.0, 20.0, 30.0]),
+            yields=np.array([0.0176, 0.0175, 0.0174, 0.0184, 0.0191]),
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            curve_input_type="linker_real",
+        )
+        spot = nss.fit_nss(inp)
+        assert spot.observations_used == 5
+        # 5 obs < MIN_OBSERVATIONS_FOR_SVENSSON (9) → reduced fit emits NSS_REDUCED.
+        assert "NSS_REDUCED" in spot.flags
+
+    def test_linker_4_tenors_still_raises(self) -> None:
+        inp = nss.NSSInput(
+            tenors_years=np.array([5.0, 7.0, 10.0, 30.0]),
+            yields=np.array([0.0176, 0.0175, 0.0174, 0.0191]),
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            curve_input_type="linker_real",
+        )
+        with pytest.raises(InsufficientDataError):
+            nss.fit_nss(inp)
+
+    def test_nominal_5_tenors_still_raises(self) -> None:
+        # CAL-033 carve-out is linker-only; nominal must still enforce 6.
+        inp = nss.NSSInput(
+            tenors_years=np.array([1.0, 2.0, 5.0, 10.0, 30.0]),
+            yields=np.array([0.045, 0.044, 0.043, 0.040, 0.041]),
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            curve_input_type="par",
+        )
+        with pytest.raises(InsufficientDataError):
+            nss.fit_nss(inp)
+
+
 class TestReducedFit:
     def test_7_obs_triggers_reduced(self) -> None:
         inp = nss.NSSInput(
