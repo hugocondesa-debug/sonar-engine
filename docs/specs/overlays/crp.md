@@ -35,14 +35,19 @@ Benchmark country is its own 0-bps anchor (DE CRP = 0; US CRP = 0 for USD-denomi
 | `bond_returns_daily` | vol | `pd.Series` | `connectors/te` / `yfinance` sovereign long-bond price series; 5Y rolling, ≥ 750 obs. **Phase 2+ verify** — yfinance scrape estability não validado em D-block. |
 | `damodaran_standard_ratio` | vol fallback | `float` | `config/crp.yaml` (default `1.5`) |
 
+> **Connector validation pending (CAL-040)**: `twelvedata` tier/licensing and `yfinance` scrape stability unvalidated in Phase 0 D-block. Week 3 CRP ships with `damodaran_standard_ratio = 1.5` as default vol_ratio until CAL-040 closes; country-specific vol_ratio activates per-country as each connector validates.
+
+> **WGB validation status**: check `docs/data_sources/credit.md` before Week 3 CRP CDS branch implementation. If unvalidated, Week 3 ships CRP via SOV_SPREAD + RATING branches only; CDS deferred to Week 4.
+
 ### Parameters (config)
 
-- `cds_liquidity_threshold_bps = 15` (bid-ask ≤ 15 bps → `"liquid"`); *placeholder — recalibrate after 12m of production data*.
+- `cds_liquidity_threshold_bps = 15` (bid-ask ≤ 15 bps → `"liquid"`); *placeholder — recalibrate after 12m of production data* (tracked in CAL-037).
 - `cds_staleness_max_bd = 2` (business days; stale → `"thin"`).
-- `vol_ratio_bounds = (1.2, 2.5)`; fora deste range → usar Damodaran `1.5`; *placeholder — recalibrate after 18m*.
+- `vol_ratio_bounds = (1.2, 2.5)`; fora deste range → usar Damodaran `1.5`; *placeholder — recalibrate after 18m* (tracked in CAL-038).
 - `vol_ratio_min_obs = 750` (≈3Y daily); `vol_ratio_window_years = 5`.
-- `rating_cds_divergence_threshold_pct = 50` (|cds − rating_implied| / cds > 0.50 → `RATING_CDS_DIVERGE`); *placeholder — recalibrate after 18m*.
+- `rating_cds_divergence_threshold_pct = 50` (|cds − rating_implied| / cds > 0.50 → `RATING_CDS_DIVERGE`); *placeholder — recalibrate after 18m* (tracked in CAL-039).
 - `basis_alert_threshold_bps = 50` (|bond_spread − cds| > 50 → `CRP_BOND_CDS_BASIS`).
+- `distress_cds_threshold_bps = 1500` (config/crp.yaml). *Placeholder — recalibrate post-observation (CAL-041).*
 - `min_methods_for_canonical = 1` (hierarchy best-of; qualquer método bastando).
 
 ### Preconditions
@@ -87,7 +92,8 @@ Per `(country, date)`, até 3 method rows + 1 canonical row, todas partilhando `
 ### Formulas
 
 ```text
-CRP_method_bps = int(round(default_spread_method_bps × vol_ratio))          # Damodaran core identity
+CRP_method_decimal = (default_spread_method_bps / 10_000) × vol_ratio        # compute in decimal
+CRP_method_bps     = int(round(CRP_method_decimal × 10_000))                 # round at persistence layer only
 vol_ratio      = σ_equity_5y / σ_bond_5y      if obs ≥ 750 AND ratio ∈ [1.2, 2.5]
                | damodaran_standard_ratio     otherwise (1.5)
 σ_x_5y         = std(daily_returns_x) · sqrt(252)                           # annualized, 5Y rolling
@@ -155,7 +161,7 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | `|bond_spread − cds| > basis_alert_threshold_bps` | flag `CRP_BOND_CDS_BASIS` | canonical: −0.05 |
 | `|cds − rating_implied| / cds > 0.50` | reemit `RATING_CDS_DIVERGE` (owner: rating-spread) | canonical: −0.10 |
 | Stressed EM (AR, TR, EG) | widen ranges; flag `EM_COVERAGE` | cap 0.70 |
-| Argentina-class distressed (CDS > 1500 bps) | emit; flag `CRP_DISTRESS`; CI wide | cap 0.60 |
+| CDS > `config/crp.yaml::distress_cds_threshold_bps` (default 1500) | emit; flag `CRP_DISTRESS`; CI wide | cap 0.60 |
 | Benchmark country (DE, US) | emit `crp = 0`; flag `CRP_BENCHMARK` | 1.0 |
 | Zero methods available | raise `InsufficientDataError`; no canonical persist | n/a |
 | Stored input `methodology_version` ≠ runtime | raise `VersionMismatchError` | n/a |
@@ -210,7 +216,8 @@ CREATE TABLE crp_cds (
     cds_bid_ask_bps           INTEGER,
     cds_source                TEXT    NOT NULL,        -- 'WGB' | 'BLOOMBERG' | 'MARKIT'
     default_spread_bps        INTEGER NOT NULL,        -- == cds_5y_bps (absolute convention)
-    crp_bps                   INTEGER NOT NULL
+    crp_decimal               REAL    NOT NULL,        -- source of truth for recomputation
+    crp_bps                   INTEGER NOT NULL         -- rounded display: int(round(crp_decimal × 10_000))
 );
 CREATE INDEX idx_crp_cds_cd ON crp_cds (country_code, date);
 
@@ -220,7 +227,8 @@ CREATE TABLE crp_sov_spread (
     sov_yield_benchmark_pct   REAL    NOT NULL,
     tenor                     TEXT    NOT NULL,        -- canonical '10Y'
     default_spread_bps        INTEGER NOT NULL,        -- clamped ≥ 0
-    crp_bps                   INTEGER NOT NULL,
+    crp_decimal               REAL    NOT NULL,        -- source of truth for recomputation
+    crp_bps                   INTEGER NOT NULL,        -- rounded display
     currency_denomination     TEXT    NOT NULL         -- 'EUR' | 'USD' | 'GBP' | 'JPY' | 'LOCAL'
 );
 CREATE INDEX idx_crp_sov_cd ON crp_sov_spread (country_code, date);
@@ -231,7 +239,8 @@ CREATE TABLE crp_rating (
     notch_int                 INTEGER NOT NULL,
     calibration_date          DATE    NOT NULL,
     default_spread_bps        INTEGER NOT NULL,        -- from ratings_spread_calibration
-    crp_bps                   INTEGER NOT NULL,
+    crp_decimal               REAL    NOT NULL,        -- source of truth for recomputation
+    crp_bps                   INTEGER NOT NULL,        -- rounded display
     rating_id                 TEXT    NOT NULL          -- FK to ratings_consolidated.rating_id
 );
 CREATE INDEX idx_crp_rating_cd ON crp_rating (country_code, date);
@@ -250,7 +259,7 @@ CREATE TABLE crp_canonical (
     default_spread_bps          INTEGER NOT NULL,       -- selected method default spread
     vol_ratio                   REAL    NOT NULL,
     vol_ratio_source            TEXT    NOT NULL,
-    basis_bond_minus_cds_bps    INTEGER,                -- NULL se ambos branches não disponíveis
+    basis_default_spread_sov_minus_cds_bps    INTEGER,  -- default_spread_sov_bps − cds_5y_bps; NOT crp_sov_spread_bps − crp_cds_bps
     rating_cds_deviation_pct    REAL,                   -- NULL se ambos branches não disponíveis
     methods_available           INTEGER NOT NULL CHECK (methods_available BETWEEN 0 AND 3),
     confidence                  REAL    NOT NULL CHECK (confidence BETWEEN 0 AND 1),

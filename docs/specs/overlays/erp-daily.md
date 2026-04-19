@@ -29,6 +29,8 @@ Compute daily Equity Risk Premium para **4 mature markets** (US S&P 500, EA STOX
 | `buyback_yield_pct` | `float` decimal | `spdji_buyback` (US quarterly); `NULL` others | Gordon |
 | `cape_ratio` | `float` | computed from `shiller ie_data` (US); synthesized others | CAPE |
 
+> **Connector validation pending Week 3 (CAL-036)**: TE `/markets/historical/*:IND` endpoints not empirically validated for daily EOD reuse. Fallback: skip EA/UK/JP ERP if TE unavailable; US ships independently via FRED `SP500`.
+
 ### Parameters (config)
 
 - `growth_horizon_years` = 5 (DCF projection)
@@ -43,7 +45,7 @@ Compute daily Equity Risk Premium para **4 mature markets** (US S&P 500, EA STOX
 - `index_level` ≤ 1 business day stale.
 - `cape_ratio` até 30 dias stale aceitável (Shiller releases monthly); > 30 dias → flag `STALE`.
 - ≥ 2 dos 4 method-specific inputs disponíveis; senão raise `InsufficientDataError`.
-- `methodology_version` row da `yield_curves_spot/real` batem com runtime ou raise `VersionMismatchError`.
+- `methodology_version` of upstream `yield_curves_spot/real` matches major version of runtime (e.g. `NSS_v0.*` compatible within major). Minor version mismatch emits `UPSTREAM_VERSION_DRIFT` flag (−0.05 confidence) but proceeds. Major version mismatch raises `VersionMismatchError`.
 
 ## 3. Outputs
 
@@ -61,7 +63,7 @@ Compute daily Equity Risk Premium para **4 mature markets** (US S&P 500, EA STOX
 
 ## 4. Algorithm
 
-> Units: per-method tables armazenam `erp_pct` decimal (ex: `0.0482`); canonical table armazena `_bps` integer (ex: `482`). `conventions/units.md` §Spreads.
+> Units: all ERP values stored as `erp_bps` INTEGER across per-method and canonical tables, per conventions/units.md §Spreads. Compute in decimal internally; convert at persistence boundary via `int(round(decimal × 10_000))`.
 
 ### Formulas
 
@@ -111,7 +113,7 @@ ERP_CAPE  = (1 / CAPE) − real_risk_free
    - `erp_median_bps = median(available_bps)`.
    - `erp_range_bps = max(available_bps) − min(available_bps)`.
    - `methods_available = count(available)`.
-   - `confidence_canonical = min(method_confidences) · (methods_available / 4)`.
+   - `confidence_canonical = min(method_confidences)`, capped by floor; then deduct `0.05 × (4 − methods_available)` per missing method (aligns with flags.md propagation: cap-then-deduct, additive). Clamp `[0, 1]`.
 6. Se `methods_available < min_methods_for_canonical` → não persiste canonical; log CRITICAL.
 7. Se `erp_range_bps > divergence_threshold_bps` → flag `ERP_METHOD_DIVERGENCE`.
 8. Se `histimpl.xlsx` tem row para `date.month`: compute `xval_deviation_bps = |erp_dcf_bps − damodaran_us_erp_bps|` (US only); flag `XVAL_DRIFT` se `> 20 bps`.
@@ -147,6 +149,7 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | `methods_available < 2` | não persistir canonical; persistir method rows disponíveis | n/a |
 | Stored `yield_curves_spot.methodology_version ≠` runtime | raise `VersionMismatchError` | n/a |
 | `FACTSET_URL` / `SPDJI_KEY` ausente no `.env` | raise `MissingSecretError` at startup | n/a |
+| `histimpl.xlsx` connector unavailable OR date.month not in file | `xval_deviation_bps = NULL`; no `XVAL_DRIFT` flag emitted | no impact |
 | Market slug unknown (ex: `"SPX500"` typo) | raise `UnknownConnectorError` | n/a |
 
 ## 7. Test fixtures
@@ -155,7 +158,7 @@ Stored in `tests/fixtures/erp-daily/`.
 
 | Fixture id | Input | Expected | Tolerance |
 |---|---|---|---|
-| `us_2024_01_02` | SPX=4742.83; UST10Y=0.0415; FactSet+Shiller+buyback fixtures | `dcf≈0.0482`, `gordon≈0.0461`, `ey≈0.0453`, `cape≈0.0495`; `median_bps≈472`; `range_bps≈42`; `methods_available=4` | ±15 bps per method; ±10 bps on median |
+| `us_2024_01_02` | SPX=4742.83; UST10Y=0.0415; FactSet+Shiller+buyback fixtures | `dcf_bps≈482`, `gordon_bps≈461`, `ey_bps≈453`, `cape_bps≈495`; `median_bps≈472`; `range_bps≈42`; `methods_available=4` | ±15 bps per method; ±10 bps on median |
 | `ea_2024_01_02` | SXXP=478.5; Bund10Y=0.0220 | `median_bps≈525`; `methods_available=4` | ±15 bps |
 | `uk_2024_01_02` | FTAS; Gilt10Y | `median_bps≈540`; `methods_available=4` | ±15 bps |
 | `jp_2024_01_02` | TPX; JGB10Y; CAPE uses derived `real_rf` | `median_bps≈555`; `methods_available=4` | ±20 bps |
@@ -163,6 +166,7 @@ Stored in `tests/fixtures/erp-daily/`.
 | `us_divergence_2020_03_23` | COVID trough snapshot | `range_bps > 400`; flag `ERP_METHOD_DIVERGENCE` | — |
 | `damodaran_xval_2024_01_31` | `histimpl` row for Jan 2024 vs DCF same month | `|erp_dcf_bps − damodaran_bps| < 20`; no `XVAL_DRIFT` | ±20 bps |
 | `insufficient_1_method` | Only Shiller available (CAPE solo) | raises `InsufficientDataError` (canonical requires ≥2) | n/a |
+| `us_partial_2methods` | Only Gordon + EY available (DCF + CAPE data missing) | `methods_available=2`; canonical computed; flags `OVERLAY_MISS` + method-specific | min-boundary coverage |
 
 ## 8. Storage schema
 
@@ -188,7 +192,7 @@ Todas as 5 tabelas partilham um **common preamble** (inlined em cada `CREATE TAB
 ```sql
 CREATE TABLE erp_dcf (
     /* + common preamble */
-    erp_pct              REAL NOT NULL,
+    erp_bps              INTEGER NOT NULL,
     implied_r_pct        REAL NOT NULL,
     earnings_growth_pct  REAL NOT NULL,
     terminal_growth_pct  REAL NOT NULL
@@ -197,7 +201,7 @@ CREATE INDEX idx_erp_dcf_md ON erp_dcf (market_index, date);
 
 CREATE TABLE erp_gordon (
     /* + common preamble */
-    erp_pct              REAL NOT NULL,
+    erp_bps              INTEGER NOT NULL,
     dividend_yield_pct   REAL NOT NULL,
     buyback_yield_pct    REAL,
     g_sustainable_pct    REAL NOT NULL
@@ -206,7 +210,7 @@ CREATE INDEX idx_erp_gordon_md ON erp_gordon (market_index, date);
 
 CREATE TABLE erp_ey (
     /* + common preamble */
-    erp_pct              REAL NOT NULL,
+    erp_bps              INTEGER NOT NULL,
     forward_pe           REAL NOT NULL,
     forward_earnings     REAL NOT NULL,
     index_level          REAL NOT NULL
@@ -215,7 +219,7 @@ CREATE INDEX idx_erp_ey_md ON erp_ey (market_index, date);
 
 CREATE TABLE erp_cape (
     /* + common preamble */
-    erp_pct                 REAL NOT NULL,
+    erp_bps                 INTEGER NOT NULL,
     cape_ratio              REAL NOT NULL,
     real_risk_free_pct      REAL NOT NULL,
     real_earnings_10y_avg   REAL NOT NULL

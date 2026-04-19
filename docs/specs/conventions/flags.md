@@ -84,6 +84,7 @@ Flags são tokens `UPPER_SNAKE_CASE` emitidos na coluna `flags TEXT` de qualquer
 |---|---|---|---|
 | `ANCHOR_UNCOMPUTABLE` | `overlays/expected-inflation` | `5Y` ou `10Y` em falta → `5y5y` não derivável → `anchor_status=NULL` | canonical: −0.10 |
 | `BEI_SHORT_SEASONALITY` | `overlays/expected-inflation` | `1Y` ou `2Y` BEI seasonally contaminated (short-dated breakeven caveat) | −0.10 (tenors afetados) |
+| `DIFFERENTIAL_TENOR_PROXY` | `overlays/expected-inflation` | DERIVED path applies 5Y rolling PT-EA differential flat to short-dated tenors (1Y/2Y) — economically less robust than per-tenor differential (CAL-042) | −0.10 (1Y/2Y canonical rows only) |
 | `INFLATION_METHOD_DIVERGENCE` | `overlays/expected-inflation` | `|BEI_10Y − SURVEY_10Y| > 100 bps` quando ambos disponíveis | canonical: −0.10 |
 | `LINKER_UNAVAILABLE` | `overlays/expected-inflation` | Country sem linker market OR linker connector retorna < 3 tenors — DERIVED path | cap 0.70 no method row |
 | `NO_TARGET` | `overlays/expected-inflation` | Country sem operative BC inflation target (CN, TR sem target credível, AR) — skip `anchor_status` | informational (none) |
@@ -219,6 +220,7 @@ Flags transversais emitidas por múltiplas specs — contrato partilhado, não p
 | `BREAKEVEN_PROXY_SURVEY` | `overlays/expected-inflation` | BEI (nominal − TIPS) indisponível (no linker market); substitute SPF/survey − term premium decomposition | co-emitted with `PROXY_APPLIED` |
 | `COVERAGE_TE_DEGRADED` | generic | TE rate limit / outage → T2-T3 breadth afectada; T1 coberto por native overrides; Policy 1 re-weight applicable | cap 0.70 |
 | `ATTRIBUTION_REQUIRED` | generic | Output cita data de source com mandatory attribution per [`../../governance/LICENSING.md`](../../governance/LICENSING.md) §3 (canonical strings). Consumer spec emits when propagating data to output layer | informational (none — operational routing) |
+| `UPSTREAM_VERSION_DRIFT` | generic | Consumer overlay's runtime methodology_version differs from upstream `yield_curves_spot/real` row in MINOR position only (MAJOR mismatch raises `VersionMismatchError`). Proceeds with computation. | −0.05 |
 
 ## Convenção de propagação
 

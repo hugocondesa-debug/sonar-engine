@@ -38,12 +38,14 @@ Produz term structure diária de expected inflation (`1Y`, `2Y`, `5Y`, `5y5y` fo
 | IT | ECB SPF → BTP€i BEI | BTP€i BEI | BEI-derived | `mef_italy` |
 | ES | ECB SPF → BEIi (thin) | BEIi thin → DERIVED | DERIVED | `tesoro_spain` |
 | EA | ECB SPF → SWAP | SWAP → EA fitted BEI | SWAP-derived | `ecb_sdw` |
-| **PT** | ECB SPF → **DERIVED** | **DERIVED** (EA BEI + PT-EA diff) | DERIVED | — |
+| **PT** | ECB SPF (if PT-specific question available) → DERIVED | **DERIVED** (EA BEI + PT-EA diff, flat-tenor approximation) | DERIVED | — |
 | CA / AU | survey → linker BEI | RRB / TIB BEI | BEI-derived | `boc_canada` / `rba` |
 | JP | Tankan → SURVEY | SURVEY (BEI thin) | SURVEY-interp | `boj_tankan` |
 | BR / MX | survey → linker BEI | NTN-B / UDI BEI | BEI-derived | `bcb_brazil` / `banxico` |
 | IN / CN | SURVEY | SURVEY + IMF WEO | n/a | — |
 | TR / AR | SURVEY + IMF WEO + Consensus | idem (wide CI) | n/a | — |
+
+> **Week 3 connector scope**: US (FRED validated) + EA via ECB SDW (Day 4 Week 2) + DE via Bundesbank (Day 5 Week 2) + PT via DERIVED (Eurostat HICP validated). UK/JP/EM defer to Week 4+ pending `boe_dmp`, `boj_tankan`, `imf_weo`, `focuseconomics` connector validation (CAL-043).
 
 ### Parameters (config)
 
@@ -94,6 +96,8 @@ E[π_PT(τ)] = E[π_EA(τ)] + diff_pt_ea_5y_rolling
 diff_pt_ea_5y_rolling = mean( pt_hicp_yoy − ea_hicp_yoy, last 60 monthly obs )
 ```
 
+> **Phase 1 simplification**: differential applied flat across all tenors (1Y = 30Y same delta). Economically, long-dated PT-EA differential likely converges (EU convergence hypothesis); short-dated responds to local shocks. Per-tenor differential computation deferred to Phase 2 (CAL-042).
+
 **SURVEY (`EXP_INF_SURVEY_v0.1`)** — leitura do survey no horizon mais próximo; linear interp para grid tenors quando gap < 3Y; tenor fora de coverage → `NULL`.
 
 **5y5y forward** (compounded, em qualquer method com `5Y` + `10Y`):
@@ -115,9 +119,14 @@ Forma linear `(10·r10 − 5·r5)/5` do reference é aproximação; NÃO usar em
 3. **SWAP**: se swap connector disponível → fetch direct; derive `5y5y`.
 4. **DERIVED** (PT + periphery): fetch `ea_aggregate_bei`; if cached `diff_pt_ea_5y_rolling` age > `pt_ea_differential_refresh_months` → recompute from INE + Eurostat 60-month history; se recompute falha por dados faltosos → use cache + flag `CALIBRATION_STALE`.
 5. **SURVEY**: fetch latest survey per horizon; linear-interp to grid tenors (gap < 3Y); wider → tenor = `NULL`.
-6. Compute `confidence` per method (§6 matrix) + inherit upstream flags.
+6. Compute `confidence` per method (§6 matrix). Inherit upstream flags per source:
+   - BEI: inherits `yield_curves_spot.flags` for (country, date, tenor)
+   - SWAP: no upstream inheritance (fresh from connector)
+   - DERIVED: inherits EA aggregate BEI `yield_curves_spot.flags` (country=DE or EA)
+   - SURVEY: no upstream inheritance (fresh from survey connector)
 7. `exp_inf_id = uuid4()`; persist method rows atomically.
 8. **Canonical**: for each tenor ∈ `["1Y","2Y","5Y","10Y","30Y","5y5y"]`, pick first method per hierarchy com `confidence ≥ 0.50`. Store `source_method_per_tenor_json`. `confidence_canonical = weighted_mean(method_confidences, weights=tenor_count_per_method)`. Compute `anchor_deviation_bps` + `anchor_status` se `5y5y` disponível; senão `NULL` + flag `ANCHOR_UNCOMPUTABLE`.
+8.5. **IRP haircut (optional)**: if `config/crp.yaml::irp_haircut_bps[tenor]` configured for `(country, tenor)`, subtract from canonical BEI-sourced tenors only. Not applied to SWAP, DERIVED, SURVEY sources (only BEI contains inflation risk premium). Formula: `canonical_tenors_json[tenor] -= irp_haircut_bps[tenor] / 10_000` for BEI-sourced tenors.
 9. Cross-validate: se BEI + SURVEY ambos disponíveis, `bei_vs_survey_divergence_bps = |BEI_10Y − SURVEY_10Y| · 10_000`; `> 100 bps` → flag `INFLATION_METHOD_DIVERGENCE`.
 10. Persist canonical row.
 
@@ -149,7 +158,9 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | Survey horizon gap > 3Y para tenor pedido | deixar tenor `NULL` na row | (only that tenor skipped) |
 | `5Y` ou `10Y` absent → `5y5y` uncomputable | `5y5y = NULL`; flag `ANCHOR_UNCOMPUTABLE` no canonical | −0.10 |
 | `|BEI_10Y − SURVEY_10Y| > 100 bps` | flag `INFLATION_METHOD_DIVERGENCE` | canonical −0.10 |
-| Country `CN`/`TR`/`AR` (no operative BC target) | skip `anchor_status`; flag `NO_TARGET` | (no impact) |
+| Country with no effective inflation target (CN — PBOC no explicit numeric target; AR — hyperinflation, targeting suspended 2018+) | skip `anchor_status`; flag `NO_TARGET` | (no impact) |
+| Country with targeting regime but high deviation from target band (TR — CBRT 5%±2pp vs actual 40-70% recent) | emit `anchor_status="unanchored"`; flag `EM_COVERAGE` | cap 0.50 |
+| PT 1Y/2Y via DERIVED (5Y rolling differential applied to short-dated tenor) | emit; flag `DIFFERENTIAL_TENOR_PROXY` | −0.10 on 1Y/2Y canonical rows only |
 | Country sem linker + SURVEY path único (JP 5Y+, most T2+ EMs) | emit canonical via SURVEY; flags `BREAKEVEN_PROXY_SURVEY` + `PROXY_APPLIED` per proxies.md entry | −0.10 (per `PROXY_APPLIED` multiplicative) |
 | PT HICP source = Eurostat mirror (INE endpoint broken D2) | flag `INE_MIRROR_EUROSTAT` + `PROXY_APPLIED` em DERIVED row | −0.10 |
 | Hyperinflation (AR, TR acima 25% YoY) | widen confidence interval; flag `EM_COVERAGE` | cap 0.50 |
