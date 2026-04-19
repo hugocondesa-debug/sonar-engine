@@ -154,7 +154,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
     yet built).
 - **Recommendation:** (a). DFII7 confirmed live → 5 tenors stable;
   carve-out is contained and reversible if richer linker source emerges.
-- **Apply:** Week 3+ (or any session that needs US real curve persisted).
+- **Unblock trigger:** Week 2 Day 3 PM — option (a) implementation.
 
 ### CAL-034 — Spec §7 RMSE tolerance revision (Fed GSW benchmark)
 
