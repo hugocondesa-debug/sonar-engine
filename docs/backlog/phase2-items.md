@@ -279,3 +279,26 @@ same-day refresh. Upgrade path clean, zero spec change.
 (currently none in Phase 1).
 
 ---
+
+## P2-027: Drop orphan Week 1 yield_curves_{raw,params,fitted,metadata} tables
+
+**Status**: OPEN
+**Priority**: LOW
+**Descrição**: Migration 001 (`001_nss_schema`) created the legacy
+`yield_curves_{raw,params,fitted,metadata}` family. Migration 002
+(`5c63876`) introduced the spec §8 canonical family
+`yield_curves_{spot,zero,forwards,real}`, which is now the only persistence
+target for L2 NSS outputs. The Week 1 tables coexist but have zero
+production callers as of Day 3 AM.
+**Rationale**: Two table families storing semantically overlapping NSS
+fit data is dead-weight schema; a future migration should drop the four
+orphan tables once callers are confirmed gone.
+**Deferral trigger**: Pipeline L8 design phase (`pipelines/daily-curves`).
+That session will enumerate the full set of writers/readers; if no module
+references `YieldCurveRaw`/`YieldCurveParams`/`YieldCurveFitted`/
+`YieldCurveMetadata` SQLAlchemy classes, schedule migration 003 to drop.
+**Acceptance**: `git grep -E "YieldCurve(Raw|Params|Fitted|Metadata)"`
+returns only the model definitions in `src/sonar/db/models.py` plus
+the migration scripts.
+
+---

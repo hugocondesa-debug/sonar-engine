@@ -115,30 +115,63 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-031 — NSS fixture live fetch + spec §7 tolerance calibration
 
-- **Priority:** MEDIUM
+- **Priority:** MEDIUM → CLOSED 2026-04-20 (branch B)
 - **Trigger:** Day 3 AM FRED live fetch
-- **Current:** `us_2024_01_02` fixture uses indicative yields per
-  `nss-fit-algorithm-execution-brief.md` §10.1. Fit produces
-  RMSE 6.34 bps > spec §7 tolerance 5.0 bps.
-- **Scope:** Replace fixture yields with live FRED DGS* H.15 values
-  @ 2024-01-02 close via `connectors/fred`.
-- **Decision branch A:** If new RMSE ≤ 5 bps → close, no further action.
-- **Decision branch B:** If new RMSE > 5 bps → revise spec §7
-  `us_2024_01_02.rmse_bps_max` (likely 10 bps per Fed GSW literature).
-  Evaluate NSS_v0.1 → v0.2 bump (probably not — test tolerance is not
-  math contract).
+- **Resolution:** Live FRED H.15 DGS* fetched for 2024-01-02 (commit
+  `9ed7cd1`). Fit produces RMSE 6.25 bps > spec §7 nominal 5 bps →
+  branch B fires. Fixture `rmse_bps_max` tightened from 10.0 → 9.0
+  per `ceil(actual + 2)` formula. Spec §7 tolerance revision deferred
+  to **CAL-034** (separate task — needs Fed GSW benchmark eval).
 
 ### CAL-032 — Brief policy: contract locks are post-consumer
 
-- **Priority:** LOW (process)
-- **Trigger:** next chat-produced brief
-- **Issue:** Day 2 AM brief §2 locked dataclass shapes pre-consumer;
-  units.md deviation obliged 6 field renames (`yields_pct` → `yields`,
-  etc). Blast radius zero (no external consumer), but formal §2
-  invariant violated.
-- **Scope:** Future briefs amend §2 "Canonical invariants": dataclasses
-  are soft-locked pre-consumer, hard-locked post-consumer.
-- **Apply:** Day 3 AM brief onward.
+- **Priority:** LOW (process) → CLOSED 2026-04-20
+- **Trigger:** next chat-produced brief (was)
+- **Verification:** SESSION_CONTEXT §"Decision authority", §"Brief format",
+  §"Regras operacionais" revised 2026-04-20. New model active: dataclasses
+  are soft-locked pre-consumer, hard-locked post-consumer (CAL-032 transition
+  marker present in commit `5c63876` body where first external consumer —
+  persistence layer — landed against L2 dataclasses).
+- **Issue (history):** Day 2 AM brief §2 locked dataclass shapes
+  pre-consumer; units.md deviation obliged 6 field renames
+  (`yields_pct` → `yields`, etc). Blast radius zero (no external consumer),
+  but formal §2 invariant was violated.
+
+### CAL-033 — US real curve direct-linker blocked by TIPS coverage
+
+- **Priority:** MEDIUM
+- **Trigger:** Day 3 AM live fetch — DFII5/7/10/20/30 = 5 tenors confirmed
+  in FRED (DFII7 alive); still below `MIN_OBSERVATIONS=6` per spec §6 row 1.
+  Real curve direct-linker fit raises `InsufficientDataError`; US real
+  curve = `None` regardless of TIPS connector availability.
+- **Options:**
+  - **(a)** Relax `MIN_OBSERVATIONS` to 5 for linker-only fits (recommended —
+    unblocks immediately; documented carve-out in spec §6).
+  - **(b)** Synthesize short-end TIPS via nominal − BEI (requires
+    `overlays/expected-inflation` short-end + adds derivation flag).
+  - **(c)** Defer entirely to derived path via `overlays/expected-inflation`
+    (skip direct-linker for US; pulls forward dependency on overlay not
+    yet built).
+- **Recommendation:** (a). DFII7 confirmed live → 5 tenors stable;
+  carve-out is contained and reversible if richer linker source emerges.
+- **Apply:** Week 3+ (or any session that needs US real curve persisted).
+
+### CAL-034 — Spec §7 RMSE tolerance revision (Fed GSW benchmark)
+
+- **Priority:** MEDIUM
+- **Trigger:** us_2024_01_02 live fit RMSE 6.25 bps > spec §7 nominal 5.0
+  (CAL-031 branch B handed off here).
+- **Scope:** Benchmark Fed GSW NSS published RMSE same date
+  (`https://www.federalreserve.gov/data/yield-curve-tables/feds200628.csv`
+  — confirm spec §10 §Cross-validation reference). Propose realistic
+  `rmse_bps_max` for spec §7 `us_2024_01_02` row + analogous fixtures
+  (de_bund, uk, pt). Update spec §7 tolerance column.
+- **Decision branch A:** Fed GSW RMSE on same date ≤ 5 → keep spec §7 tight,
+  investigate fit quality gap (initial-guess seeding, convergence options).
+- **Decision branch B:** Fed GSW RMSE > 5 → revise spec §7 to ~ceil(GSW + 2)
+  per family; bump fixture rmse_bps_max accordingly. Probably **no**
+  NSS_v0.1 bump (tolerance != math contract).
+- **Interim:** Fixture currently `rmse_bps_max=9.0`.
 
 ## Não-categorizado por horizonte
 

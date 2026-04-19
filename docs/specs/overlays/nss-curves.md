@@ -143,7 +143,8 @@ CREATE TABLE yield_curves_spot (
     flags                 TEXT,                            -- CSV: NSS_REDUCED,HIGH_RMSE,...
     source_connector      TEXT    NOT NULL,
     created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (country_code, date, methodology_version)
+    UNIQUE (country_code, date, methodology_version),
+    UNIQUE (fit_id)                                      -- doc-only clarification 2026-04-20: implicit since spec inception (sibling FKs target this column); no NSS_v0.1 bump
 );
 CREATE INDEX idx_ycs_cd ON yield_curves_spot (country_code, date);
 
