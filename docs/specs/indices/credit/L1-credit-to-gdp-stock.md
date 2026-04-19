@@ -189,4 +189,3 @@ CREATE INDEX idx_l1_cgs_cd ON credit_to_gdp_stock (country_code, date);
 - Does **not** emit pre-1970 series — JST `tloans` reservado para `pipelines/backfill-strategy` (annual frequency, separate spec).
 - Does **not** classify cycle phase — only emits a level + z-score; phase classification lives em `cycles/credit-cccs`.
 - Does **not** expose vintage-by-vintage GDP revisions — `gdp_vintage_mode` chooses one mode per row; vintage history is connector responsibility.
-

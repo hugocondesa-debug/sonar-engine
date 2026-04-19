@@ -208,4 +208,3 @@ Scope boundaries — o que **não** é responsabilidade do E2:
 - Does not emit partial output quando `< 5` components — raise early.
 - Does not detect curve regime breaks beyond inheriting `nss-curves` flags (`REGIME_BREAK`, `NSS_FAIL`).
 - Does not use `USSLIND` (Philly Fed State Leading Index) como LEI source — **rejected em D2 empirical** (2026-04-18: latest observation 2020-02, 2 268d stale). Per v0.2 bump: LEI US = GAP pending CAL-023 alternative selection (USPHCI, ECRI WLI, Conference Board paid).
-

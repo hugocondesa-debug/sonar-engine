@@ -203,4 +203,3 @@ CREATE INDEX idx_l3_ci_cd ON credit_impulse (country_code, date);
 - Does **not** consume L2 output — by design L3 is independent of HP gap to avoid circular signals (gap up → impulse up → gap up further).
 - Does **not** estimate the *level* of credit flow — only the second derivative; flow level lives em L1 components.
 - Does **not** emit alerts directly — `state="decelerating"` is informational; alerting lives em `cycles/credit-cccs` and `outputs/editorial`.
-

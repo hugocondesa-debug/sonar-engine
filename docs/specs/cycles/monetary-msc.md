@@ -270,4 +270,3 @@ CREATE INDEX idx_msc_cd ON monetary_cycle_scores (country_code, date);
 - Does not substitute BC official communication framework (FOMC SEP, ECB MPA narrative) — SONAR é analytical; official communiqués são cross-check only.
 - Does not backfill pre-1995 — M1 shadow rate series sparse; M2 Taylor requires HLW r* (starts ~1961 US, later others); coverage limit via `lookback_years` em L3.
 - Does not apply tier-aware MSC simplification at spec level — T2+ `M1_only_mode` (simplified MSC) é L3 M1-specific per M1 v0.2 + Phase 1 pipeline integration; MSC composite spec continua expecting ≥3/5 inputs globally per ADR-0005 degraded scope.
-

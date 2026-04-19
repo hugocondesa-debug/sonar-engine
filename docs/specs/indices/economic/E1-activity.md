@@ -192,4 +192,3 @@ Scope boundaries — o que **não** é responsabilidade do E1:
 - Does not refit weights real-time — pesos são static per `methodology_version`; recalibração é bump MAJOR/MINOR via `conventions/methodology-versions.md`.
 - Does not emit partial output quando `< 4` components — raise early, no stub rows.
 - Does not consume outputs de E2/E3/E4 — os 4 indices são paralelos por design (Cap 15.5).
-

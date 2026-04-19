@@ -207,4 +207,3 @@ CREATE INDEX idx_l2_cgg_cd ON credit_to_gdp_gap (country_code, date);
 - Does **not** consume L4 DSR or L3 impulse — purely L1-derived; cross-cycle integration lives downstream.
 - Does **not** emit alerts directly — flag emission per Edge cases only; alerts live em `outputs/editorial` and `cycles/credit-cccs` decision rules.
 - Does **not** backfill historical revisions of the BIS-published gap — SONAR computes its own gap; BIS values are cross-validation reference, not consumed.
-

@@ -289,4 +289,3 @@ CREATE INDEX idx_exp_canonical_cd ON exp_inflation_canonical (country_code, date
 - Does not substitute BdP/ECB official projections — SONAR é analytical; BdP/ECB são cross-check only.
 - Does not pick "best" method per country — todas as method rows expostas; canonical selection é determinística via § Hierarchy, não ML-optimized.
 - Does not backfill survey pre-2000 — responsibility de `pipelines/backfill-strategy`.
-

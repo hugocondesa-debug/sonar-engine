@@ -232,4 +232,3 @@ Scope boundaries — o que **não** é responsabilidade do E4:
 - Does not refit weights real-time — pesos static per `methodology_version`; country-specific weight profiles documented em runtime config.
 - Does not emit partial output quando `< 6` components — raise early.
 - Does not detect political-event-driven sentiment shocks (debt ceiling, shutdowns) explicitly — those manifest no EPU sub-component.
-

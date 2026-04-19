@@ -246,4 +246,3 @@ CREATE INDEX idx_ecs_regime ON economic_cycle_scores (country_code, regime, date
 - Does not expose `prev_regime` / buffer state externally — internal state machine; consumers get only canonical persisted row.
 - Does not apply tier-aware confidence cap beyond Policy 1 (re-weight at 0.75) — per-tier caps (T2 0.85, T3 0.65, T4 fail) são Phase 1+ pipeline integration per ADR-0005 §Consequences; ECS spec-level assume sub-indices inherem tier caps upstream.
 - Does not re-derive sub-indices post-bump upstream (ex: E2 v0.1 → v0.2 em Bloco E2) — ECS consume sub-index rows verbatim via methodology_version match; precondition E2 aceita v0.2 para compatibility.
-

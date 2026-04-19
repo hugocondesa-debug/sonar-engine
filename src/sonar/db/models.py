@@ -47,9 +47,7 @@ class YieldCurveParams(Base):
     n_observations: Mapped[int] = mapped_column(Integer)
     methodology_version: Mapped[str] = mapped_column(String(10))
     flags_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
-    fitted_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    fitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class YieldCurveFitted(Base):

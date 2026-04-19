@@ -232,4 +232,3 @@ CREATE INDEX idx_l4_dsr_cd ON dsr (country_code, date);
 - Does **not** publish bank-side metrics (NIM, RoE, NPL) — those live em `indices/credit/extended/bank-health` (Phase 2+).
 - Does **not** consume L1/L2/L3 outputs — by design L4 is independent for cross-validation purposes (DSR can fire critical even when gap is neutral, as in 2024 rate-hike regime).
 - Does **not** compute country-specific maturity dynamics — uses BIS standard assumptions (`HH ~18Y, NFC ~10Y`); refinements live em country-override config (Phase 2+).
-

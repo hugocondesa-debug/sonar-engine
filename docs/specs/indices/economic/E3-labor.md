@@ -221,4 +221,3 @@ Scope boundaries — o que **não** é responsabilidade do E3:
 - Does not refit weights real-time — pesos static per `methodology_version`.
 - Does not emit partial output quando `< 6` components — raise early.
 - Does not consume outputs de E1/E2/E4 — paralelo por design (Cap 15.5).
-

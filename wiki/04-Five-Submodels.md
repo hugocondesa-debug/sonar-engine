@@ -173,7 +173,7 @@ Cost of Equity (nominal, local currency) =
 
 Cost of Equity (real) = nominal − expected_inflation(country)
 
-Cost of Equity (foreign currency) = 
+Cost of Equity (foreign currency) =
     local nominal − expected_FX_depreciation
     where FX depreciation ≈ inflation_differential (via PPP)
 ```

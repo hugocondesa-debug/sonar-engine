@@ -303,4 +303,3 @@ Scope boundaries. O que este overlay **não** faz:
 - Does not integrate minor agencies (Scope, R&I, JCR) — 4 majors only em v2.
 - Does not re-rate em response a market moves — ratings são institutional opinions; market-implied ratings (Merton DD) são escopo separado em `integration/diagnostics`.
 - Does not use TE (Trading Economics) ratings como primary ou fallback — rejected em D0 audit (2026-04-18) porque TE `/ratings/historical/{country}` endpoint retornou latest 2022-09-09 (~4Y stale). Per v0.2 bump: `damodaran_annual_historical` substitui TE para pre-2023 backfill; agency scrape forward para ≥ 2023.
-

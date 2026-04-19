@@ -64,9 +64,9 @@ class FetchStatus(str, Enum):
     """Status of a fetch operation."""
 
     SUCCESS = "success"
-    PARTIAL = "partial"          # some data, with warnings
+    PARTIAL = "partial"  # some data, with warnings
     FAILED = "failed"
-    STALE = "stale"              # data too old to be useful
+    STALE = "stale"  # data too old to be useful
 
 
 class FetchResult(BaseModel):
@@ -247,6 +247,7 @@ class BaseConnector(ABC):
     def _throttle(self, seconds: float = 1.0) -> None:
         """Rate limit helper. Override in subclass for more sophisticated logic."""
         import time
+
         time.sleep(seconds)
 
     def __repr__(self) -> str:

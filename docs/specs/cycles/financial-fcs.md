@@ -281,4 +281,3 @@ CREATE INDEX idx_fcs_cd ON financial_cycle_scores (country_code, date);
 - Does **not** expose BIS DSR como condição Bubble Warning adicional — v0.1 limita-se a credit-gap + property-gap (cap 16.2 threshold "2 de 3" BIS metrics simplificado para 2 específicos em v0.1; DSR em v0.2).
 
 ---
-

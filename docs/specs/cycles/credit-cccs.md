@@ -291,4 +291,3 @@ Scope boundaries. O que este componente **não** faz — pertence a outro módul
 - Does **not** re-fetch L1-L4 ou F3-F4 raw inputs — puro L3/L3-to-L4 aggregator sobre SONAR tables. Connector calls vivem upstream.
 - Does **not** emit alerts editoriais — `boom_overlay_active=1` é informational trigger; narrativa + thresholds de alerta vivem em `outputs/editorial` playbook.
 - Does **not** apply tier-aware confidence cap beyond Policy 1 + QS absent cap — per-tier integration (T2 0.85 / T3 fail / T4 fail) é Phase 1+ pipeline layer per ADR-0005 §Consequences; CCCS assume L1-L4 input rows herdam `EM_COVERAGE` upstream quando applicable.
-

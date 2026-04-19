@@ -298,4 +298,3 @@ CREATE INDEX idx_crp_canonical_cd ON crp_canonical (country_code, date);
 - Does not backfill pre-2005 (CDS market pre-maturity) — responsibility de `pipelines/backfill-strategy`; Portugal pre-2007 usa bond-spread proxy, marked `BACKFILLED`.
 - Does not predict rating changes nor CDS spikes — reactive only; forecast em `integration/diagnostics/rating-pressure`.
 - Does not enforce beta/lambda sector scaling — flat CRP per Damodaran §10.1; users apply externally.
-

@@ -49,7 +49,7 @@ def classify_matriz_4way(state: CycleStates) -> MatrizResult:
                 risk_level=config.risk_level,
                 confidence=config.confidence(state)
             )
-    
+
     # Fall through to canonical patterns
     best_match = None
     best_score = 0
@@ -58,7 +58,7 @@ def classify_matriz_4way(state: CycleStates) -> MatrizResult:
         if score > best_score:
             best_match = pattern
             best_score = score
-    
+
     return MatrizResult(
         classification=best_match.name,
         type='canonical',
@@ -171,8 +171,8 @@ Cost of Equity (nominal, local currency) =
   + β × ERP(mature market reference, from sub-model ERP)
   + CRP(country, from sub-model CRP)
 
-Cost of Equity (real) = 
-    Cost of Equity nominal 
+Cost of Equity (real) =
+    Cost of Equity nominal
   − Expected inflation(country, tenor, from sub-model expected inflation)
 ```
 
