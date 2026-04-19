@@ -251,7 +251,13 @@ pretty = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "pdfplumber.*", "apscheduler.*"]
+module = [
+  "yfinance.*",
+  "pdfplumber.*",
+  "apscheduler.*",
+  "diskcache",
+  "diskcache.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
