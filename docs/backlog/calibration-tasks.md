@@ -102,6 +102,17 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `docs/adr/`, `docs/reference/`, `docs/data_sources/`. Conditional
   HIGH trigger did not fire. No action required.
 
+### CAL-030 — NSS β0 bounds relaxation for negative yields
+
+- **Priority:** LOW (conditional HIGH)
+- **Trigger:** pre-Week 3 DE/JP entry
+- **Current:** `bounds[β0] = (0, 0.20)` per nss-curves.md §4
+- **Issue:** Excludes negative yields (Bunds 2019-2021, JGBs 2016-).
+  US Week 2 safe; DE/JP entry blocker.
+- **Fix:** Relax to `(-0.02, 0.20)`. Validation fixture:
+  `de_bund_2019-08-15` (Bund 10Y trough negative).
+- **Upgrade rule:** if Week 3 agenda includes DE or JP → HIGH.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.

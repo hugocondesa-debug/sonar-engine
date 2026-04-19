@@ -265,4 +265,17 @@ class ConnectorCache[T]:
 **Priority**: Low. Aesthetic/DX, zero functional impact.
 **Trigger**: add este item a Week 2+ planning agenda quando Eurostat connector specification iniciar.
 
+## P2-026: `treasury_gov` connector for US primary (NSS spec alignment)
+
+**Status**: OPEN
+**Priority**: LOW
+**Descrição**: nss-curves.md §2 T1 US: primary = `connectors/treasury_gov`
+(par yields daily), secondary = `connectors/fred` DGS*. Week 1 shipped
+only FRED. Week 2 NSS uses FRED as primary de facto (spec non-compliant
+but functionally equivalent at T+1).
+**Rationale**: FRED H.15 lags 1 business day; treasury.gov XML/CSV is
+same-day refresh. Upgrade path clean, zero spec change.
+**Deferral trigger**: any use case requiring same-day US yields
+(currently none in Phase 1).
+
 ---
