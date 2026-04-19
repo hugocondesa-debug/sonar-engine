@@ -80,7 +80,7 @@ class FredConnector(BaseConnector):
                 continue
             observations.append(
                 Observation(
-                    country_code="USA",
+                    country_code="US",
                     observation_date=datetime.fromisoformat(obs["date"]).date(),
                     tenor_years=tenor,
                     yield_bps=round(float(obs["value"]) * 100),  # pct → bps

@@ -20,7 +20,7 @@ class YieldCurveRaw(Base):
     __tablename__ = "yield_curves_raw"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    country_code: Mapped[str] = mapped_column(String(3))
+    country_code: Mapped[str] = mapped_column(String(2))
     observation_date: Mapped[date] = mapped_column(Date)
     tenor_years: Mapped[Decimal] = mapped_column(Numeric(6, 3))
     yield_bps: Mapped[int] = mapped_column(Integer)
@@ -35,7 +35,7 @@ class YieldCurveParams(Base):
     __tablename__ = "yield_curves_params"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    country_code: Mapped[str] = mapped_column(String(3))
+    country_code: Mapped[str] = mapped_column(String(2))
     observation_date: Mapped[date] = mapped_column(Date)
     beta0: Mapped[Decimal] = mapped_column(Numeric(10, 6))
     beta1: Mapped[Decimal] = mapped_column(Numeric(10, 6))
@@ -54,7 +54,7 @@ class YieldCurveFitted(Base):
     __tablename__ = "yield_curves_fitted"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    country_code: Mapped[str] = mapped_column(String(3))
+    country_code: Mapped[str] = mapped_column(String(2))
     observation_date: Mapped[date] = mapped_column(Date)
     tenor_years: Mapped[Decimal] = mapped_column(Numeric(6, 3))
     fitted_yield_bps: Mapped[int] = mapped_column(Integer)
@@ -65,7 +65,7 @@ class YieldCurveMetadata(Base):
     __tablename__ = "yield_curves_metadata"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    country_code: Mapped[str] = mapped_column(String(3))
+    country_code: Mapped[str] = mapped_column(String(2))
     observation_date: Mapped[date] = mapped_column(Date)
     run_id: Mapped[str] = mapped_column(String(36))
     methodology_version: Mapped[str] = mapped_column(String(10))

@@ -18,7 +18,7 @@ def upgrade() -> None:
     op.create_table(
         "yield_curves_raw",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("country_code", sa.String(3), nullable=False),
+        sa.Column("country_code", sa.String(2), nullable=False),
         sa.Column("observation_date", sa.Date, nullable=False),
         sa.Column("tenor_years", sa.Numeric(6, 3), nullable=False),
         sa.Column("yield_bps", sa.Integer, nullable=False),
@@ -47,7 +47,7 @@ def upgrade() -> None:
     op.create_table(
         "yield_curves_params",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("country_code", sa.String(3), nullable=False),
+        sa.Column("country_code", sa.String(2), nullable=False),
         sa.Column("observation_date", sa.Date, nullable=False),
         sa.Column("beta0", sa.Numeric(10, 6), nullable=False),
         sa.Column("beta1", sa.Numeric(10, 6), nullable=False),
@@ -76,7 +76,7 @@ def upgrade() -> None:
     op.create_table(
         "yield_curves_fitted",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("country_code", sa.String(3), nullable=False),
+        sa.Column("country_code", sa.String(2), nullable=False),
         sa.Column("observation_date", sa.Date, nullable=False),
         sa.Column("tenor_years", sa.Numeric(6, 3), nullable=False),
         sa.Column("fitted_yield_bps", sa.Integer, nullable=False),
@@ -98,7 +98,7 @@ def upgrade() -> None:
     op.create_table(
         "yield_curves_metadata",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("country_code", sa.String(3), nullable=False),
+        sa.Column("country_code", sa.String(2), nullable=False),
         sa.Column("observation_date", sa.Date, nullable=False),
         sa.Column("run_id", sa.String(36), nullable=False),
         sa.Column("methodology_version", sa.String(10), nullable=False),

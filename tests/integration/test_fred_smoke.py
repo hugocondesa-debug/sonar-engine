@@ -52,7 +52,7 @@ async def test_fetch_recent_dgs10_structural(live_fred: FredConnector) -> None:
     obs = await live_fred.fetch_series("DGS10", start, end)
 
     assert len(obs) > 0, "DGS10 last 30d should return non-empty"
-    assert all(o.country_code == "USA" for o in obs)
+    assert all(o.country_code == "US" for o in obs)
     assert all(o.tenor_years == 10.0 for o in obs)
     assert all(o.source == "FRED" for o in obs)
     assert all(o.source_series_id == "DGS10" for o in obs)

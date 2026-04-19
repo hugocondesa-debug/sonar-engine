@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class Observation(BaseModel):
-    country_code: str = Field(pattern=r"^[A-Z]{3}$")
+    country_code: str = Field(pattern=r"^[A-Z]{2}$")
     observation_date: date
     tenor_years: float = Field(gt=0, le=50)
     yield_bps: int

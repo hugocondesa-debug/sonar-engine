@@ -28,7 +28,7 @@ async def test_fetch_series_happy_path(
     )
     obs = await fred_connector.fetch_series("DGS10", date(2026, 4, 15), date(2026, 4, 16))
     assert len(obs) == 2
-    assert all(o.country_code == "USA" for o in obs)
+    assert all(o.country_code == "US" for o in obs)
     assert all(o.tenor_years == 10.0 for o in obs)
     assert all(o.source == "FRED" for o in obs)
     assert all(o.source_series_id == "DGS10" for o in obs)
@@ -81,7 +81,7 @@ async def test_fetch_series_cache_hit_no_http(
     key = "fred:DGS10:2026-04-15:2026-04-15"
     pre_cached = [
         Observation(
-            country_code="USA",
+            country_code="US",  # alpha-2 per P2-023
             observation_date=date(2026, 4, 15),
             tenor_years=10.0,
             yield_bps=412,
