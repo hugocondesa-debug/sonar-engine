@@ -23,7 +23,7 @@
 | 3 | PM | Pre-commit repair (P2-015 closed) | 166812d, deaf3e4 | ✓ (+2 deferrals) |
 | 4 | AM | `base.py` + `cache.py` triagem 3/3 | 68eb29a, 1518e73, f3d24a0 | ✓ |
 | 4 | PM | `fred.py` triagem + hooks clean | cbdd516 | ✓ |
-| 5 | AM | Unit tests ≥ 80% cov em fred.py | 14b9d7c | ✓ (100% fred.py; 96.59% total) |
+| 5 | AM | Unit tests ≥ 80% cov em fred.py | 14b9d7c | ✓ (100% fred.py; 96.59% total (connectors scope)) |
 | 5 | PM | Integration smoke 5/5 + D2 ±0 bps match | e83f368 | ✓ |
 
 **Live data validation final**: DGS10 2026-04-16 = 432 bps (4.32%). Cross-verified contra market narrative: <https://fred.stlouisfed.org/series/DGS10> + dshort snapshot April 10 2026 (DGS10 = 4.31%).
@@ -37,7 +37,7 @@
 | Commits totais Week 1 | 12 | 6 feat, 2 test, 3 chore, 1 style |
 | Days effective | 3.5 | Plan previa 5 days |
 | Lines of code produced | ~340 | Src only (connectors + db + config) |
-| Test coverage | 96.59% total | fred.py 100% stmts + branches |
+| Test coverage | 96.59% on src/sonar/connectors scope (L0 connectors package); global src/sonar baseline ~59.3% end of Week 1 — lifted to 73.66% in Week 2 Day 1 PM (overlays scaffolding). Phase 1 gate exit criterion was fred.py 100%, which stands. | fred.py 100% stmts + branches |
 | HALT events | 3 | Day 3 PM cascade, Day 4 AM taplo |
 | `--no-verify` bypasses | 7 | Days 1-3 pre-P2-015; zero depois |
 | Config gaps surfaced | 4 | python version, mypy deps, wiki, markdownlint rules |
@@ -169,7 +169,7 @@ Pre-conditions todas satisfeitas:
 - ✓ FRED connector operational (11 US series)
 - ✓ Schema yield_curves_raw/params/fitted/metadata ready
 - ✓ `scipy>=1.17` available para NSS optimize
-- ✓ Test framework (pytest + pytest-httpx + coverage ≥ 96%)
+- ✓ Test framework (pytest + pytest-httpx + coverage ≥ 96% (connectors scope))
 - ✓ Hooks clean gate (zero --no-verify expected)
 
 ### 6.2 Pre-Week 2 micro-tasks (Sunday evening ou Monday AM)
