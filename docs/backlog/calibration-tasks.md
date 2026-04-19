@@ -95,6 +95,12 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Scope:** scope-docs.txt output from P2-023 discovery
 - **Upgrade rule:** if any ref in `docs/specs/conventions/`, bump HIGH
 - **Deferral:** execute when docs hygiene window opens (Week 3+)
+- **Status:** CLOSED no-op 2026-04-19 (same day as creation)
+- **Verification:** 25 refs triaged by chat; all in meta-docs
+  (phase2-items.md P2-023 entry, retrospective, execution brief).
+  Zero refs in `docs/specs/conventions/`, `docs/specs/overlays/`,
+  `docs/adr/`, `docs/reference/`, `docs/data_sources/`. Conditional
+  HIGH trigger did not fire. No action required.
 
 ## Não-categorizado por horizonte
 
