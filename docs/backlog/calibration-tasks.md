@@ -270,6 +270,58 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CSV subscription ToS review).
 - **Blocker for:** UK/JP/EM ExpInf coverage Week 4+.
 
+### CAL-044 — ERP overlay implementation (Week 3 deferred)
+
+- **Priority:** HIGH
+- **Trigger:** Week 3 brief §1 ERP scope was partially implemented
+  but not completed in this session — needs FactSet PDF scrape,
+  multpl + spdji web scrapers, and the 4-method DCF/Gordon/EY/CAPE
+  compute layer with Damodaran xval. Migration 005 used by CRP
+  instead; ERP migration becomes 006.
+- **Scope:** All Week 3 brief items 3B-1 through 3B-6 + the
+  damodaran_annual_historical seeding source. Connector validation
+  (CAL-036 TE for EA SXXP, CAL-040 multpl/yfinance) gates parts of
+  this — accept graceful degradation: ship US 4-method first;
+  EA/UK/JP follow as connectors green-light.
+- **Blocker for:** L6 cost-of-capital pipeline; integration tests
+  asserting `k_e = rf + β·ERP + CRP`.
+
+### CAL-045 — Treasury connectors aft_france / mef_italy (Week 3 deferred)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 3 brief §1 ExpInf EA scope (BEI via DE/FR/IT
+  linkers) deferred. Bundesbank already validated Week 2 Day 5; the
+  French OATi (via Agence France Trésor) and Italian BTP€i (via MEF)
+  endpoints remain to investigate.
+- **Scope:** Endpoint discovery + parser per country; extend
+  `expected_inflation.py` to compute EA BEI from these tenors
+  alongside Bundesbank.
+- **HALT-trigger reference:** Week 3 brief §4.4 — if endpoints
+  documented are wrong, fall back to ECB SDW EA-aggregate-only BEI.
+
+### CAL-046 — Persistence helpers + integration tests (Week 3 deferred)
+
+- **Priority:** MEDIUM
+- **Trigger:** Compute layers for ratings_spread / expected_inflation
+  / crp shipped Week 3 (commits `6c5239e`, `5cff096`, `c1a131d`)
+  without paired persistence helpers and integration tests beyond
+  the rating-spread persistence + duplicate detection tests.
+- **Scope:** persist_exp_inflation_canonical + per-method writers;
+  persist_crp_canonical + per-method writers; vertical-slice
+  integration tests US (NSS → ExpInf → ratings → CRP → assert all
+  rows joined by exp_inf_id / crp_id / fit_id chains).
+
+### CAL-047 — daily-cost-of-capital pipeline (Week 3 deferred)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 3 brief §3C-5 deferred; needs ERP (CAL-044) +
+  CRP integration tests (CAL-046) green first. ``k_e = rf + β·ERP
+  + CRP`` composition with stub β=1.0 + new
+  ``cost_of_capital_daily`` table.
+- **Scope:** Same as Week 3 brief §3C-5; CLI
+  ``python -m sonar.pipelines.daily_cost_of_capital --country US
+  --date YYYY-MM-DD``.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.
