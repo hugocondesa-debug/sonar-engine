@@ -113,6 +113,33 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `de_bund_2019-08-15` (Bund 10Y trough negative).
 - **Upgrade rule:** if Week 3 agenda includes DE or JP → HIGH.
 
+### CAL-031 — NSS fixture live fetch + spec §7 tolerance calibration
+
+- **Priority:** MEDIUM
+- **Trigger:** Day 3 AM FRED live fetch
+- **Current:** `us_2024_01_02` fixture uses indicative yields per
+  `nss-fit-algorithm-execution-brief.md` §10.1. Fit produces
+  RMSE 6.34 bps > spec §7 tolerance 5.0 bps.
+- **Scope:** Replace fixture yields with live FRED DGS* H.15 values
+  @ 2024-01-02 close via `connectors/fred`.
+- **Decision branch A:** If new RMSE ≤ 5 bps → close, no further action.
+- **Decision branch B:** If new RMSE > 5 bps → revise spec §7
+  `us_2024_01_02.rmse_bps_max` (likely 10 bps per Fed GSW literature).
+  Evaluate NSS_v0.1 → v0.2 bump (probably not — test tolerance is not
+  math contract).
+
+### CAL-032 — Brief policy: contract locks are post-consumer
+
+- **Priority:** LOW (process)
+- **Trigger:** next chat-produced brief
+- **Issue:** Day 2 AM brief §2 locked dataclass shapes pre-consumer;
+  units.md deviation obliged 6 field renames (`yields_pct` → `yields`,
+  etc). Blast radius zero (no external consumer), but formal §2
+  invariant violated.
+- **Scope:** Future briefs amend §2 "Canonical invariants": dataclasses
+  are soft-locked pre-consumer, hard-locked post-consumer.
+- **Apply:** Day 3 AM brief onward.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.
