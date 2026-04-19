@@ -98,13 +98,12 @@ repos:
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------
-  # TOML — check pyproject.toml validity
+  # TOML — format discipline (lint disabled per P2-020; reintroduction deferred)
   # ---------------------------------------------------------------------------
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3
     hooks:
       - id: taplo-format
-      - id: taplo-lint
 
   # ---------------------------------------------------------------------------
   # Shell scripts

@@ -162,18 +162,25 @@ Items arquiteturais, operacionais e documentacionais deferidos para fases poster
 **Priority**: Low. Docs-quality concern, não operational blocker.
 **Safety consideration**: MD rules não detectam code issues; P2-015 security hooks (detect-secrets + gitleaks) são the real protection layer.
 
-### P2-020 — Taplo-lint pyproject.toml schema violations
+### P2-020 — Taplo-lint hook reintroduction
 
-**Status**: pending
+**Status**: pending (hook REMOVED Day 4 AM Phase 1 Week 1)
 **Target phase**: Phase 2+ (low priority)
-**Descrição**: Taplo-lint hook falha em ruff config keys em `pyproject.toml` (confirmed D4 hotfix pass). Pre-existent issue independente de P2-015 (pre-commit framework repair Day 3 PM Phase 1 Week 1). Taplo-format hook funciona OK — só taplo-lint bloqueia.
+**Descrição**: Taplo-lint hook REMOVED em minor commit precedente ao connectors cache (Day 4 AM) após block de commit #9 por pre-existing schema violations em ruff config keys em `pyproject.toml`. Matches P2-022 (markdownlint) precedent — hook removed honestly em vez de SKIP pattern que degradaria framework transparency.
 
-**Opções** (decision deferred):
-- (a) Taplo schema override via `.taplo.toml` config para accept ruff lint/isort keys.
-- (b) Remove `taplo-lint` hook de `.pre-commit-config.yaml`; manter apenas `taplo-format`.
-- (c) Migrate ruff config para `ruff.toml` separate file (escape Taplo scope).
+**Root cause**: taplo default schema validation não reconhece algumas keys de ruff config modernas (linter subset tables `[tool.ruff.lint]` + `[tool.ruff.lint.per-file-ignores]` + `[tool.ruff.lint.isort]`). Pre-existent desde Phase 0 bootstrap (confirmed D4 hotfix pass + P2-015 Day 3 PM validation).
 
-**Dependency**: nenhuma Phase 1. Taplo-lint hook disabled implicitly por P2-015 fix (se removed) OR continua falhando per P2-015 documentação. Phase 2 decide approach.
+**Kept operational**: `taplo-format` hook continua active (format discipline preserved). `taplo-lint` removed only.
+
+**Reintroduction strategy Phase 2+**:
+- (a) Migrate ruff config de `pyproject.toml` para `ruff.toml` dedicated file (separa concerns; taplo-lint scoped a non-ruff TOML).
+- (b) Configure taplo schema override via `taplo.toml` com custom schema accepting ruff keys.
+- (c) Evaluate se `taplo-format` sozinho (sem lint) é suficiente — lint catch-rate vs format-only.
+
+**Effort estimate**: 30-60 min once strategy chosen.
+**Priority**: Low. TOML files são config-only, zero executable risk. `taplo-format` preserva discipline.
+
+**Operational rationale**: known-defer hook blocking real commits recurrently = framework fragility. Remove hook transparently > establish SKIP=X pattern (two-tier fake vs real hooks distinction degrades commit gate credibility).
 
 ## Workflow de desparking
 
