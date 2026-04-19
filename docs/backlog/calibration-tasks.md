@@ -187,6 +187,89 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   NSS_v0.1 bump (tolerance != math contract).
 - **Interim:** Fixture currently `rmse_bps_max=9.0`.
 
+### CAL-036 — TE /markets/historical endpoints validation
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 3 ERP EA/UK/JP
+- **Scope:** Empirically validate TE `/markets/historical/{SXXP,FTAS,TPX}:IND`
+  endpoints for daily EOD reuse: availability, rate limits, licensing
+  for our use case, historical depth (min 10Y for CAPE). Document
+  results in `docs/data_sources/financial.md`.
+- **Blocker for:** Week 3 ERP EA/UK/JP implementation.
+
+### CAL-037 — CDS liquidity threshold calibration
+
+- **Priority:** LOW
+- **Trigger:** post 12m production data
+- **Scope:** Current `cds_liquidity_threshold_bps = 15` (bid-ask) is
+  placeholder from spec draft. Collect 12m production CDS bid-ask data,
+  recalibrate threshold based on empirical distribution (e.g. 75th
+  percentile of observed bid-ask as cutoff).
+- **Ref:** `crp.md` §2 parameters.
+
+### CAL-038 — vol_ratio bounds calibration
+
+- **Priority:** LOW
+- **Trigger:** post 18m production data
+- **Scope:** Current `vol_ratio_bounds = (1.2, 2.5)` placeholder.
+  Recalibrate empirically: compute vol_ratio distribution across
+  30+ countries × 18m, set bounds at percentiles 5-95 or use robust
+  z-score clipping. Damodaran standard 1.5 remains fallback.
+- **Ref:** `crp.md` §2 parameters.
+
+### CAL-039 — rating-CDS divergence threshold calibration
+
+- **Priority:** LOW
+- **Trigger:** post 18m production data
+- **Scope:** Current `rating_cds_divergence_threshold_pct = 50`
+  placeholder. Recalibrate on observed `|cds − rating_implied| / cds`
+  distribution; likely 75th or 90th percentile.
+- **Ref:** `crp.md` §2 parameters.
+
+### CAL-040 — Equity/bond vol data source validation
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 3 CRP (vol_ratio country-specific branch)
+- **Scope:** Validate `twelvedata` (equity index daily 5Y history,
+  Tier/licensing review) and `yfinance` (bond ETF price series, scrape
+  stability, ToS). Alternatives if both fail: (a) TE equity history +
+  derived bond vol via sovereign NSS yield changes; (b) Damodaran
+  standard 1.5 permanent.
+- **Blocker for:** CRP country-specific vol_ratio Week 3+; CRP ships
+  with `damodaran_standard=1.5` interim.
+
+### CAL-041 — CRP distress CDS threshold calibration
+
+- **Priority:** LOW
+- **Trigger:** post-observation
+- **Scope:** Current `distress_cds_threshold_bps = 1500` placeholder
+  (Argentina-class). Recalibrate empirically on observed distressed
+  sovereigns CDS distribution over 5Y+.
+- **Ref:** `crp.md` §2 parameters + §6 edge cases.
+
+### CAL-042 — PT-EA inflation differential per-tenor refinement
+
+- **Priority:** LOW
+- **Trigger:** Phase 2
+- **Scope:** Current DERIVED formula applies flat 5Y rolling PT-EA
+  HICP differential across all tenors (1Y/2Y/5Y/10Y/30Y).
+  Economically, long-dated differential should converge (EU
+  convergence); short-dated responds to local shocks. Investigate
+  per-tenor differential via term_factor scaling or tenor-specific
+  rolling windows.
+- **Ref:** `expected-inflation.md` §4 DERIVED + §6 edge cases.
+
+### CAL-043 — Expected inflation connector validation (UK/JP/EM)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 4+ ExpInf expansion beyond US/EA/DE/PT
+- **Scope:** Validate 4 connectors: `boe_dmp` (UK DMP survey
+  quarterly, web API/CSV), `boj_tankan` (JP BoJ Tankan quarterly,
+  XML feed), `imf_weo` (IMF WEO CPI projections semi-annual,
+  database API), `focuseconomics` (EM Tier 3 monthly consensus,
+  CSV subscription ToS review).
+- **Blocker for:** UK/JP/EM ExpInf coverage Week 4+.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.
