@@ -259,6 +259,8 @@ module = [
   "diskcache.*",
   "scipy",
   "scipy.*",
+  "typer",
+  "typer.*",
 ]
 ignore_missing_imports = true
 
