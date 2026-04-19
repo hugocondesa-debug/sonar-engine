@@ -1,0 +1,29 @@
+# BC inflation targets (decimal). Per spec expected-inflation.md §4 Anchor:
+# canonical Fed/ECB/BoE/BoJ/BoC = 0.02; BCB 0.03; RBI 0.04; Banxico 0.03;
+# RBA midpoint 0.025; CN/TR/AR — no operative target (skip anchor).
+US: 0.02
+EA: 0.02
+DE: 0.02
+FR: 0.02
+IT: 0.02
+ES: 0.02
+PT: 0.02
+NL: 0.02
+UK: 0.02
+JP: 0.02
+CA: 0.02
+AU: 0.025
+NZ: 0.02
+CH: 0.02
+SE: 0.02
+NO: 0.02
+BR: 0.03
+IN: 0.04
+MX: 0.03
+
+# Anchor bands (bps absolute deviation from target).
+anchor_bands_bps:
+  well_anchored: 20
+  moderately_anchored: 50
+  drifting: 100
+  unanchored: 1000  # anything ≥ 100 bps deviation
