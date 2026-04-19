@@ -57,6 +57,21 @@ FRED_US_LINKER_SERIES: dict[str, str] = {
     "30Y": "DFII30",
 }
 
+# US breakeven inflation (BEI) market-implied series.
+FRED_US_BEI_SERIES: dict[str, str] = {
+    "5Y": "T5YIE",
+    "10Y": "T10YIE",
+    "30Y": "T30YIEM",  # monthly-only at 30Y per FRED
+}
+
+# US Michigan + SPF survey series (used by ExpInf SURVEY path).
+# Note: Michigan 5-10Y expectation has no public FRED series; only the 1Y is
+# directly available. EXPINF10YR (Cleveland Fed model) covers the long-end.
+FRED_US_SURVEY_SERIES: dict[str, str] = {
+    "MICH_1Y": "MICH",  # 1Y inflation expectation, monthly
+    "SPF_10Y": "EXPINF10YR",  # 10Y expected inflation, monthly
+}
+
 # Combined series_id → tenor_years lookup for the generic fetch_series path.
 FRED_SERIES_TENORS: dict[str, float] = {
     "DGS1MO": 1 / 12,
@@ -75,6 +90,14 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "DFII10": 10.0,
     "DFII20": 20.0,
     "DFII30": 30.0,
+    # BEI series (tenor matches their market name).
+    "T5YIE": 5.0,
+    "T10YIE": 10.0,
+    "T30YIEM": 30.0,
+    # Survey series — synthetic horizon tenor (consumer treats as expectation
+    # horizon, not bond maturity).
+    "MICH": 1.0,
+    "EXPINF10YR": 10.0,
 }
 
 # Back-compat alias for Week 1 nominal-only callers.
@@ -185,6 +208,35 @@ class FredConnector(BaseConnector):
     ) -> dict[str, Observation]:
         """Return ``{tenor_label: Observation}`` for US TIPS (DFII*)."""
         return await self._fetch_curve(FRED_US_LINKER_SERIES, country, observation_date)
+
+    async def fetch_bei_series(
+        self, country: str, observation_date: date
+    ) -> dict[str, Observation]:
+        """Return ``{tenor_label: Observation}`` for US breakeven inflation (T*YIE)."""
+        return await self._fetch_curve(FRED_US_BEI_SERIES, country, observation_date)
+
+    async def fetch_survey_inflation(
+        self, country: str, observation_date: date
+    ) -> dict[str, Observation]:
+        """Return ``{horizon_label: Observation}`` for US survey inflation
+        (Michigan + SPF). Window widened to 60 days because surveys are
+        monthly/quarterly.
+        """
+        if country != "US":
+            msg = f"FRED survey inflation only supports country=US; got {country}"
+            raise ValueError(msg)
+        window_days = 90
+        start = observation_date - timedelta(days=window_days)
+        end = observation_date
+        out: dict[str, Observation] = {}
+        for label, series_id in FRED_US_SURVEY_SERIES.items():
+            obs_list = await self.fetch_series(series_id, start, end)
+            usable = [o for o in obs_list if o.observation_date <= observation_date]
+            if not usable:
+                continue
+            usable.sort(key=lambda o: o.observation_date)
+            out[label] = usable[-1]
+        return out
 
     async def aclose(self) -> None:
         await self.client.aclose()
