@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "fixture_id": "us_2024_01_02",
+    "source": "FRED H.15 DGS* 2024-01-02 (indicative per brief §10.1; not live-fetched)",
+    "curve_input_type": "par",
+    "unit_convention": "decimal (per units.md §Yields)"
+  },
+  "input": {
+    "tenors_years": [0.08333, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0],
+    "yields": [0.0552, 0.0540, 0.0526, 0.0480, 0.0433, 0.0405, 0.0393, 0.0397, 0.0395, 0.0422, 0.0408],
+    "country_code": "US",
+    "observation_date": "2024-01-02"
+  },
+  "expected": {
+    "beta_0_approx": 0.0415,
+    "rmse_bps_max": 10.0,
+    "fitted_10Y_approx": 0.0395,
+    "confidence_min": 0.80
+  },
+  "tolerance": {
+    "beta_relative_pct": 10,
+    "rmse_bps": 5.0,
+    "fitted_bps": 10.0
+  }
+}

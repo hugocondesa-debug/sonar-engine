@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "fixture_id": "us_sparse_5",
+    "source": "synthetic, 5 tenors < MIN_OBSERVATIONS",
+    "curve_input_type": "par",
+    "unit_convention": "decimal"
+  },
+  "input": {
+    "tenors_years": [0.25, 1.0, 5.0, 10.0, 30.0],
+    "yields": [0.0540, 0.0480, 0.0393, 0.0395, 0.0408],
+    "country_code": "US",
+    "observation_date": "2024-01-02"
+  },
+  "expected": {
+    "raises": "InsufficientDataError"
+  }
+}
