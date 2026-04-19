@@ -88,6 +88,14 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   - State-level aggregation manual (Philly Fed state indexes individuais ainda publicados).
 - **Horizon:** Phase 1 pre-connector dev (blocks E2 spec implementation sem alternative).
 
+### CAL-029 — Docs alpha-3 → alpha-2 alignment sweep
+
+- **Priority:** LOW (conditional upgrade to HIGH)
+- **Trigger:** P2-023 out-of-scope surface — 25 refs in `docs/`
+- **Scope:** scope-docs.txt output from P2-023 discovery
+- **Upgrade rule:** if any ref in `docs/specs/conventions/`, bump HIGH
+- **Deferral:** execute when docs hygiene window opens (Week 3+)
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.

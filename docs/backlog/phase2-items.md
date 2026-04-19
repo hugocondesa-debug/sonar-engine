@@ -236,6 +236,9 @@ Items arquiteturais, operacionais e documentacionais deferidos para fases poster
 **Priority**: **High** — blocker para Phase 2 European connectors (Eurostat devolve alpha-2; FRED connector inconsistent com tiers file).
 **Trigger**: Week 2 Day 1 AM, antes de NSS overlay dev arrancar. Rationale: NSS overlay vai usar `country_tiers.yaml` para scope decision + `Observation.country_code` em pipeline — convention deve estar aligned ANTES.
 
+**Status**: CLOSED 2026-04-19 in 5d514b8
+**Verification**: chat acceptance §9 PASS (cov flat 96.59%, 6 files)
+
 ## P2-024: `ConnectorCache` generic typing re-evaluation
 
 **Target phase**: Phase 2+ (low priority)
