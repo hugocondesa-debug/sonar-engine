@@ -101,15 +101,20 @@ async def test_us_2024_01_02_end_to_end_persist(
     forward = derive_forward_curve(zero)
 
     linker_yields = {t: linkers[t].yield_bps / 10_000.0 for t in linkers}
-    # 5 tenors → InsufficientDataError raises inside fit; we expect None per CAL-033.
-    with pytest.raises(Exception):  # noqa: B017,PT011 — InsufficientDataError chained from fit_nss
-        derive_real_curve(
-            spot,
-            linker_yields=linker_yields,
-            observation_date=obs_date,
-            country_code="US",
-        )
-    real = None  # CAL-033 limitation surfaced
+    # CAL-033 resolved (option a): linker fits accept 5 tenors via
+    # LINKER_MIN_OBSERVATIONS=5; real curve unblocks end-to-end.
+    real = derive_real_curve(
+        spot,
+        linker_yields=linker_yields,
+        observation_date=obs_date,
+        country_code="US",
+    )
+    assert real is not None
+    assert real.method == "direct_linker"
+    assert real.linker_connector == "fred"
+    # Spec §7 real_us_2024_01_02: real_10Y ≈ 0.0185 ± 15 bps.
+    real_10y = real.real_yields["10Y"]
+    assert abs(real_10y - 0.0185) <= 0.0015, f"real_10Y={real_10y} outside ±15 bps of 0.0185"
 
     result = assemble_nss_fit_result(
         country_code="US",
@@ -124,10 +129,11 @@ async def test_us_2024_01_02_end_to_end_persist(
     spot_row = db_session.query(NSSYieldCurveSpot).filter_by(country_code="US", date=obs_date).one()
     zero_row = db_session.query(NSSYieldCurveZero).filter_by(fit_id=spot_row.fit_id).one()
     fwd_row = db_session.query(NSSYieldCurveForwards).filter_by(fit_id=spot_row.fit_id).one()
+    real_row = db_session.query(NSSYieldCurveReal).filter_by(fit_id=spot_row.fit_id).one()
     assert spot_row.fit_id == str(result.fit_id)
     assert spot_row.rmse_bps == spot.rmse_bps
     assert spot_row.observations_used == 11
     assert zero_row.derivation == "nss_derived"
     assert fwd_row.breakeven_forwards_json is None
-    # No real row — CAL-033 limitation.
-    assert db_session.query(NSSYieldCurveReal).count() == 0
+    assert real_row.method == "direct_linker"
+    assert real_row.linker_connector == "fred"
