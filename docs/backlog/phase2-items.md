@@ -130,6 +130,51 @@ Items arquiteturais, operacionais e documentacionais deferidos para fases poster
 **Descrição**: `connectors/central_bank_nlp`, `connectors/fed_dissent`, `connectors/dot_plot` mencionados em [`../ARCHITECTURE.md`](../ARCHITECTURE.md) §6 call-out "CS de MSC" mas não speced. Em Phase 0-1, `COMM_SIGNAL_MISSING` é expected default; MSC aplica Policy 1 re-weight sem bloquear.
 **Dependency**: Phase 1 MSC em produção com `COMM_SIGNAL_MISSING` baseline; Phase 2+ decide se CS merece specs formais ou continua opcional.
 
+## Tooling
+
+### P2-021 — wiki/ markdownlint discipline (ABSORBED INTO P2-022)
+
+**Status**: absorbed into P2-022 (Day 3 PM same block)
+**Descrição original**: `wiki/` é GitHub Wiki subtree bidirectional-synced; escopo era CI-side markdownlint strategy apenas para wiki/. Markdownlint hook completely removed em P2-022; wiki/ scope cai dentro dessa decisão bigger. Retain entry para rastreabilidade histórica.
+
+### P2-022 — Markdownlint hook reintroduction
+
+**Status**: pending
+**Target phase**: Phase 2+ (low priority, docs quality)
+**Descrição**: Markdownlint hook removido Day 3 PM Phase 1 Week 1 (commit #7) após 4 config gaps consecutivos surfaced durante P2-015 repair validation:
+
+- MD013 line-length conflict (projecto 100-char vs default 80-char).
+- MD024/033/036/040/041 various strictness rules incompatible com specs style (cross-refs longos, tables com embedded links).
+- MD031 fence blanks surfaced após primeira round de relaxations applied.
+- Additional MD013 prose line violations em `README.md` + `docs/specs/pipelines/` post-exclude `wiki/`.
+
+**Root cause**: tooling setup Phase 0 bootstrap sem reconciliation com project prose conventions. Phase 0 content inclui specs com cross-refs longos, tables com embedded links, README bootstrap narrative.
+
+**Reintroduction strategy Phase 2+**:
+- (a) Define project markdown convention FIRST (line length, heading structure, fence conventions, list blanks); document em `conventions/markdown.md` (novo).
+- (b) Generate `.markdownlint.yaml` matching convention exactly.
+- (c) Reformat Phase 0 + Phase 1 existing content to conform (scope: ~30+ line edits across 5+ files + README.md).
+- (d) Reintroduce hook only após (a)+(b)+(c) complete.
+
+**Scope absorbed**: P2-021 (wiki/ CI-side markdownlint) cai dentro desta decisão — mesma hook, mesmo processo.
+
+**Effort estimate**: 1-2 days (mostly content reformat).
+**Priority**: Low. Docs-quality concern, não operational blocker.
+**Safety consideration**: MD rules não detectam code issues; P2-015 security hooks (detect-secrets + gitleaks) são the real protection layer.
+
+### P2-020 — Taplo-lint pyproject.toml schema violations
+
+**Status**: pending
+**Target phase**: Phase 2+ (low priority)
+**Descrição**: Taplo-lint hook falha em ruff config keys em `pyproject.toml` (confirmed D4 hotfix pass). Pre-existent issue independente de P2-015 (pre-commit framework repair Day 3 PM Phase 1 Week 1). Taplo-format hook funciona OK — só taplo-lint bloqueia.
+
+**Opções** (decision deferred):
+- (a) Taplo schema override via `.taplo.toml` config para accept ruff lint/isort keys.
+- (b) Remove `taplo-lint` hook de `.pre-commit-config.yaml`; manter apenas `taplo-format`.
+- (c) Migrate ruff config para `ruff.toml` separate file (escape Taplo scope).
+
+**Dependency**: nenhuma Phase 1. Taplo-lint hook disabled implicitly por P2-015 fix (se removed) OR continua falhando per P2-015 documentação. Phase 2 decide approach.
+
 ## Workflow de desparking
 
 1. Item reaches target phase OR critério satisfeito.
