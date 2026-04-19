@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
+from uuid import uuid4
 
 import numpy as np
 import scipy.optimize
@@ -43,6 +44,7 @@ __all__ = [
     "RealCurve",
     "SpotCurve",
     "ZeroCurve",
+    "assemble_nss_fit_result",
     "derive_forward_curve",
     "derive_real_curve",
     "derive_zero_curve",
@@ -578,4 +580,25 @@ def derive_real_curve(
         real_yields=real_yields,
         method="direct_linker",
         linker_connector="fred",
+    )
+
+
+def assemble_nss_fit_result(
+    country_code: str,
+    observation_date: date,
+    spot: SpotCurve,
+    zero: ZeroCurve,
+    forward: ForwardCurve,
+    real: RealCurve | None,
+) -> NSSFitResult:
+    """Build an ``NSSFitResult`` with a fresh ``fit_id`` shared by all siblings."""
+    return NSSFitResult(
+        fit_id=uuid4(),
+        country_code=country_code,
+        observation_date=observation_date,
+        methodology_version=METHODOLOGY_VERSION,
+        spot=spot,
+        zero=zero,
+        forward=forward,
+        real=real,
     )

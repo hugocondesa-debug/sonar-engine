@@ -1,14 +1,35 @@
 """SQLAlchemy 2.0 declarative models — NSS yield curve sibling tables.
 
-Schema mirror da migration alembic 001_nss_schema. Mantém sync manual
-(não usamos autogenerate em Phase 1); alterações requerem migration
-explícita + models edit.
+Two table families coexist after migration 002:
+
+- Week 1 (migration 001): ``yield_curves_{raw,params,fitted,metadata}`` —
+  legacy bps-encoded persistence; orphaned by Day 3 AM but not yet dropped.
+- Spec §8 (migration 002): ``yield_curves_{spot,zero,forwards,real}`` —
+  the canonical NSS persistence layer; values stored in decimal per
+  units.md, joined via ``fit_id`` UUID.
+
+Mantém sync manual (não usamos autogenerate em Phase 1); alterações
+requerem migration explícita + models edit.
 """
 
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Date, DateTime, Integer, Numeric, String, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -74,4 +95,137 @@ class YieldCurveMetadata(Base):
     input_sources_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Spec §8 NSS sibling tables (migration 002). Values in decimal per units.md.
+# ---------------------------------------------------------------------------
+
+
+class NSSYieldCurveSpot(Base):
+    __tablename__ = "yield_curves_spot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    fit_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    beta_0: Mapped[float] = mapped_column(Float, nullable=False)
+    beta_1: Mapped[float] = mapped_column(Float, nullable=False)
+    beta_2: Mapped[float] = mapped_column(Float, nullable=False)
+    beta_3: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lambda_1: Mapped[float] = mapped_column(Float, nullable=False)
+    lambda_2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fitted_yields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    observations_used: Mapped[int] = mapped_column(Integer, nullable=False)
+    rmse_bps: Mapped[float] = mapped_column(Float, nullable=False)
+    xval_deviation_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_ycs_confidence"),
+        UniqueConstraint(
+            "country_code", "date", "methodology_version", name="uq_ycs_country_date_method"
+        ),
+        UniqueConstraint("fit_id", name="uq_ycs_fit_id"),
+        Index("idx_ycs_cd", "country_code", "date"),
+    )
+
+
+class NSSYieldCurveZero(Base):
+    __tablename__ = "yield_curves_zero"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    fit_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("yield_curves_spot.fit_id", ondelete="CASCADE", name="fk_ycz_fit_id"),
+        nullable=False,
+    )
+    zero_rates_json: Mapped[str] = mapped_column(Text, nullable=False)
+    derivation: Mapped[str] = mapped_column(String(16), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("derivation IN ('nss_derived', 'bootstrap')", name="ck_ycz_derivation"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_ycz_confidence"),
+        UniqueConstraint(
+            "country_code", "date", "methodology_version", name="uq_ycz_country_date_method"
+        ),
+        Index("idx_ycz_cd", "country_code", "date"),
+        Index("idx_ycz_fitid", "fit_id"),
+    )
+
+
+class NSSYieldCurveForwards(Base):
+    __tablename__ = "yield_curves_forwards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    fit_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("yield_curves_spot.fit_id", ondelete="CASCADE", name="fk_ycf_fit_id"),
+        nullable=False,
+    )
+    forwards_json: Mapped[str] = mapped_column(Text, nullable=False)
+    breakeven_forwards_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_ycf_confidence"),
+        UniqueConstraint(
+            "country_code", "date", "methodology_version", name="uq_ycf_country_date_method"
+        ),
+        Index("idx_ycf_cd", "country_code", "date"),
+        Index("idx_ycf_fitid", "fit_id"),
+    )
+
+
+class NSSYieldCurveReal(Base):
+    __tablename__ = "yield_curves_real"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    fit_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("yield_curves_spot.fit_id", ondelete="CASCADE", name="fk_ycr_fit_id"),
+        nullable=False,
+    )
+    real_yields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    method: Mapped[str] = mapped_column(String(16), nullable=False)
+    linker_connector: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("method IN ('direct_linker', 'derived')", name="ck_ycr_method"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_ycr_confidence"),
+        UniqueConstraint(
+            "country_code", "date", "methodology_version", name="uq_ycr_country_date_method"
+        ),
+        Index("idx_ycr_cd", "country_code", "date"),
+        Index("idx_ycr_fitid", "fit_id"),
     )
