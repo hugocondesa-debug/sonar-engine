@@ -195,3 +195,71 @@ Items arquiteturais, operacionais e documentacionais deferidos para fases poster
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) §10 Out-of-scope
 - [`../BRIEF_FOR_DEBATE.md`](../BRIEF_FOR_DEBATE.md) — decisões pendentes que alimentam items
 - [`calibration-tasks.md`](calibration-tasks.md) — sister doc, calibração empírica
+
+## P2-019: `.env.example` stale keys reconciliation
+
+**Target phase**: Phase 2+ (low priority)
+**Descrição**: `.env.example` herdou de Phase 0 bootstrap keys que `sonar.config.Settings` Phase 1 não consome: rate limits, Tier 2 overrides, notifications, feature flags. Pydantic `extra="ignore"` silencia keys em runtime — benigno mas cria documentação drift (developer copia `.env.example` → `.env`, set valores em keys stale, expectation falsa de efeito operacional).
+**Root cause**: Phase 0 `.env.example` foi escrito antes de `Settings` class existir (Day 2 AM Phase 1). Keys reflectem intenção de features, não state actual.
+**Opções Phase 2+**:
+- (a) Expand `Settings` on-demand conforme features consumirem keys (default recomendado).
+- (b) Remove keys stale do `.env.example` agora; re-adicionar quando Settings support emergir.
+- (c) Accept como forward-compatible documentation (zero acção).
+**Recomendação**: (a). Quando primeiro overlay/pipeline precisar rate limit config, add field a `Settings` + documentar em `.env.example` comment.
+**Effort estimate**: trivial (on-demand).
+**Priority**: Low. Operational drift apenas; zero functional impact.
+**Trigger**: first overlay ou pipeline que precise config externa (ex: rate limits para Eurostat Phase 2).
+
+## P2-023: Country code ISO 3166-1 convention reconciliation (alpha-3 → alpha-2)
+
+**Target phase**: Phase 2 (Week 2 kickoff decision)
+**Descrição**: Inconsistency detectada Week 1 retrospective entre `Observation.country_code` (alpha-3, `^[A-Z]{3}$`) e `country_tiers.yaml` + CLAUDE.md §3 convention (alpha-2). FRED connector Phase 1 hardcoded `"USA"` alpha-3 per `Observation` schema, divergindo da canonical convention Phase 0.
+**Root cause**: Commit Week 1 `68eb29a` (BaseConnector + Observation) introduziu pattern alpha-3 sem consulta a CLAUDE.md §3 ou ADR-0005. Phase 0 convention canonical é alpha-2 (documented em `country_tiers.yaml` header + CLAUDE.md §3).
+**Evidence**:
+- `country_tiers.yaml` linha 30-35: `- iso_code usa ISO 3166-1 alpha-2 uppercase (convenção CLAUDE.md §3).` → entries tipo `{ iso_code: US, country: United States }`.
+- `Observation.country_code: pattern=r"^[A-Z]{3}$"` Week 1 commit `68eb29a`.
+- FRED connector Week 1 commit `cbdd516`: `country_code="USA"` hardcoded.
+**Decisão recomendada**: **Opção A — revert `Observation` para alpha-2**.
+- Governance: CLAUDE.md §3 é source of truth Phase 0; commit Week 1 introduziu inconsistency sem ADR.
+- Simplicity: 1 pattern change + 3 string updates vs mapping layer permanente.
+- Re-alignment, não breaking change: zero production data ainda.
+**Scope concreto Opção A**:
+- `src/sonar/connectors/base.py`: `pattern=r"^[A-Z]{2}$"` + update docstring.
+- `src/sonar/connectors/fred.py`: `country_code="US"` (remover "A").
+- `tests/unit/test_connectors/test_fred.py`: update assertions `"USA"` → `"US"`.
+- `tests/integration/test_fred_smoke.py`: update similar.
+- Migration: `yield_curves_raw.country_code String(3)` → `String(2)` via Alembic migration 002 (forward-only; zero dados Phase 1).
+- ADR addendum opcional: ADR-0005 +1 paragraph documentando alpha-2 convention definitivo.
+**Alternative rejeitada**:
+- Opção B (manter alpha-3 + mapping layer): complexity permanente para cada connector europeu Phase 2+; ADR-0005 addendum obrigatório; zero benefit functional.
+**Effort estimate**: 30-45 min (pattern change + 4 file updates + migration 002 + triagem).
+**Priority**: **High** — blocker para Phase 2 European connectors (Eurostat devolve alpha-2; FRED connector inconsistent com tiers file).
+**Trigger**: Week 2 Day 1 AM, antes de NSS overlay dev arrancar. Rationale: NSS overlay vai usar `country_tiers.yaml` para scope decision + `Observation.country_code` em pipeline — convention deve estar aligned ANTES.
+
+## P2-024: `ConnectorCache` generic typing re-evaluation
+
+**Target phase**: Phase 2+ (low priority)
+**Descrição**: Phase 1 `ConnectorCache.get() → Any | None` exige callers a fazer explicit `cast("T", cached)` pattern. Single-caller scenario (FRED Week 1) aceitable — quando segundo connector surface (Eurostat/BIS Phase 2+), pattern repete → candidato para generic typing.
+**Root cause**: Design decision Week 1 priorizou simplicity + zero premature generalization. Acceptable para piloto single-connector.
+**Evidence Week 1**: commit `cbdd516` (FRED) introduz explicit cast pattern:
+```python
+cached = self.cache.get(key)
+if cached is not None:
+    return cast("list[Observation]", cached)
+```
+**Opção proposta**:
+```python
+class ConnectorCache[T]:
+    def get(self, key: str) -> T | None: ...
+    def set(self, key: str, value: T, ttl: int = ...) -> None: ...
+```
+**Trade-offs**:
+- Pro: type safety em caller site, zero `cast()` rituals.
+- Con: single cache instance tipicamente armazena single T; se connector precisa cache múltiplos types (raw obs + metadata + fitted params), generic single-T força múltiplas instâncias.
+- Mitigation: sub-caches per type (ex: `self.obs_cache: ConnectorCache[list[Observation]]` + `self.meta_cache: ConnectorCache[dict]`).
+**Decisão pending**: esperar até segundo connector para avaliar utility real vs complexity added. Premature generalization risk se decidir agora.
+**Effort estimate**: 1-2h refactor + test updates quando decidido.
+**Priority**: Low. Aesthetic/DX, zero functional impact.
+**Trigger**: add este item a Week 2+ planning agenda quando Eurostat connector specification iniciar.
+
+---
