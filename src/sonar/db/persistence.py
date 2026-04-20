@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapResult
     from sonar.indices.credit.l3_credit_impulse import CreditImpulseResult
     from sonar.indices.credit.l4_dsr import DsrResult
+    from sonar.indices.orchestrator import CreditIndicesResults
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
@@ -622,3 +623,39 @@ def persist_credit_impulse_result(session: Session, result: CreditImpulseResult)
             )
             raise DuplicatePersistError(err) from e
         raise
+
+
+def persist_many_credit_results(session: Session, results: CreditIndicesResults) -> dict[str, int]:
+    """Persist all available credit sub-indices inside a single transaction.
+
+    Returns a ``{index_name: rows_written}`` map. Sub-indices absent from
+    ``results`` (``None``) are skipped silently. On any ``IntegrityError``
+    the entire transaction rolls back and :class:`DuplicatePersistError`
+    surfaces.
+    """
+    written: dict[str, int] = {"l1": 0, "l2": 0, "l3": 0, "l4": 0}
+    rows: list[CreditGdpStock | CreditGdpGap | CreditImpulse | Dsr] = []
+    if results.l1 is not None:
+        rows.append(_to_credit_gdp_stock_row(results.l1))
+        written["l1"] = 1
+    if results.l2 is not None:
+        rows.append(_to_credit_gdp_gap_row(results.l2))
+        written["l2"] = 1
+    if results.l3 is not None:
+        rows.append(_to_credit_impulse_row(results.l3))
+        written["l3"] = 1
+    if results.l4 is not None:
+        rows.append(_to_dsr_row(results.l4))
+        written["l4"] = 1
+    if not rows:
+        return written
+    try:
+        session.add_all(rows)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"Batch credit persist contains duplicate: {e.orig}"
+            raise DuplicatePersistError(err) from e
+        raise
+    return written
