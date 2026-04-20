@@ -1026,7 +1026,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   series.
 - **Unblocks:** Historical M1 backfill across ZLB periods.
 
-### CAL-100 — Monetary input builders + integration smoke (Week 6 Sprint 1b surfaced)
+### CAL-100 — Monetary input builders + integration smoke (Week 6 Sprint 1b surfaced) — **CLOSED** (Week 6 Sprint 2b C4+C5)
 
 - **Priority:** MEDIUM
 - **Trigger:** Week 6 Sprint 1b brief §Commits 9-10 descoped. End-to-
@@ -1038,6 +1038,23 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   with 4 @slow canaries for US M1/M2/M4 + M1 EA per brief §Commit 10.
 - **Unblocks:** M1 + M2 + M4 US + M1 EA rows persisted for production
   date (2024-12-31). MSC composite Week 7+ depends on this.
+- **Resolution (Week 6 Sprint 2b C4):** `src/sonar/indices/monetary/builders.py`
+  ships four typed builders:
+  - `build_m1_us_inputs(fred, date, history_years=30)`
+  - `build_m1_ea_inputs(ecb_sdw, date, history_years=30, ea_gdp_eur_mn_resolver=None)`
+    with `EXPECTED_INFLATION_PROXY` upstream flag until Week 7 SPF wiring.
+  - `build_m2_us_inputs(fred, cbo, date, history_years=30)` with
+    `INFLATION_FORECAST_PROXY_UMICH` flag.
+  - `build_m4_us_inputs(fred, date, history_years=30)` direct-NFCI path.
+  - `MonetaryInputsBuilder` facade holds all three connectors and
+    dispatches on country; non-US/EA combinations raise
+    `NotImplementedError` pointing to Week 7 backlog.
+
+  Shared helpers: `_latest_on_or_before`, `_resample_monthly` (monthly
+  end-of-month forward-fill), `_last_day_of_month`, `_to_dated` (generic
+  observation → dated-value converter). 17 unit tests cover helpers +
+  happy paths + dispatch guards. Integration smoke (4 slow canaries)
+  lands in C5 of this sprint.
 
 ## Não-categorizado por horizonte
 
