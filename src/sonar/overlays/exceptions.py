@@ -25,3 +25,14 @@ class ConvergenceError(OverlayError):
     interpolation, flags NSS_FAIL, caps confidence at 0.50, and persists
     degraded row.
     """
+
+
+class DataUnavailableError(OverlayError):
+    """Raised when an external data source is unavailable / unprovisioned.
+
+    Per ``docs/specs/conventions/exceptions.md`` ``DataError`` family
+    (``DataUnavailableError`` leaf). Connectors raise this when the
+    upstream endpoint returns empty / 404 / schema drift — caller falls
+    back to a proxy and emits the spec-defined flag (MOVE_UNAVAILABLE,
+    AAII_UNAVAILABLE, etc.).
+    """
