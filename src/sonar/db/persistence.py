@@ -20,6 +20,7 @@ from sonar.db.models import (
     ERPCAPE,
     ERPDCF,
     ERPEY,
+    CreditGdpGap,
     CreditGdpStock,
     Dsr,
     ERPCanonical,
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 
     from sonar.indices.base import IndexResult
     from sonar.indices.credit.l1_credit_gdp_stock import CreditGdpStockResult
+    from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapResult
     from sonar.indices.credit.l4_dsr import DsrResult
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
@@ -533,6 +535,45 @@ def persist_credit_gdp_stock_result(session: Session, result: CreditGdpStockResu
         if "unique" in str(e.orig).lower():
             err = (
                 f"L1 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_credit_gdp_gap_row(result: CreditGdpGapResult) -> CreditGdpGap:
+    return CreditGdpGap(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        gap_hp_pp=result.gap_hp_pp,
+        gap_hamilton_pp=result.gap_hamilton_pp,
+        trend_gdp_pct=result.trend_gdp_pct,
+        hp_lambda=result.hp_lambda,
+        hamilton_horizon_q=result.hamilton_horizon_q,
+        concordance=result.concordance,
+        phase_band=result.phase_band,
+        components_json=result.components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_credit_gdp_gap_result(session: Session, result: CreditGdpGapResult) -> None:
+    """Persist a single L2 ``credit_to_gdp_gap`` row atomically."""
+    row = _to_credit_gdp_gap_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"L2 row already persisted: country={result.country_code}, "
                 f"date={result.date}, version={result.methodology_version}"
             )
             raise DuplicatePersistError(err) from e
