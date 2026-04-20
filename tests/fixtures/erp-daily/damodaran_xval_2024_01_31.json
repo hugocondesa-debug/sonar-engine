@@ -1,0 +1,28 @@
+{
+  "scenario": "Damodaran histimpl row matches DCF within tolerance — no XVAL_DRIFT",
+  "inputs": {
+    "market_index": "SPX",
+    "country_code": "US",
+    "observation_date": "2024-01-31",
+    "index_level": 4845.65,
+    "trailing_earnings": 224.52,
+    "forward_earnings_est": 246.72,
+    "dividend_yield_pct": 0.0150,
+    "buyback_yield_pct": 0.025,
+    "cape_ratio": 32.2,
+    "risk_free_nominal": 0.0395,
+    "risk_free_real": 0.0170,
+    "consensus_growth_5y": 0.10,
+    "retention": 0.60,
+    "roe": 0.20,
+    "risk_free_confidence": 0.95,
+    "upstream_flags": []
+  },
+  "damodaran_erp_decimal": 0.0497,
+  "expected": {
+    "methods_available": 4,
+    "xval_deviation_bps_max": 20,
+    "flags_excludes": ["XVAL_DRIFT"],
+    "tolerance_bps_per_method": 15
+  }
+}

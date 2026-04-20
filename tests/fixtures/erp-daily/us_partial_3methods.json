@@ -1,0 +1,35 @@
+{
+  "scenario": "US 3-method fit (payout missing → DCF skipped, canonical still persisted)",
+  "inputs": {
+    "market_index": "SPX",
+    "country_code": "US",
+    "observation_date": "2024-01-02",
+    "index_level": 4742.83,
+    "trailing_earnings": 221.41,
+    "forward_earnings_est": 243.73,
+    "dividend_yield_pct": 0.0,
+    "buyback_yield_pct": 0.0,
+    "cape_ratio": 31.5,
+    "risk_free_nominal": 0.0415,
+    "risk_free_real": 0.0175,
+    "consensus_growth_5y": 0.10,
+    "retention": 0.60,
+    "roe": 0.20,
+    "risk_free_confidence": 0.95,
+    "upstream_flags": []
+  },
+  "expected": {
+    "methods_available": 3,
+    "dcf_bps": null,
+    "gordon_bps": 185,
+    "ey_bps": 99,
+    "cape_bps": 142,
+    "median_bps": 142,
+    "range_bps": 86,
+    "confidence": 0.95,
+    "flags_excludes": ["ERP_METHOD_DIVERGENCE"],
+    "tolerance_bps_per_method": 10,
+    "tolerance_bps_median": 10,
+    "tolerance_confidence": 0.02
+  }
+}

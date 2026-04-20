@@ -1,0 +1,35 @@
+{
+  "scenario": "COVID-trough stress snapshot — method range exceeds threshold, flag fires",
+  "inputs": {
+    "market_index": "SPX",
+    "country_code": "US",
+    "observation_date": "2020-03-23",
+    "index_level": 2237.40,
+    "trailing_earnings": 140.0,
+    "forward_earnings_est": 120.0,
+    "dividend_yield_pct": 0.030,
+    "buyback_yield_pct": 0.015,
+    "cape_ratio": 21.0,
+    "risk_free_nominal": 0.0075,
+    "risk_free_real": -0.005,
+    "consensus_growth_5y": 0.08,
+    "retention": 0.50,
+    "roe": 0.16,
+    "risk_free_confidence": 0.80,
+    "upstream_flags": []
+  },
+  "expected": {
+    "methods_available": 4,
+    "dcf_bps": 501,
+    "gordon_bps": 975,
+    "ey_bps": 461,
+    "cape_bps": 526,
+    "median_bps": 514,
+    "range_bps": 514,
+    "confidence": 0.90,
+    "flags_contains": ["ERP_METHOD_DIVERGENCE"],
+    "tolerance_bps_per_method": 15,
+    "tolerance_bps_median": 15,
+    "tolerance_confidence": 0.02
+  }
+}
