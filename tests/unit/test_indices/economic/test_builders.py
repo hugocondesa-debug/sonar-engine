@@ -10,12 +10,48 @@ import pytest
 
 from sonar.connectors.eurostat import EurostatObservation
 from sonar.connectors.fred import FredEconomicObservation
+from sonar.connectors.te import TEIndicatorObservation
 from sonar.indices.economic.builders import (
     build_e1_inputs,
     build_e3_inputs,
     build_e4_inputs,
 )
 from sonar.overlays.exceptions import DataUnavailableError
+
+
+def _te_series(
+    indicator: str, country: str, n: int = 60, base: float = 52.0
+) -> list[TEIndicatorObservation]:
+    """Synthetic monthly TE series with mild variation."""
+    return [
+        TEIndicatorObservation(
+            observation_date=date(2019 + (i // 12), (i % 12) + 1, 28),
+            value=base + (i % 10) * 0.2,
+            country=country,
+            indicator=indicator,
+        )
+        for i in range(n)
+    ]
+
+
+@pytest.fixture
+def mock_te() -> Any:
+    """TEConnector stub with all 5 fallback wrappers populated."""
+    m = AsyncMock()
+    m.fetch_ism_manufacturing_us.return_value = _te_series(
+        "business confidence", "US", n=60, base=52.0
+    )
+    m.fetch_ism_services_us.return_value = _te_series(
+        "non manufacturing pmi", "US", n=60, base=54.0
+    )
+    m.fetch_nfib_us.return_value = _te_series("nfib business optimism index", "US", n=60, base=95.0)
+    m.fetch_ifo_business_climate_de.return_value = _te_series(
+        "business confidence", "DE", n=60, base=90.0
+    )
+    m.fetch_zew_economic_sentiment_de.return_value = _te_series(
+        "zew economic sentiment index", "DE", n=60, base=5.0
+    )
+    return m
 
 
 def _fred_series(sid: str, n: int = 36, base: float = 100.0) -> list[FredEconomicObservation]:
@@ -203,4 +239,98 @@ async def test_build_e4_de_partial(mock_fred: Any, mock_eurostat: Any) -> None:
     assert inputs.vix_level is not None  # FRED global
     # US-only components absent + flagged.
     for tok in ("UMICH_US_ONLY", "ISM_MFG_US_ONLY", "NFIB_US_ONLY"):
+        assert tok in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# TE fallback wiring (Week 6 Sprint 1 c3)
+# ---------------------------------------------------------------------------
+
+
+async def test_build_e4_us_with_te_fallback_covers_delisted(
+    mock_fred: Any, mock_eurostat: Any, mock_te: Any
+) -> None:
+    """With TE connector provided, delisted FRED slots are filled + flagged."""
+    inputs = await build_e4_inputs(
+        "US",
+        date(2024, 6, 30),
+        fred=mock_fred,
+        eurostat=mock_eurostat,
+        te=mock_te,
+    )
+    # All three delisted slots now populated via TE.
+    assert inputs.ism_manufacturing is not None
+    assert inputs.ism_services is not None
+    assert inputs.nfib_small_business is not None
+    # TE_FALLBACK flags emitted.
+    for tok in ("TE_FALLBACK_ISM_MFG", "TE_FALLBACK_ISM_SVC", "TE_FALLBACK_NFIB"):
+        assert tok in inputs.upstream_flags
+    # _UNAVAILABLE flags should NOT be present (TE covered).
+    for tok in ("ISM_MFG_UNAVAILABLE", "ISM_SVC_UNAVAILABLE", "NFIB_UNAVAILABLE"):
+        assert tok not in inputs.upstream_flags
+    assert "TE" in inputs.source_connectors
+
+
+async def test_build_e4_us_without_te_keeps_unavailable_flags(
+    mock_fred: Any, mock_eurostat: Any
+) -> None:
+    """Omitting the TE connector preserves legacy *_UNAVAILABLE behaviour."""
+    inputs = await build_e4_inputs("US", date(2024, 6, 30), fred=mock_fred, eurostat=mock_eurostat)
+    for tok in ("ISM_MFG_UNAVAILABLE", "ISM_SVC_UNAVAILABLE", "NFIB_UNAVAILABLE"):
+        assert tok in inputs.upstream_flags
+    for tok in ("TE_FALLBACK_ISM_MFG", "TE_FALLBACK_ISM_SVC", "TE_FALLBACK_NFIB"):
+        assert tok not in inputs.upstream_flags
+
+
+async def test_build_e4_us_te_fallback_also_fails(mock_fred: Any, mock_eurostat: Any) -> None:
+    """TE wrapper raises → slot stays None + legacy _UNAVAILABLE flag."""
+    from unittest.mock import AsyncMock  # noqa: PLC0415
+
+    m_te = AsyncMock()
+    m_te.fetch_ism_manufacturing_us.side_effect = DataUnavailableError("TE outage")
+    m_te.fetch_ism_services_us.side_effect = DataUnavailableError("TE outage")
+    m_te.fetch_nfib_us.side_effect = DataUnavailableError("TE outage")
+
+    inputs = await build_e4_inputs(
+        "US",
+        date(2024, 6, 30),
+        fred=mock_fred,
+        eurostat=mock_eurostat,
+        te=m_te,
+    )
+    assert inputs.ism_manufacturing is None
+    assert inputs.ism_services is None
+    assert inputs.nfib_small_business is None
+    for tok in ("ISM_MFG_UNAVAILABLE", "ISM_SVC_UNAVAILABLE", "NFIB_UNAVAILABLE"):
+        assert tok in inputs.upstream_flags
+    for tok in ("TE_FALLBACK_ISM_MFG", "TE_FALLBACK_ISM_SVC", "TE_FALLBACK_NFIB"):
+        assert tok not in inputs.upstream_flags
+
+
+async def test_build_e4_de_with_te_fallback_adds_ifo_zew(
+    mock_fred: Any, mock_eurostat: Any, mock_te: Any
+) -> None:
+    """DE + TE: Ifo + ZEW now populated, flagged TE_FALLBACK_*."""
+    inputs = await build_e4_inputs(
+        "DE",
+        date(2024, 6, 30),
+        fred=mock_fred,
+        eurostat=mock_eurostat,
+        te=mock_te,
+    )
+    assert inputs.ifo_business_climate is not None
+    assert inputs.zew_expectations is not None
+    for tok in ("TE_FALLBACK_IFO", "TE_FALLBACK_ZEW"):
+        assert tok in inputs.upstream_flags
+    # Ifo/ZEW _DE_ONLY flags should NOT fire when TE covers them.
+    for tok in ("IFO_DE_ONLY", "ZEW_DE_ONLY"):
+        assert tok not in inputs.upstream_flags
+    assert "TE" in inputs.source_connectors
+
+
+async def test_build_e4_de_without_te_keeps_ifo_zew_flags(
+    mock_fred: Any, mock_eurostat: Any
+) -> None:
+    inputs = await build_e4_inputs("DE", date(2024, 6, 30), fred=mock_fred, eurostat=mock_eurostat)
+    for tok in ("IFO_DE_ONLY", "ZEW_DE_ONLY"):
         assert tok in inputs.upstream_flags

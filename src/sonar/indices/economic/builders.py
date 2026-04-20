@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from sonar.connectors.eurostat import EurostatConnector
     from sonar.connectors.fred import FredConnector, FredEconomicObservation
+    from sonar.connectors.te import TEConnector, TEIndicatorObservation
 
 log = structlog.get_logger()
 
@@ -72,6 +73,19 @@ def _split_current_history(values: list[float] | None) -> tuple[float | None, li
     if not values:
         return None, []
     return values[-1], list(values[:-1])
+
+
+async def _try_fetch_te(
+    label: str,
+    coro: Awaitable[list[TEIndicatorObservation]],
+) -> list[float] | None:
+    """Run a TE helper coroutine; on DataUnavailableError return None."""
+    try:
+        obs = await coro
+    except DataUnavailableError as e:
+        log.info("builder.te.unavailable", component=label, reason=str(e))
+        return None
+    return [o.value for o in obs]
 
 
 # ---------------------------------------------------------------------------
@@ -316,15 +330,23 @@ def _twelve_month_change(values: list[float] | None) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-async def build_e4_inputs(
+async def build_e4_inputs(  # noqa: PLR0912, PLR0915
     country: str,
     observation_date: date,
     *,
     fred: FredConnector,
     eurostat: EurostatConnector,
+    te: TEConnector | None = None,
     lookback_years: int = E4_DEFAULT_LOOKBACK_YEARS,
 ) -> E4SentimentInputs:
-    """Assemble E4 inputs. Spec §6 MIN_COMPONENTS = 6."""
+    """Assemble E4 inputs. Spec §6 MIN_COMPONENTS = 6.
+
+    ``te`` is optional: when provided (Week 6 Sprint 1 wiring) it
+    serves as secondary source for the FRED-delisted US series
+    (ISM Mfg, ISM Svc, NFIB → CAL-092) and for DE sentiment
+    (Ifo, ZEW → CAL-086). Priority: FRED/Eurostat primary, TE
+    fallback, flag `TE_FALLBACK_{INDICATOR}` when substituted.
+    """
     country = country.upper()
     start = _window_start(observation_date, lookback_years)
     flags: list[str] = []
@@ -345,19 +367,44 @@ async def build_e4_inputs(
         umich_5y_vals = await _try_fetch_fred(
             "umich_5y", fred.fetch_umich_5y_inflation_us(start, observation_date)
         )
+        # ISM Mfg: FRED primary (delisted) → TE fallback.
         ism_mfg_vals = await _try_fetch_fred(
             "ism_mfg", fred.fetch_ism_mfg_pmi(start, observation_date)
         )
+        if ism_mfg_vals is None and te is not None:
+            ism_mfg_vals = await _try_fetch_te(
+                "ism_mfg_te", te.fetch_ism_manufacturing_us(start, observation_date)
+            )
+            if ism_mfg_vals is not None:
+                flags.append("TE_FALLBACK_ISM_MFG")
+                if "TE" not in sources:
+                    sources.append("TE")
         if ism_mfg_vals is None:
             flags.append("ISM_MFG_UNAVAILABLE")
+        # ISM Svc: FRED primary (delisted) → TE fallback.
         ism_svc_vals = await _try_fetch_fred(
             "ism_svc", fred.fetch_ism_services_pmi(start, observation_date)
         )
+        if ism_svc_vals is None and te is not None:
+            ism_svc_vals = await _try_fetch_te(
+                "ism_svc_te", te.fetch_ism_services_us(start, observation_date)
+            )
+            if ism_svc_vals is not None:
+                flags.append("TE_FALLBACK_ISM_SVC")
+                if "TE" not in sources:
+                    sources.append("TE")
         if ism_svc_vals is None:
             flags.append("ISM_SVC_UNAVAILABLE")
+        # NFIB: FRED primary (delisted) → TE fallback.
         nfib_vals = await _try_fetch_fred(
             "nfib", fred.fetch_nfib_small_biz_us(start, observation_date)
         )
+        if nfib_vals is None and te is not None:
+            nfib_vals = await _try_fetch_te("nfib_te", te.fetch_nfib_us(start, observation_date))
+            if nfib_vals is not None:
+                flags.append("TE_FALLBACK_NFIB")
+                if "TE" not in sources:
+                    sources.append("TE")
         if nfib_vals is None:
             flags.append("NFIB_UNAVAILABLE")
         epu_vals = await _try_fetch_fred("epu", fred.fetch_epu_us(start, observation_date))
@@ -384,8 +431,24 @@ async def build_e4_inputs(
         nfib_vals = None
         epu_vals = None
         sloos_vals = None
-        zew_vals = None
+        # DE-specific: Ifo + ZEW via TE fallback.
         ifo_vals = None
+        zew_vals = None
+        if country == "DE" and te is not None:
+            ifo_vals = await _try_fetch_te(
+                "ifo_de_te", te.fetch_ifo_business_climate_de(start, observation_date)
+            )
+            if ifo_vals is not None:
+                flags.append("TE_FALLBACK_IFO")
+                if "TE" not in sources:
+                    sources.append("TE")
+            zew_vals = await _try_fetch_te(
+                "zew_de_te", te.fetch_zew_economic_sentiment_de(start, observation_date)
+            )
+            if zew_vals is not None:
+                flags.append("TE_FALLBACK_ZEW")
+                if "TE" not in sources:
+                    sources.append("TE")
         tankan_vals = None
         for token in (
             "UMICH_US_ONLY",
@@ -394,11 +457,13 @@ async def build_e4_inputs(
             "NFIB_US_ONLY",
             "EPU_US_ONLY",
             "SLOOS_US_ONLY",
-            "ZEW_DE_ONLY",
-            "IFO_DE_ONLY",
             "TANKAN_JP_ONLY",
         ):
             flags.append(token)
+        if ifo_vals is None:
+            flags.append("IFO_DE_ONLY")
+        if zew_vals is None:
+            flags.append("ZEW_DE_ONLY")
     else:
         msg = f"E4 builder does not support country={country!r}"
         raise ValueError(msg)
