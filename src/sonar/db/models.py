@@ -1271,4 +1271,84 @@ class MonetaryCycleScore(Base):
     )
 
 
+class EconomicCycleScore(Base):
+    """Row per spec ``cycles/economic-ecs.md`` §8 — L4 economic composite.
+
+    Aggregates E1 (Activity) + E2 (Leading) + E3 (Labor) + E4 (Sentiment)
+    into a single 0-100 score with canonical weights 0.35/0.25/0.25/0.15.
+    Policy 1 re-weight when any sub-index is unavailable; ≥ 3 of 4
+    required. Hysteresis-aware 4-state regime classification
+    (EXPANSION / PEAK_ZONE / EARLY_RECESSION / RECESSION) with
+    |Δscore| > 5 + 3-BD persistence gate. Stagflation overlay
+    (Cap 16 Trigger A — score<55 + cpi_yoy>3% + labor weakness)
+    persists as a separate column alongside the regime.
+    """
+
+    __tablename__ = "economic_cycle_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ecs_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_0_100: Mapped[float] = mapped_column(Float, nullable=False)
+    regime: Mapped[str] = mapped_column(String(16), nullable=False)
+    regime_persistence_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    e1_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    e2_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    e3_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    e4_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    e1_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    e2_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    e3_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    e4_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    indices_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    stagflation_overlay_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stagflation_trigger_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("ecs_id", name="uq_ecs_id"),
+        CheckConstraint("score_0_100 BETWEEN 0 AND 100", name="ck_ecs_score"),
+        CheckConstraint(
+            "regime IN ('EXPANSION','PEAK_ZONE','EARLY_RECESSION','RECESSION')",
+            name="ck_ecs_regime",
+        ),
+        CheckConstraint("regime_persistence_days >= 1", name="ck_ecs_regime_persistence_days"),
+        CheckConstraint(
+            "e1_score_0_100 IS NULL OR e1_score_0_100 BETWEEN 0 AND 100",
+            name="ck_ecs_e1_score",
+        ),
+        CheckConstraint(
+            "e2_score_0_100 IS NULL OR e2_score_0_100 BETWEEN 0 AND 100",
+            name="ck_ecs_e2_score",
+        ),
+        CheckConstraint(
+            "e3_score_0_100 IS NULL OR e3_score_0_100 BETWEEN 0 AND 100",
+            name="ck_ecs_e3_score",
+        ),
+        CheckConstraint(
+            "e4_score_0_100 IS NULL OR e4_score_0_100 BETWEEN 0 AND 100",
+            name="ck_ecs_e4_score",
+        ),
+        CheckConstraint("e1_weight_effective BETWEEN 0 AND 1", name="ck_ecs_e1_weight_effective"),
+        CheckConstraint("e2_weight_effective BETWEEN 0 AND 1", name="ck_ecs_e2_weight_effective"),
+        CheckConstraint("e3_weight_effective BETWEEN 0 AND 1", name="ck_ecs_e3_weight_effective"),
+        CheckConstraint("e4_weight_effective BETWEEN 0 AND 1", name="ck_ecs_e4_weight_effective"),
+        CheckConstraint("indices_available BETWEEN 3 AND 4", name="ck_ecs_indices_available"),
+        CheckConstraint(
+            "stagflation_overlay_active IN (0, 1)",
+            name="ck_ecs_stagflation_overlay_active",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_ecs_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_ecs_cdm"),
+        Index("idx_ecs_cd", "country_code", "date"),
+        Index("idx_ecs_regime", "country_code", "regime", "date"),
+    )
+
+
 # === Cycle models end ===
