@@ -34,6 +34,9 @@ from sonar.db.models import (
     FinancialRiskAppetite,
     FinancialValuations,
     IndexValue,
+    M1EffectiveRatesResult as M1EffectiveRatesRow,
+    M2TaylorGapsResult as M2TaylorGapsRow,
+    M4FciResult as M4FciRow,
     NSSYieldCurveForwards,
     NSSYieldCurveReal,
     NSSYieldCurveSpot,
@@ -61,6 +64,13 @@ if TYPE_CHECKING:
     from sonar.indices.financial.f2_momentum import F2Result
     from sonar.indices.financial.f3_risk_appetite import F3Result
     from sonar.indices.financial.f4_positioning import F4Result
+    from sonar.indices.monetary.m1_effective_rates import (
+        M1EffectiveRatesResult as M1Result,
+    )
+    from sonar.indices.monetary.m2_taylor_gaps import (
+        M2TaylorGapsResult as M2Result,
+    )
+    from sonar.indices.monetary.m4_fci import M4FciResult as M4Result
     from sonar.indices.orchestrator import CreditIndicesResults, FinancialIndicesResults
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
@@ -899,6 +909,121 @@ def persist_f4_positioning_result(session: Session, result: F4Result) -> None:
         session.rollback()
         if "unique" in str(e.orig).lower():
             err = f"F4 row already persisted: {result.country_code} {result.date}"
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Monetary indices (M1 / M2 / M4) — week6 sprint 2b C6 (CAL-100)
+# ---------------------------------------------------------------------------
+
+
+def _to_m1_row(result: M1Result) -> M1EffectiveRatesRow:
+    return M1EffectiveRatesRow(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        policy_rate_pct=result.policy_rate_pct,
+        shadow_rate_pct=result.shadow_rate_pct,
+        real_rate_pct=result.real_rate_pct,
+        r_star_pct=result.r_star_pct,
+        components_json=result.components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_m1_effective_rates_result(session: Session, result: M1Result) -> None:
+    """Persist a single ``monetary_m1_effective_rates`` row atomically."""
+    row = _to_m1_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"M1 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_m2_row(result: M2Result) -> M2TaylorGapsRow:
+    return M2TaylorGapsRow(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        taylor_implied_pct=result.taylor_implied_pct,
+        taylor_gap_pp=result.taylor_gap_pp,
+        taylor_uncertainty_pp=result.taylor_uncertainty_pp,
+        r_star_source=result.r_star_source,
+        output_gap_source=result.output_gap_source,
+        variants_computed=result.variants_computed,
+        components_json=result.components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_m2_taylor_gaps_result(session: Session, result: M2Result) -> None:
+    """Persist a single ``monetary_m2_taylor_gaps`` row atomically."""
+    row = _to_m2_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"M2 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_m4_row(result: M4Result) -> M4FciRow:
+    return M4FciRow(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        fci_level=result.fci_level,
+        fci_change_12m=result.fci_change_12m,
+        fci_provider=result.fci_provider,
+        components_available=result.components_available,
+        fci_components_json=result.fci_components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_m4_fci_result(session: Session, result: M4Result) -> None:
+    """Persist a single ``monetary_m4_fci`` row atomically."""
+    row = _to_m4_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"M4 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
             raise DuplicatePersistError(err) from e
         raise
 
