@@ -33,6 +33,8 @@ Closes CAL-080.
 
 from __future__ import annotations
 
+import gzip
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -71,6 +73,13 @@ class SchemaChangedError(DataUnavailableError):
 
 
 __all__ = [
+    "DATAFLOW_CONSUMER_CONFIDENCE",
+    "DATAFLOW_ECONOMIC_SENTIMENT",
+    "DATAFLOW_EMPLOYMENT_QUARTERLY",
+    "DATAFLOW_GDP_QUARTERLY",
+    "DATAFLOW_INDUSTRIAL_PRODUCTION",
+    "DATAFLOW_RETAIL_TRADE",
+    "DATAFLOW_UNEMPLOYMENT_RATE",
     "EA_GEO_CODE_2023_PLUS",
     "EA_GEO_CODE_PRE_2023",
     "EUROSTAT_BASE_URL",
@@ -78,7 +87,19 @@ __all__ = [
     "EurostatObservation",
     "SchemaChangedError",
     "resolve_ea_geo_code",
+    "yoy_transform",
 ]
+
+
+# Dataflow ids used by helpers below. Keep as module constants so call
+# sites and tests can import + assert without hard-coding strings.
+DATAFLOW_GDP_QUARTERLY = "namq_10_gdp"
+DATAFLOW_INDUSTRIAL_PRODUCTION = "sts_inpr_m"
+DATAFLOW_EMPLOYMENT_QUARTERLY = "namq_10_pe"
+DATAFLOW_RETAIL_TRADE = "sts_trtu_m"
+DATAFLOW_UNEMPLOYMENT_RATE = "une_rt_m"
+DATAFLOW_ECONOMIC_SENTIMENT = "ei_bssi_m_r2"
+DATAFLOW_CONSUMER_CONFIDENCE = "ei_bsco_m"
 
 
 def resolve_ea_geo_code(d: date) -> str:
@@ -276,11 +297,17 @@ class EurostatConnector:
             "startPeriod": start_period,
             "endPeriod": end_period,
             "format": "JSON",
+            "lang": "en",
         }
         await self._respect_rate_limit()
         r = await self.client.get(url, params=params)
         r.raise_for_status()
-        return dict(r.json())
+        # Eurostat gzips large payloads without setting Content-Encoding.
+        # Detect the magic bytes and decompress manually.
+        body = r.content
+        if body[:2] == b"\x1f\x8b":
+            body = gzip.decompress(body)
+        return dict(json.loads(body))
 
     async def fetch_series(
         self,
@@ -310,6 +337,169 @@ class EurostatConnector:
         log.info("eurostat.fetched", dataflow=dataflow, geo=geo, n=len(obs))
         return obs
 
+    # ---------------------------------------------------------------------
+    # Indicator helpers — assemble the correct positional key per dataflow.
+    # YoY-returning helpers transform levels → decimal YoY (e.g. 0.024 =
+    # 2.4%); level helpers return the raw index / rate.
+    # ---------------------------------------------------------------------
+
+    async def fetch_gdp_real_yoy(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Quarterly real GDP YoY (chain-linked volumes, 2020 = 100 €M).
+
+        Dataflow ``namq_10_gdp``, key ``Q.CLV20_MEUR.SCA.B1GQ.{geo}``.
+        Fetches 4 quarters before ``start_date`` so YoY can be computed
+        at the first returned point.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"Q.CLV20_MEUR.SCA.B1GQ.{geo}"
+        start_p = _period_for_quarterly(date(start_date.year - 1, start_date.month, 1))
+        end_p = _period_for_quarterly(end_date)
+        levels = await self.fetch_series(DATAFLOW_GDP_QUARTERLY, geo, key, start_p, end_p)
+        return yoy_transform(levels, periods_per_year=4)
+
+    async def fetch_industrial_production_yoy(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Monthly industrial production YoY (NACE B-D, index 2015 = 100, SCA).
+
+        Dataflow ``sts_inpr_m``, key ``M.PRD.B-D.SCA.I15.{geo}``.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"M.PRD.B-D.SCA.I15.{geo}"
+        start_p = _period_for_monthly(date(start_date.year - 1, start_date.month, 1))
+        end_p = _period_for_monthly(end_date)
+        levels = await self.fetch_series(DATAFLOW_INDUSTRIAL_PRODUCTION, geo, key, start_p, end_p)
+        return yoy_transform(levels, periods_per_year=12)
+
+    async def fetch_employment_yoy(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Quarterly employment YoY (national-accounts domestic concept, SCA).
+
+        Dataflow ``namq_10_pe``, key ``Q.THS_PER.SCA.EMP_DC.{geo}``.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"Q.THS_PER.SCA.EMP_DC.{geo}"
+        start_p = _period_for_quarterly(date(start_date.year - 1, start_date.month, 1))
+        end_p = _period_for_quarterly(end_date)
+        levels = await self.fetch_series(DATAFLOW_EMPLOYMENT_QUARTERLY, geo, key, start_p, end_p)
+        return yoy_transform(levels, periods_per_year=4)
+
+    async def fetch_retail_sales_real_yoy(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Monthly retail sales real YoY (NACE G47, volume of sales, SCA).
+
+        Dataflow ``sts_trtu_m``, key ``M.VOL_SLS.G47.SCA.I15.{geo}``.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"M.VOL_SLS.G47.SCA.I15.{geo}"
+        start_p = _period_for_monthly(date(start_date.year - 1, start_date.month, 1))
+        end_p = _period_for_monthly(end_date)
+        levels = await self.fetch_series(DATAFLOW_RETAIL_TRADE, geo, key, start_p, end_p)
+        return yoy_transform(levels, periods_per_year=12)
+
+    async def fetch_unemployment_rate(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Monthly harmonised unemployment rate (% of active population, NSA).
+
+        Dataflow ``une_rt_m``, key ``M.NSA.TOTAL.PC_ACT.T.{geo}``. Returns
+        raw rate (spec §2 consumes level, not YoY).
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"M.NSA.TOTAL.PC_ACT.T.{geo}"
+        start_p = _period_for_monthly(start_date)
+        end_p = _period_for_monthly(end_date)
+        return await self.fetch_series(DATAFLOW_UNEMPLOYMENT_RATE, geo, key, start_p, end_p)
+
+    async def fetch_economic_sentiment_indicator(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Monthly Economic Sentiment Indicator (BS-ESI-I, SA, balance).
+
+        Dataflow ``ei_bssi_m_r2``, key ``M.BS-ESI-I.SA.{geo}``.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"M.BS-ESI-I.SA.{geo}"
+        start_p = _period_for_monthly(start_date)
+        end_p = _period_for_monthly(end_date)
+        return await self.fetch_series(DATAFLOW_ECONOMIC_SENTIMENT, geo, key, start_p, end_p)
+
+    async def fetch_consumer_confidence(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[EurostatObservation]:
+        """Monthly Consumer Confidence (BS-CSMCI, SA, balance).
+
+        Dataflow ``ei_bsco_m``, key ``M.BS-CSMCI.SA.BAL.{geo}``. We use
+        ``ei_bsco_m`` rather than ``teibs020`` because the latter only
+        serves the most recent ~12 months and breaks history-based
+        calibration. The indicator identity (BS-CSMCI) is identical.
+        """
+        geo = _resolve_geo(country, start_date)
+        key = f"M.BS-CSMCI.SA.BAL.{geo}"
+        start_p = _period_for_monthly(start_date)
+        end_p = _period_for_monthly(end_date)
+        return await self.fetch_series(DATAFLOW_CONSUMER_CONFIDENCE, geo, key, start_p, end_p)
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
+
+
+# ---------------------------------------------------------------------------
+# Helpers (module-level utilities for country/period/YoY handling)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_geo(country: str, observation_date: date) -> str:
+    """Map caller ``country`` to an Eurostat geo code, handling the EA token."""
+    if country.upper() == "EA":
+        return resolve_ea_geo_code(observation_date)
+    return country.upper()
+
+
+def _period_for_quarterly(d: date) -> str:
+    q = (d.month - 1) // 3 + 1
+    return f"{d.year}-Q{q}"
+
+
+def _period_for_monthly(d: date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def yoy_transform(
+    levels: list[EurostatObservation], *, periods_per_year: int
+) -> list[EurostatObservation]:
+    """Convert a level series to decimal YoY changes.
+
+    ``periods_per_year`` is 12 for monthly, 4 for quarterly. For each
+    level ``L_t`` with a comparison ``L_{t-n}`` (``n = periods_per_year``)
+    we emit an observation with value ``(L_t - L_{t-n}) / L_{t-n}``.
+    Points without a prior-year match are dropped — callers get the
+    usable sub-series only.
+    """
+    if not levels:
+        return []
+    # levels from fetch_series are already sorted ascending.
+    out: list[EurostatObservation] = []
+    for i in range(periods_per_year, len(levels)):
+        prior = levels[i - periods_per_year]
+        current = levels[i]
+        if prior.value == 0:
+            continue
+        yoy = (current.value - prior.value) / prior.value
+        out.append(
+            EurostatObservation(
+                observation_date=current.observation_date,
+                value=yoy,
+                dataflow=current.dataflow,
+                geo=current.geo,
+                time_period=current.time_period,
+                status=current.status,
+                dimensions=current.dimensions,
+            )
+        )
+    return out

@@ -12,6 +12,13 @@ import pytest_asyncio
 from tenacity import wait_none
 
 from sonar.connectors.eurostat import (
+    DATAFLOW_CONSUMER_CONFIDENCE,
+    DATAFLOW_ECONOMIC_SENTIMENT,
+    DATAFLOW_EMPLOYMENT_QUARTERLY,
+    DATAFLOW_GDP_QUARTERLY,
+    DATAFLOW_INDUSTRIAL_PRODUCTION,
+    DATAFLOW_RETAIL_TRADE,
+    DATAFLOW_UNEMPLOYMENT_RATE,
     EUROSTAT_BASE_URL,
     EurostatConnector,
     EurostatObservation,
@@ -19,6 +26,7 @@ from sonar.connectors.eurostat import (
     _parse_jsonstat,
     _period_label_to_date,
     resolve_ea_geo_code,
+    yoy_transform,
 )
 from sonar.overlays.exceptions import DataUnavailableError
 
@@ -232,6 +240,156 @@ def test_observation_is_frozen_and_slotted() -> None:
 # ---------------------------------------------------------------------------
 # Live canary (CAL-080)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# yoy_transform
+# ---------------------------------------------------------------------------
+
+
+def _mk_obs(d: date, v: float) -> EurostatObservation:
+    return EurostatObservation(
+        observation_date=d,
+        value=v,
+        dataflow="x",
+        geo="DE",
+        time_period=d.isoformat(),
+    )
+
+
+def test_yoy_transform_quarterly() -> None:
+    levels = [
+        _mk_obs(date(2023, 3, 31), 100.0),
+        _mk_obs(date(2023, 6, 30), 101.0),
+        _mk_obs(date(2023, 9, 30), 102.0),
+        _mk_obs(date(2023, 12, 31), 103.0),
+        _mk_obs(date(2024, 3, 31), 105.0),
+        _mk_obs(date(2024, 6, 30), 106.0),
+    ]
+    yoy = yoy_transform(levels, periods_per_year=4)
+    assert len(yoy) == 2
+    assert yoy[0].observation_date == date(2024, 3, 31)
+    assert yoy[0].value == pytest.approx(0.05, abs=1e-9)
+    assert yoy[1].value == pytest.approx((106.0 - 101.0) / 101.0, abs=1e-9)
+
+
+def test_yoy_transform_empty() -> None:
+    assert yoy_transform([], periods_per_year=12) == []
+
+
+def test_yoy_transform_skips_zero_prior() -> None:
+    levels = [_mk_obs(date(2023, 1, 31), 0.0), _mk_obs(date(2024, 1, 31), 5.0)]
+    assert yoy_transform(levels, periods_per_year=12) == []
+
+
+# ---------------------------------------------------------------------------
+# Helper cassette tests
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_gdp_real_yoy_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_namq_10_gdp_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    yoy = await eurostat_connector.fetch_gdp_real_yoy("DE", date(2024, 1, 1), date(2024, 12, 31))
+    # Cassette covers 2020-2024 (20 quarters); YoY drops first 4 → up to 16.
+    assert 1 <= len(yoy) <= 20
+    for o in yoy:
+        # German real GDP YoY historically ± 10% outside wartime/COVID.
+        assert -0.2 < o.value < 0.2
+
+
+async def test_fetch_industrial_production_yoy_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_ip_sts_inpr_m_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    yoy = await eurostat_connector.fetch_industrial_production_yoy(
+        "DE", date(2023, 1, 1), date(2024, 6, 30)
+    )
+    assert len(yoy) >= 6  # 30 months - 12 for YoY = 18 usable points
+    for o in yoy:
+        assert -0.3 < o.value < 0.3
+
+
+async def test_fetch_employment_yoy_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_emp_namq_10_pe_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    yoy = await eurostat_connector.fetch_employment_yoy("DE", date(2022, 1, 1), date(2024, 12, 31))
+    assert len(yoy) >= 4
+    for o in yoy:
+        # German employment growth rarely deviates outside ±5%.
+        assert -0.1 < o.value < 0.1
+
+
+async def test_fetch_retail_sales_real_yoy_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_retail_sts_trtu_m_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    yoy = await eurostat_connector.fetch_retail_sales_real_yoy(
+        "DE", date(2023, 1, 1), date(2024, 6, 30)
+    )
+    assert len(yoy) >= 1
+    for o in yoy:
+        assert -0.3 < o.value < 0.3
+
+
+async def test_fetch_unemployment_rate_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_une_rt_m_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await eurostat_connector.fetch_unemployment_rate(
+        "DE", date(2023, 1, 1), date(2024, 6, 30)
+    )
+    assert len(obs) >= 12
+    for o in obs:
+        assert 0 < o.value < 30
+    assert obs[0].dataflow == DATAFLOW_UNEMPLOYMENT_RATE
+
+
+async def test_fetch_economic_sentiment_indicator_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_esi_ei_bssi_m_r2_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await eurostat_connector.fetch_economic_sentiment_indicator(
+        "DE", date(2022, 1, 1), date(2024, 6, 30)
+    )
+    assert len(obs) >= 12
+    # ESI is indexed on a long-run mean of 100.
+    for o in obs:
+        assert 0 < o.value < 200
+    assert obs[0].dataflow == DATAFLOW_ECONOMIC_SENTIMENT
+
+
+async def test_fetch_consumer_confidence_de(
+    httpx_mock: HTTPXMock, eurostat_connector: EurostatConnector
+) -> None:
+    payload = _load_cassette("eurostat_consconf_ei_bsco_m_de_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await eurostat_connector.fetch_consumer_confidence(
+        "DE", date(2022, 1, 1), date(2024, 6, 30)
+    )
+    assert len(obs) >= 12
+    # Consumer confidence balance ∈ [-100, +100].
+    for o in obs:
+        assert -100 <= o.value <= 100
+    assert obs[0].dataflow == DATAFLOW_CONSUMER_CONFIDENCE
+
+
+def test_dataflow_constants() -> None:
+    assert DATAFLOW_GDP_QUARTERLY == "namq_10_gdp"
+    assert DATAFLOW_INDUSTRIAL_PRODUCTION == "sts_inpr_m"
+    assert DATAFLOW_EMPLOYMENT_QUARTERLY == "namq_10_pe"
+    assert DATAFLOW_RETAIL_TRADE == "sts_trtu_m"
+    assert DATAFLOW_UNEMPLOYMENT_RATE == "une_rt_m"
+    assert DATAFLOW_ECONOMIC_SENTIMENT == "ei_bssi_m_r2"
+    assert DATAFLOW_CONSUMER_CONFIDENCE == "ei_bsco_m"
 
 
 @pytest.mark.slow
