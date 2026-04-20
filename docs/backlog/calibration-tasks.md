@@ -321,16 +321,60 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   integration tests US (NSS → ExpInf → ratings → CRP → assert all
   rows joined by exp_inf_id / crp_id / fit_id chains).
 
-### CAL-047 — daily-cost-of-capital pipeline (Week 3 deferred)
+### CAL-047 — daily-cost-of-capital pipeline (Week 3 deferred → CLOSED Week 3.5F)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via commit `ee634f8`.
+- **Resolution:** Pipeline skeleton shipped Week 3.5F:
+  `src/sonar/pipelines/daily_cost_of_capital.py` + alembic 006 +
+  `cost_of_capital_daily` table + CLI `--country | --all-t1`. Uses
+  Damodaran mature 5.5% ERP placeholder until CAL-044 ERP overlay
+  lands. Wiring to real ERP: one-line swap from constant to
+  `erp_canonical` SELECT.
+
+### CAL-048 — ERP overlay full implementation (Week 3.5B deferred)
+
+- **Priority:** HIGH
+- **Trigger:** Week 3.5 brief §3 3.5B scope not executed this session
+  — 6 connector subtasks (FactSet PDF, Yardeni PDF, multpl, spdji,
+  Shiller download, Damodaran histimpl) each carry high URL-stability
+  / consent-verification risk that exceeded session budget once 3.5A
+  + 3.5C + 3.5F pure-compute path was prioritized.
+- **Scope:** Week 3.5 brief §3 items 3.5B-1 through 3.5B-6 (6
+  connectors + full 4-method ERP overlay + migration 007 with 5 erp_*
+  tables per spec §8 + Damodaran xval + FactSet-vs-Yardeni
+  divergence flag + fixture suite ≥ 25 behavioral tests).
+- **Unblocks:** pipeline wiring to real ERP (removes Damodaran
+  placeholder in daily_cost_of_capital.py); L3 F1 Valuations index
+  (needs ERP), L4 financial-cycle consumers.
+
+### CAL-049 — FR/IT linkers + EA BEI + PT DERIVED (Week 3.5D deferred)
 
 - **Priority:** MEDIUM
-- **Trigger:** Week 3 brief §3C-5 deferred; needs ERP (CAL-044) +
-  CRP integration tests (CAL-046) green first. ``k_e = rf + β·ERP
-  + CRP`` composition with stub β=1.0 + new
-  ``cost_of_capital_daily`` table.
-- **Scope:** Same as Week 3 brief §3C-5; CLI
-  ``python -m sonar.pipelines.daily_cost_of_capital --country US
-  --date YYYY-MM-DD``.
+- **Trigger:** Week 3.5 brief §3 3.5D scope not executed this session.
+  FR aft_france OATi endpoint + IT mef_italy BTP€i endpoint need
+  discovery (public sites restructure frequently — brief §4.4 HALT
+  trigger anticipates this).
+- **Scope:** Week 3.5 brief §3 items 3.5D-1 through 3.5D-3 (2
+  connectors + EA BEI path in expected_inflation.py extending the
+  hierarchy picker + PT DERIVED with 5Y PT-EA HICP differential
+  computation via Eurostat + fixtures per spec §7 for DE/FR/IT/PT).
+- **Unblocks:** ExpInf EA canonical rows for FR/IT/DE/PT countries;
+  DERIVED path for periphery countries; unblocks L3 E2 leading /
+  M3 market-expectations consumers.
+
+### CAL-050 — Persistence helpers + 7-country vertical slice (Week 3.5E deferred)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 3.5 brief §3 3.5E scope partially covered (simple
+  persistence of `cost_of_capital_daily` shipped inline with
+  daily_cost_of_capital.py). Broader persistence helpers for ExpInf
+  + CRP + integration test exercising live 7-country vertical slice
+  not executed.
+- **Scope:** `src/sonar/db/persistence_expinf.py` + `persistence_crp.py`
+  + integration test `test_seven_country_vertical_slice.py` that
+  fetches all connectors (live or cassette), computes all overlays,
+  persists, queries back, and asserts k_e plausibility bands per
+  country.
 
 ## Não-categorizado por horizonte
 
