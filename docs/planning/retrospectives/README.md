@@ -7,6 +7,12 @@ backlog items, blockers for next work.
 
 Sorted newest-first within each phase.
 
+## Phase 1 — Week 5
+
+| File | Phase / Week | Summary | Date |
+|---|---|---|---|
+| [`week5-ecs-indices-report.md`](./week5-ecs-indices-report.md) | Phase 1 — Week 5 ECS (parallel to Sprint 1 F-cycle) | 5 commits delivering E1 Activity + E3 Labor + E4 Sentiment compute layers per spec §4 + ORM + migration 012. Connector commits descoped to CAL-080..090 per user §7 pre-auth trim. Pre-flight HALT #0 fired + reconciled. | 2026-04-20 |
+
 ## Phase 1 — Week 3.5
 
 | File | Phase / Week | Summary | Date |

@@ -700,6 +700,123 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `pytest -m slow`.
 - **Unblocks:** Production-grade F-cycle connector coverage.
 
+### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 5 ECS compute layer ships (E1/E3/E4 per spec)
+  but stays data-empty for EA countries without Eurostat. Was
+  originally brief week5 §Commit 3; descoped per user §7 budget trim.
+- **Scope:** `src/sonar/connectors/eurostat.py` over SDMX-JSON 1.0
+  at `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1`.
+  Dataflows: `namq_10_gdp`, `sts_inpr_m`, `lfsi_emp_m`, `sts_trtu_m`,
+  `une_rt_m`, `ei_bsco_m`, `teibs020`. Country geo codes for 7 T1
+  EA set (DE/PT/IT/ES/FR/NL + EA aggregate). Polite pacing 2 req/s.
+- **Unblocks:** E1/E3/E4 EA coverage; large chunk of Week 6 ECS
+  composite readiness.
+
+### CAL-081 — S&P Global PMI scraper (Week 5 ECS surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 5 ECS brief §Commit 4; descoped to CAL.
+- **Scope:** `src/sonar/connectors/spglobal_pmi.py` scraping
+  spglobal.com/marketintelligence PMI release HTML; fallback to TE
+  connector. Graceful DataUnavailableError + PMI_SCRAPE_FAIL flag.
+  Module docstring documents scraping fragility.
+- **Unblocks:** E1 `pmi_composite` input for EA + non-US markets;
+  ISM still primary for US.
+
+### CAL-082 — ISM Manufacturing + Services connector (Week 5 ECS surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 5 ECS brief §Commit 5; descoped to CAL.
+- **Scope:** `src/sonar/connectors/ism.py`. Primary via FRED
+  `NAPM`/`NAPMII` series; fallback scrape ism.org monthly release.
+  Graceful DataUnavailableError + ISM_UNAVAILABLE flag.
+- **Unblocks:** US E1 (`pmi_composite`) + E4 (`ism_manufacturing`,
+  `ism_services`).
+
+### CAL-083 — FRED connector Economic-series extension (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** Week 5 ECS brief §Commit 6; descoped to CAL.
+- **Scope:** `src/sonar/connectors/fred.py` new section
+  `# === Economic indicators ===` with helper resolvers for
+  GDPC1, INDPRO, PAYEMS, RRSFS, W875RX1, UNRATE, JTSJOL,
+  CES0500000003, ICSA, TEMPHELPS, UMCSENT, CSCICP03USM665S,
+  USEPUINDXD, MICHM5YM5, NAPM, NAPMII, NFIBBTI, DRTSCILM, VIXCLS,
+  EMRATIO, LNS11300060, ECIWAG, JTSQUL, IC4WSA. Zero new deps.
+- **Unblocks:** US coverage for E1/E3/E4 on the default FRED path.
+
+### CAL-084 — Atlanta Fed wage tracker connector (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** E3 `atlanta_fed_wage_yoy` missing without a dedicated
+  connector. US-specific; without it the E3 compute flags
+  `ATLANTA_FED_US_ONLY` and degrades gracefully.
+- **Scope:** `src/sonar/connectors/atlanta_fed.py` — Atlanta Fed
+  Wage Growth Tracker CSV at atlantafed.org/chcs/wage-growth-tracker.
+- **Unblocks:** Full 10/10 E3 components for US.
+
+### CAL-085 — EPU index scraper (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** E4 `epu_index`. Primary is FRED `USEPUINDXD` (covered
+  by CAL-083); direct policyuncertainty.com scraper only needed as
+  fallback / validation.
+- **Scope:** `src/sonar/connectors/policyuncertainty.py` scraping
+  policyuncertainty.com monthly CSV.
+- **Unblocks:** EPU fallback path.
+
+### CAL-086 — ZEW + Ifo DE sentiment scrapers (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** E4 DE components `zew_expectations` +
+  `ifo_business_climate`. Without them DE E4 drops to 4/13 components
+  (below threshold → InsufficientDataError).
+- **Scope:** `src/sonar/connectors/zew.py` + `connectors/ifo.py`,
+  monthly scrape of headline indices. Module docstrings document
+  scraping fragility + maintenance contract.
+- **Unblocks:** DE full E4 row production.
+
+### CAL-087 — BoJ Tankan connector (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** E4 `tankan_large_mfg`. JP-only. Out of current T1
+  7-country scope but noted for completeness.
+- **Scope:** `src/sonar/connectors/boj.py` quarterly Tankan survey
+  download.
+- **Unblocks:** JP E4 coverage when JP enters T1.
+
+### CAL-088 — `compute_all_economic_indices` orchestrator + CLI (Week 5 ECS surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 5 ECS brief §Commit 10 descoped.
+- **Scope:** `src/sonar/indices/orchestrator.py` extension with
+  `compute_all_economic_indices(country, date, session)` dispatching
+  to E1 + E2 (existing) + E3 + E4; `--economic-only` and
+  `--all-cycles` CLI flags on the top-level orchestrator CLI.
+- **Unblocks:** Week 6 ECS composite preparatory orchestration.
+
+### CAL-089 — `daily_economic_indices.py` pipeline (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** Week 5 ECS brief §Commit 12 descoped.
+- **Scope:** `src/sonar/pipelines/daily_economic_indices.py`
+  mirroring `daily_credit_indices.py` + `daily_financial_indices.py`
+  pattern with pluggable InputsBuilder (default empty). DB-backed
+  builder follows once CAL-080/083 ingest historical series.
+- **Unblocks:** Cron-able economic-indices daily run.
+
+### CAL-090 — Week 5 ECS 7 T1 integration test (Week 5 ECS surfaced)
+
+- **Priority:** LOW
+- **Trigger:** Week 5 ECS brief §Commit 11 descoped.
+- **Scope:** `tests/integration/test_economic_indices.py` with
+  parametrized 7-country run, cassette-replayed connector fetches,
+  assertions on score ranges + expected flags + persistence
+  round-trip.
+- **Unblocks:** End-to-end validation ahead of ECS composite.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos têm horizonte explícito no spec.
