@@ -76,6 +76,15 @@ TE_INDICATOR_NFIB = "nfib business optimism index"
 TE_INDICATOR_IFO_HEADLINE = "business confidence"
 TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT = "zew economic sentiment index"
 TE_INDICATOR_CONSUMER_CONFIDENCE = "consumer confidence"
+TE_INDICATOR_MICHIGAN_5Y_INFLATION = "michigan 5 year inflation expectations"
+
+# Expected HistoricalDataSymbol values for the wrappers. Used as a
+# source-identity guard: when TE reshuffles its catalogue, confirming
+# the returned symbol still matches the expected one catches quiet
+# mis-attribution early (Sprint 1 Week 6 closed CAL-093 on an
+# incorrect premise for lack of this guard).
+TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC = "CONCCONF"
+TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION = "USAM5YIE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +97,7 @@ class TEIndicatorObservation:
     indicator: str  # canonical lowercase TE name
     source: str = "TE"
     frequency: str = ""  # "Monthly", "Quarterly", etc.
+    historical_data_symbol: str = ""  # TE "HistoricalDataSymbol" — source id
 
 
 # SONAR 2-letter country code → TE 10Y Bloomberg symbol.
@@ -310,6 +320,7 @@ class TEConnector:
                     country=country_iso.upper(),
                     indicator=indicator_name,
                     frequency=str(row.get("Frequency", "")),
+                    historical_data_symbol=str(row.get("HistoricalDataSymbol", "")),
                 )
             )
         out.sort(key=lambda o: o.observation_date)
@@ -345,6 +356,69 @@ class TEConnector:
     ) -> list[TEIndicatorObservation]:
         """DE ZEW Economic Sentiment Index."""
         return await self.fetch_indicator("DE", TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT, start, end)
+
+    async def fetch_conference_board_cc_us(
+        self, start: date, end: date
+    ) -> list[TEIndicatorObservation]:
+        """US Conference Board Consumer Confidence Index.
+
+        TE indicator name: ``consumer confidence`` (Category same).
+        Source: The Conference Board (``HistoricalDataSymbol=CONCCONF``).
+        Monthly cadence.
+
+        Week 6 Sprint 3 (CAL-093 re-open + resolve): an earlier sprint
+        closed this CAL on the incorrect premise that TE's
+        ``consumer confidence`` feed for the US was UMich-sourced.
+        Empirical probe disproves — every observation carries
+        ``CONCCONF`` as its ``HistoricalDataSymbol``, which is the
+        Conference Board series. This wrapper guards the premise by
+        asserting the first returned row's symbol matches
+        :data:`TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC`; on mismatch we
+        raise :class:`DataUnavailableError` so callers can handle the
+        drift explicitly.
+        """
+        obs = await self.fetch_indicator("US", TE_INDICATOR_CONSUMER_CONFIDENCE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC)
+        ):
+            err = (
+                "TE consumer-confidence source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_michigan_5y_inflation_us(
+        self, start: date, end: date
+    ) -> list[TEIndicatorObservation]:
+        """US UMich 5-year inflation expectations (Survey of Consumers).
+
+        TE indicator name: ``michigan 5 year inflation expectations``.
+        Source: University of Michigan Survey of Consumers
+        (``HistoricalDataSymbol=USAM5YIE``). Monthly cadence.
+
+        Substitutes the FRED ``MICHM5YM5`` series delisted during
+        Sprint 2a live validation. Guards source identity via the
+        ``USAM5YIE`` symbol check, same pattern as Conference Board.
+        """
+        obs = await self.fetch_indicator("US", TE_INDICATOR_MICHIGAN_5Y_INFLATION, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(
+                TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION
+            )
+        ):
+            err = (
+                "TE michigan-5y source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
 
     # -------------------------------------------------------------------
     # Telemetry

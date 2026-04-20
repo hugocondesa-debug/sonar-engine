@@ -17,6 +17,7 @@ from sonar.connectors.te import (
     TE_INDICATOR_IFO_HEADLINE,
     TE_INDICATOR_ISM_MFG_HEADLINE,
     TE_INDICATOR_ISM_SVC_HEADLINE,
+    TE_INDICATOR_MICHIGAN_5Y_INFLATION,
     TE_INDICATOR_NFIB,
     TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT,
     TEConnector,
@@ -284,6 +285,84 @@ async def test_wrapper_zew_de(httpx_mock: HTTPXMock, te_connector: TEConnector) 
 
 
 # ---------------------------------------------------------------------------
+# Sprint 6.3 wrappers — CB CC (CAL-093) + Michigan 5Y (new CAL)
+# ---------------------------------------------------------------------------
+
+
+async def test_wrapper_conference_board_cc_us(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET", json=_load_cassette("te_consumer_confidence_us_2024_01_02.json")
+    )
+    obs = await te_connector.fetch_conference_board_cc_us(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 100
+    assert obs[0].country == "US"
+    assert obs[0].indicator == "consumer confidence"
+    # Source-guard: every row on this feed is CONCCONF (Conference Board).
+    assert obs[0].historical_data_symbol == "CONCCONF"
+    # CB CC values historically in [25, 145] range.
+    for o in obs[-24:]:
+        assert 20 <= o.value <= 160
+
+
+async def test_wrapper_conference_board_cc_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    # TE returns the payload with a non-CONCCONF symbol (e.g. UMich
+    # label) — wrapper should raise to prevent silent mis-attribution.
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "United States",
+                "Category": "Consumer Confidence",
+                "DateTime": "2024-01-31T00:00:00",
+                "Value": 61.3,
+                "HistoricalDataSymbol": "USAMCE",  # UMich, not CONCCONF
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="source drift"):
+        await te_connector.fetch_conference_board_cc_us(date(2024, 1, 1), date(2024, 6, 30))
+
+
+async def test_wrapper_michigan_5y_inflation_us(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET", json=_load_cassette("te_michigan_5y_inflation_us_2024_01_02.json")
+    )
+    obs = await te_connector.fetch_michigan_5y_inflation_us(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 50
+    assert obs[0].country == "US"
+    assert obs[0].indicator == "michigan 5 year inflation expectations"
+    assert obs[0].historical_data_symbol == "USAM5YIE"
+    # UMich 5Y inflation expectations historically [1.5, 8.0] %.
+    for o in obs[-24:]:
+        assert 0.5 <= o.value <= 10.0
+
+
+async def test_wrapper_michigan_5y_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "United States",
+                "Category": "Michigan 5 Year Inflation Expectations",
+                "DateTime": "2024-01-31T00:00:00",
+                "Value": 2.9,
+                "HistoricalDataSymbol": "OTHER_ID",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="source drift"):
+        await te_connector.fetch_michigan_5y_inflation_us(date(2024, 1, 1), date(2024, 6, 30))
+
+
+# ---------------------------------------------------------------------------
 # Live canary (CAL-092)
 # ---------------------------------------------------------------------------
 
@@ -308,3 +387,60 @@ async def test_live_canary_te_ism_mfg_recent(tmp_cache_dir: Path) -> None:
             assert 20 < o.value < 80
     finally:
         await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_te_conference_board_cc_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 3m US CC via TE; confirm CONCCONF + plausible CB band.
+
+    TE's ``d1``/``d2`` params are advisory; filter client-side to the
+    recent window before asserting the band (1974 CB CC troughs ~40).
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=120)
+        obs = await conn.fetch_conference_board_cc_us(start, today)
+        assert len(obs) >= 1
+        assert obs[0].historical_data_symbol == "CONCCONF"
+        recent = [o for o in obs if start <= o.observation_date <= today]
+        assert len(recent) >= 1
+        for o in recent:
+            # Conference Board CCI historically in [25, 145].
+            assert 20 <= o.value <= 160
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_te_michigan_5y_inflation_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 12m US UMich 5Y inflation via TE; band check + symbol guard.
+
+    TE's ``d1``/``d2`` params are advisory — the full historical series
+    comes back regardless. Filter client-side to the recent window
+    before asserting the band (historical 1980s peaks go ~10%).
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365)
+        obs = await conn.fetch_michigan_5y_inflation_us(start, today)
+        assert len(obs) >= 3
+        assert obs[0].historical_data_symbol == "USAM5YIE"
+        recent = [o for o in obs if start <= o.observation_date <= today]
+        assert len(recent) >= 3
+        for o in recent:
+            # Post-2000 UMich 5Y expectations stayed in [1.5, 6.0]%.
+            assert 1.0 <= o.value <= 8.0
+    finally:
+        await conn.aclose()
+
+
+def test_michigan_5y_indicator_constant() -> None:
+    assert TE_INDICATOR_MICHIGAN_5Y_INFLATION == "michigan 5 year inflation expectations"
