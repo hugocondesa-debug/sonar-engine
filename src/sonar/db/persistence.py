@@ -27,6 +27,9 @@ from sonar.db.models import (
     CreditGdpStock,
     CreditImpulse,
     Dsr,
+    E1Activity,
+    E3Labor,
+    E4Sentiment,
     ERPCanonical,
     ERPGordon,
     FinancialMomentum,
@@ -60,6 +63,9 @@ if TYPE_CHECKING:
     from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapResult
     from sonar.indices.credit.l3_credit_impulse import CreditImpulseResult
     from sonar.indices.credit.l4_dsr import DsrResult
+    from sonar.indices.economic.e1_activity import E1ActivityResult
+    from sonar.indices.economic.e3_labor import E3LaborResult
+    from sonar.indices.economic.e4_sentiment import E4SentimentResult
     from sonar.indices.financial.f1_valuations import F1Result
     from sonar.indices.financial.f2_momentum import F2Result
     from sonar.indices.financial.f3_risk_appetite import F3Result
@@ -71,6 +77,7 @@ if TYPE_CHECKING:
         M2TaylorGapsResult as M2Result,
     )
     from sonar.indices.monetary.m4_fci import M4FciResult as M4Result
+    from sonar.indices.monetary.orchestrator import MonetaryIndicesResults
     from sonar.indices.orchestrator import CreditIndicesResults, FinancialIndicesResults
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
@@ -1026,6 +1033,191 @@ def persist_m4_fci_result(session: Session, result: M4Result) -> None:
             )
             raise DuplicatePersistError(err) from e
         raise
+
+
+# ---------------------------------------------------------------------------
+# Economic indices (E1 / E3 / E4) — week7 sprint B (daily pipeline)
+# ---------------------------------------------------------------------------
+
+
+def _to_e1_row(result: E1ActivityResult) -> E1Activity:
+    return E1Activity(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        components_available=result.components_available,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connectors=result.source_connectors,
+    )
+
+
+def persist_e1_activity_result(session: Session, result: E1ActivityResult) -> None:
+    """Persist a single ``idx_economic_e1_activity`` row atomically."""
+    row = _to_e1_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"E1 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_e3_row(result: E3LaborResult) -> E3Labor:
+    return E3Labor(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        sahm_triggered=1 if result.sahm_triggered else 0,
+        sahm_value=result.sahm_value,
+        components_json=result.components_json,
+        components_available=result.components_available,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connectors=result.source_connectors,
+    )
+
+
+def persist_e3_labor_result(session: Session, result: E3LaborResult) -> None:
+    """Persist a single ``idx_economic_e3_labor`` row atomically."""
+    row = _to_e3_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"E3 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_e4_row(result: E4SentimentResult) -> E4Sentiment:
+    return E4Sentiment(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        components_available=result.components_available,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connectors=result.source_connectors,
+    )
+
+
+def persist_e4_sentiment_result(session: Session, result: E4SentimentResult) -> None:
+    """Persist a single ``idx_economic_e4_sentiment`` row atomically."""
+    row = _to_e4_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"E4 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def persist_many_economic_results(
+    session: Session,
+    *,
+    e1: E1ActivityResult | None = None,
+    e2: IndexResult | None = None,
+    e3: E3LaborResult | None = None,
+    e4: E4SentimentResult | None = None,
+) -> dict[str, int]:
+    """Persist any subset of E1/E2/E3/E4 results in a single transaction.
+
+    E2 (Leading) persists as a generic :class:`IndexValue` row (no
+    dedicated table); E1/E3/E4 each have their own typed table. On any
+    UNIQUE violation the whole batch rolls back and
+    :class:`DuplicatePersistError` is raised.
+    """
+    written: dict[str, int] = {"e1": 0, "e2": 0, "e3": 0, "e4": 0}
+    rows: list[E1Activity | E3Labor | E4Sentiment | IndexValue] = []
+    if e1 is not None:
+        rows.append(_to_e1_row(e1))
+        written["e1"] = 1
+    if e2 is not None:
+        rows.append(_to_index_row(e2))
+        written["e2"] = 1
+    if e3 is not None:
+        rows.append(_to_e3_row(e3))
+        written["e3"] = 1
+    if e4 is not None:
+        rows.append(_to_e4_row(e4))
+        written["e4"] = 1
+    if not rows:
+        return written
+    try:
+        session.add_all(rows)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"Batch economic persist contains duplicate: {e.orig}"
+            raise DuplicatePersistError(err) from e
+        raise
+    return written
+
+
+def persist_many_monetary_results(
+    session: Session,
+    results: MonetaryIndicesResults,
+    *,
+    m3: IndexResult | None = None,
+) -> dict[str, int]:
+    """Persist available M1/M2/M4 rows (from :class:`MonetaryIndicesResults`)
+    plus optional M3 (generic :class:`IndexValue`) in one transaction."""
+    written: dict[str, int] = {"m1": 0, "m2": 0, "m3": 0, "m4": 0}
+    rows: list[M1EffectiveRatesRow | M2TaylorGapsRow | M4FciRow | IndexValue] = []
+    if results.m1 is not None:
+        rows.append(_to_m1_row(results.m1))
+        written["m1"] = 1
+    if results.m2 is not None:
+        rows.append(_to_m2_row(results.m2))
+        written["m2"] = 1
+    if m3 is not None:
+        rows.append(_to_index_row(m3))
+        written["m3"] = 1
+    if results.m4 is not None:
+        rows.append(_to_m4_row(results.m4))
+        written["m4"] = 1
+    if not rows:
+        return written
+    try:
+        session.add_all(rows)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"Batch monetary persist contains duplicate: {e.orig}"
+            raise DuplicatePersistError(err) from e
+        raise
+    return written
 
 
 def persist_many_financial_results(

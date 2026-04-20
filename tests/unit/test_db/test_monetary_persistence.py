@@ -17,10 +17,13 @@ from sonar.db.persistence import (
     persist_m1_effective_rates_result,
     persist_m2_taylor_gaps_result,
     persist_m4_fci_result,
+    persist_many_monetary_results,
 )
+from sonar.indices.base import IndexResult
 from sonar.indices.monetary.m1_effective_rates import M1EffectiveRatesResult
 from sonar.indices.monetary.m2_taylor_gaps import M2TaylorGapsResult
 from sonar.indices.monetary.m4_fci import M4FciResult
+from sonar.indices.monetary.orchestrator import MonetaryIndicesResults
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -144,3 +147,64 @@ class TestPersistM4:
             db_session, _m4_result(country_code="DE", fci_provider="CUSTOM_SONAR")
         )
         assert db_session.query(M4Row).count() == 2
+
+
+def _m3() -> IndexResult:
+    return IndexResult(
+        index_code="M3",
+        country_code="US",
+        date=date(2024, 12, 31),
+        methodology_version="M3_MARKET_EXPECTATIONS_v1.0",
+        raw_value=0.02,
+        zscore_clamped=0.5,
+        value_0_100=58.3,
+        confidence=0.7,
+        flags=(),
+    )
+
+
+class TestPersistManyMonetary:
+    def test_m1_m2_m4_in_bundle(self, db_session: Session) -> None:
+        bundle = MonetaryIndicesResults(
+            country_code="US",
+            observation_date=date(2024, 12, 31),
+            m1=_m1_result(),
+            m2=_m2_result(),
+            m4=_m4_result(),
+        )
+        written = persist_many_monetary_results(db_session, bundle)
+        assert written == {"m1": 1, "m2": 1, "m3": 0, "m4": 1}
+        assert db_session.query(M1Row).count() == 1
+        assert db_session.query(M2Row).count() == 1
+        assert db_session.query(M4Row).count() == 1
+
+    def test_m1_plus_m3(self, db_session: Session) -> None:
+        bundle = MonetaryIndicesResults(
+            country_code="US",
+            observation_date=date(2024, 12, 31),
+            m1=_m1_result(),
+        )
+        written = persist_many_monetary_results(db_session, bundle, m3=_m3())
+        assert written == {"m1": 1, "m2": 0, "m3": 1, "m4": 0}
+
+    def test_empty_bundle_returns_zeros(self, db_session: Session) -> None:
+        bundle = MonetaryIndicesResults(country_code="US", observation_date=date(2024, 12, 31))
+        assert persist_many_monetary_results(db_session, bundle) == {
+            "m1": 0,
+            "m2": 0,
+            "m3": 0,
+            "m4": 0,
+        }
+
+    def test_duplicate_in_batch_rolls_back(self, db_session: Session) -> None:
+        persist_m1_effective_rates_result(db_session, _m1_result())
+        bundle = MonetaryIndicesResults(
+            country_code="US",
+            observation_date=date(2024, 12, 31),
+            m1=_m1_result(),
+            m4=_m4_result(),
+        )
+        with pytest.raises(DuplicatePersistError, match="Batch monetary persist"):
+            persist_many_monetary_results(db_session, bundle)
+        # M4 must not have been persisted due to rollback.
+        assert db_session.query(M4Row).count() == 0
