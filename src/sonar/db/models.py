@@ -952,6 +952,110 @@ class E4Sentiment(Base):
     )
 
 
+class M1EffectiveRatesResult(Base):
+    """Row per spec ``M1-effective-rates.md`` §8 — monetary effective rates index."""
+
+    __tablename__ = "monetary_m1_effective_rates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    policy_rate_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    shadow_rate_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    real_rate_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    r_star_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_m1_score_normalized"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_m1_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_m1_cdm"),
+        Index("idx_m1_cd", "country_code", "date"),
+    )
+
+
+class M2TaylorGapsResult(Base):
+    """Row per spec ``M2-taylor-gaps.md`` §8 — Taylor-rule gap index."""
+
+    __tablename__ = "monetary_m2_taylor_gaps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    taylor_implied_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    taylor_gap_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    taylor_uncertainty_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    r_star_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    output_gap_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    variants_computed: Mapped[int] = mapped_column(Integer, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_m2_score_normalized"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_m2_confidence"),
+        CheckConstraint("variants_computed BETWEEN 1 AND 4", name="ck_m2_variants_computed"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_m2_cdm"),
+        Index("idx_m2_cd", "country_code", "date"),
+    )
+
+
+class M4FciResult(Base):
+    """Row per spec ``M4-fci.md`` §8 — financial conditions index."""
+
+    __tablename__ = "monetary_m4_fci"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    fci_level: Mapped[float] = mapped_column(Float, nullable=False)
+    fci_change_12m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fci_provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    fci_components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_m4_score_normalized"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_m4_confidence"),
+        CheckConstraint(
+            "fci_provider IN ('NFCI_CHICAGO','CUSTOM_SONAR','IMF_GFSR')",
+            name="ck_m4_fci_provider",
+        ),
+        CheckConstraint("components_available BETWEEN 1 AND 7", name="ck_m4_components_available"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_m4_cdm"),
+        Index("idx_m4_cd", "country_code", "date"),
+    )
+
+
 # === Indices models end ===
 
 
