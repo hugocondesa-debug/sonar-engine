@@ -33,7 +33,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
 
       - name: Install uv
         uses: astral-sh/setup-uv@v2
@@ -68,7 +67,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
       - name: Install uv
         uses: astral-sh/setup-uv@v2
@@ -99,7 +97,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
 
       - name: Install uv
         uses: astral-sh/setup-uv@v2
@@ -140,9 +137,7 @@ jobs:
         continue-on-error: true  # warn, don't fail build (handle via Dependabot)
 
       - name: detect-secrets
-        run: |
-          pip install detect-secrets
-          detect-secrets scan --baseline .secrets.baseline
+        run: detect-secrets scan --baseline .secrets.baseline
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
