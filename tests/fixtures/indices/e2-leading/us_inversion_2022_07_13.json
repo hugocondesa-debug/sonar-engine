@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "fixture_id": "us_inversion_2022_07_13",
+    "regime": "Deepest 10Y-2Y inversion of post-1981 cycle",
+    "source": "FRED DGS2=3.14% DGS10=2.93% (2022-07-13)",
+    "methodology_version": "E2_LEADING_SLOPE_v0.1"
+  },
+  "input": {
+    "country_code": "US",
+    "observation_date": "2022-07-13",
+    "spot_2y_bps": 314,
+    "spot_10y_bps": 293,
+    "forward_2y1y_bps": 280,
+    "nss_confidence": 0.85,
+    "nss_flags": [],
+    "history_regime": "synthetic 5Y pre-inversion mean +80 bps"
+  },
+  "expected": {
+    "slope_10y_2y_bps": -21,
+    "value_0_100_range": [0, 35],
+    "flags_contains": ["SLOPE_INVERTED"]
+  }
+}

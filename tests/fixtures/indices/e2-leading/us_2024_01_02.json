@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "fixture_id": "us_2024_01_02",
+    "regime": "post-hike cycle, curve still inverted (10Y < 2Y)",
+    "source": "FRED H.15 DGS2 + DGS10 close 2024-01-02 (curve: 2Y=4.33%, 10Y=3.95%)",
+    "methodology_version": "E2_LEADING_SLOPE_v0.1"
+  },
+  "input": {
+    "country_code": "US",
+    "observation_date": "2024-01-02",
+    "spot_2y_bps": 433,
+    "spot_10y_bps": 395,
+    "forward_2y1y_bps": 380,
+    "nss_confidence": 0.85,
+    "nss_flags": [],
+    "history_regime": "synthetic 5Y normal curve pre-inversion; mean slope ~+60 bps"
+  },
+  "expected": {
+    "slope_10y_2y_bps": -38,
+    "value_0_100_range": [0, 35],
+    "flags_contains": ["SLOPE_INVERTED"]
+  }
+}

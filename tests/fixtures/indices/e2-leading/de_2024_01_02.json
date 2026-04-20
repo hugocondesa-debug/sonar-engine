@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "fixture_id": "de_2024_01_02",
+    "regime": "Bund curve near flat, slightly positive slope",
+    "source": "Bundesbank Svensson 2024-01-02 close (curve: 2Y=2.45%, 10Y=2.07%)",
+    "methodology_version": "E2_LEADING_SLOPE_v0.1"
+  },
+  "input": {
+    "country_code": "DE",
+    "observation_date": "2024-01-02",
+    "spot_2y_bps": 245,
+    "spot_10y_bps": 207,
+    "forward_2y1y_bps": 205,
+    "nss_confidence": 0.80,
+    "nss_flags": [],
+    "history_regime": "synthetic 5Y mean slope ~+50 bps"
+  },
+  "expected": {
+    "slope_10y_2y_bps": -38,
+    "value_0_100_range": [0, 40],
+    "flags_contains": ["SLOPE_INVERTED"]
+  }
+}
