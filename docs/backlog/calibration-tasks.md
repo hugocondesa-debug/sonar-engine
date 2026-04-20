@@ -744,6 +744,48 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** F4 full 5-component live path; removes OVERLAY_MISS
   baseline flag from US F4 snapshots.
 
+### CAL-092 — FRED ISM/NFIB delisted series fallback connectors (OPEN)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 5 Sprint 2a Commit 3 live probes confirmed FRED no
+  longer serves ``NAPM`` (ISM Mfg PMI), ``NAPMII`` (ISM Svc PMI) or any
+  ``NFIB`` series. Helpers now raise :class:`DataUnavailableError` with
+  a canonical message so builders can emit spec flags.
+- **Scope:** Implement direct ISM scraper (``connectors/ism.py`` per
+  CAL-082) and NFIB scraper (new ``connectors/nfib.py``). Route around
+  the delisted FRED IDs in the builders once the scrapers land.
+- **Surfaced from:** Week 5 Sprint 2a Commit 3.
+- **Unblocks:** E1 US ``pmi_composite``, E4 US
+  ``ism_manufacturing`` / ``ism_services`` / ``nfib_small_business``.
+
+### CAL-093 — Conference Board Consumer Confidence live feed (OPEN)
+
+- **Priority:** LOW
+- **Trigger:** Sprint 2a Commit 3: ``CONCCONF`` is not a FRED id. We
+  substituted OECD composite consumer-confidence indicator
+  ``CSCICP03USM665S`` which OECD discontinued at 2024-01. Values are
+  usable historically but freeze going forward; E4 builder should emit
+  ``CB_CONFIDENCE_STALE`` once data ages past a threshold.
+- **Scope:** Identify a live public feed (Nasdaq Data Link, scrape
+  conference-board.org, etc.) and switch the ``fetch_conference_
+  board_confidence_us`` helper. Optionally add staleness flag logic.
+- **Surfaced from:** Week 5 Sprint 2a Commit 3.
+
+### CAL-094 — Eurostat namq_10_pe gap for PT employment (OPEN)
+
+- **Priority:** LOW
+- **Trigger:** Sprint 2a Commit 5 live smoke discovered
+  ``namq_10_pe/Q.THS_PER.SCA.EMP_DC.PT`` returns zero observations —
+  Eurostat does not publish seasonally+calendar adjusted domestic-
+  concept employment for PT. DE works; PT doesn't. Consequence: PT
+  E1 typically lands at 3/6 components and raises
+  :class:`InsufficientDataError`.
+- **Scope:** Evaluate alternative Eurostat keys (NSA/SA variants,
+  ``lfsq_egan``) or fall back to the national statistical office (INE)
+  for PT employment. Same investigation applies for IT/ES/FR/NL where
+  namq_10_pe may also gap.
+- **Surfaced from:** Week 5 Sprint 2a Commit 5.
+
 ### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced)
 
 - **Priority:** MEDIUM
