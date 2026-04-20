@@ -12,14 +12,17 @@ upsert. Phase 2+ may introduce a ``mode="overwrite"`` flag.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import structlog
 from sqlalchemy.exc import IntegrityError
 
 from sonar.db.models import (
     ERPCAPE,
     ERPDCF,
     ERPEY,
+    BisCreditRaw,
     CreditGdpGap,
     CreditGdpStock,
     CreditImpulse,
@@ -36,6 +39,8 @@ from sonar.db.models import (
 )
 from sonar.overlays.erp import G_SUSTAINABLE_CAP
 from sonar.overlays.rating_spread import _compute_confidence
+
+log = structlog.get_logger()
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -659,3 +664,99 @@ def persist_many_credit_results(session: Session, results: CreditIndicesResults)
             raise DuplicatePersistError(err) from e
         raise
     return written
+
+
+# =============================================================================
+# BIS ingestion (CAL-058) — upsert with revision detection
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class BisRawObservation:
+    """Normalized BIS observation ready for persistence.
+
+    Unit descriptors per dataflow: WS_TC → ``pct_gdp``, WS_DSR →
+    ``dsr_pct``, WS_CREDIT_GAP → ``gap_pp``. ``fetch_response_hash`` is
+    sha256 of the raw BIS response body, used for revision detection on
+    re-fetch (see :func:`persist_bis_raw_observations`).
+    """
+
+    country_code: str
+    date: date
+    dataflow: str
+    value_raw: float
+    unit_descriptor: str
+    fetch_response_hash: str | None
+
+
+def persist_bis_raw_observations(
+    session: Session,
+    observations: Iterable[BisRawObservation],
+) -> dict[str, int]:
+    """Idempotent upsert of BIS observations into ``bis_credit_raw``.
+
+    For each observation:
+
+    * If no existing row for (country, date, dataflow) → INSERT (counts as new).
+    * If row exists and hash matches → skip silently (counts as skipped).
+    * If row exists and hash differs → UPDATE value_raw +
+      fetch_response_hash + fetched_at; counts as updated. A
+      BIS_DATA_REVISION warning is logged so operators can trace
+      provider revisions.
+
+    Transaction: commits at end. On :class:`IntegrityError` rolls back
+    and re-raises (callers do not typically see dup errors because we
+    pre-check via SELECT; any IntegrityError would indicate a race).
+
+    Returns ``{"new": int, "skipped": int, "updated": int}``.
+    """
+    counts = {"new": 0, "skipped": 0, "updated": 0}
+    obs_list = list(observations)
+    if not obs_list:
+        return counts
+
+    for obs in obs_list:
+        existing = (
+            session.query(BisCreditRaw)
+            .filter(
+                BisCreditRaw.country_code == obs.country_code,
+                BisCreditRaw.date == obs.date,
+                BisCreditRaw.dataflow == obs.dataflow,
+            )
+            .one_or_none()
+        )
+        if existing is None:
+            session.add(
+                BisCreditRaw(
+                    country_code=obs.country_code,
+                    date=obs.date,
+                    dataflow=obs.dataflow,
+                    value_raw=obs.value_raw,
+                    unit_descriptor=obs.unit_descriptor,
+                    fetch_response_hash=obs.fetch_response_hash,
+                )
+            )
+            counts["new"] += 1
+            continue
+        if existing.fetch_response_hash == obs.fetch_response_hash:
+            counts["skipped"] += 1
+            continue
+        # Revision detected — update in place, surface via log.
+        log.warning(
+            "bis.data_revision",
+            country=obs.country_code,
+            date=obs.date.isoformat(),
+            dataflow=obs.dataflow,
+            old_value=existing.value_raw,
+            new_value=obs.value_raw,
+        )
+        existing.value_raw = obs.value_raw
+        existing.fetch_response_hash = obs.fetch_response_hash
+        existing.unit_descriptor = obs.unit_descriptor
+        counts["updated"] += 1
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise
+    return counts
