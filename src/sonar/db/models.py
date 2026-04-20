@@ -375,3 +375,156 @@ class RatingsSpreadCalibration(Base):
         ),
         Index("idx_rsc_notch", "sonar_notch_int", "calibration_date"),
     )
+
+
+# === ERP models begin ===
+# Spec docs/specs/overlays/erp-daily.md §8. Decimal storage per units.md;
+# *_bps columns integer per units.md §Spreads.
+
+
+class ERPDCF(Base):
+    __tablename__ = "erp_dcf"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    erp_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    implied_r_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    earnings_growth_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    terminal_growth_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_dcf_confidence"),
+        UniqueConstraint("market_index", "date", "methodology_version", name="uq_erp_dcf_mdm"),
+        Index("idx_erp_dcf_md", "market_index", "date"),
+    )
+
+
+class ERPGordon(Base):
+    __tablename__ = "erp_gordon"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    erp_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    dividend_yield_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    buyback_yield_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    g_sustainable_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_gordon_confidence"),
+        UniqueConstraint("market_index", "date", "methodology_version", name="uq_erp_gordon_mdm"),
+        Index("idx_erp_gordon_md", "market_index", "date"),
+    )
+
+
+class ERPEY(Base):
+    __tablename__ = "erp_ey"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    erp_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    forward_pe: Mapped[float] = mapped_column(Float, nullable=False)
+    forward_earnings: Mapped[float] = mapped_column(Float, nullable=False)
+    index_level: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_ey_confidence"),
+        UniqueConstraint("market_index", "date", "methodology_version", name="uq_erp_ey_mdm"),
+        Index("idx_erp_ey_md", "market_index", "date"),
+    )
+
+
+class ERPCAPE(Base):
+    __tablename__ = "erp_cape"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    erp_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    cape_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    real_risk_free_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    real_earnings_10y_avg: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_cape_confidence"),
+        UniqueConstraint("market_index", "date", "methodology_version", name="uq_erp_cape_mdm"),
+        Index("idx_erp_cape_md", "market_index", "date"),
+    )
+
+
+class ERPCanonical(Base):
+    __tablename__ = "erp_canonical"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    erp_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_median_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    erp_range_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    methods_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    erp_dcf_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    erp_gordon_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    erp_ey_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    erp_cape_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forward_eps_divergence_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    xval_deviation_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_canonical_confidence"),
+        CheckConstraint("methods_available BETWEEN 1 AND 4", name="ck_erp_canonical_methods"),
+        UniqueConstraint("erp_id", name="uq_erp_canonical_erp_id"),
+        UniqueConstraint(
+            "market_index", "date", "methodology_version", name="uq_erp_canonical_mdm"
+        ),
+        Index("idx_erp_canonical_md", "market_index", "date"),
+    )
+
+
+# === ERP models end ===
+
+
+# === Indices models begin ===
+# Reserved for parallel L3 indices brief. Do not append ERP models below this
+# bookmark; do not modify beyond appending new Indices ORM classes inside.
+# === Indices models end ===
