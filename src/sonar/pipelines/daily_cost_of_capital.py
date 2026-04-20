@@ -1,17 +1,24 @@
-"""L6 primitive — daily cost-of-capital per country (Week 3.5F).
+"""L6 primitive — daily cost-of-capital per country.
 
 Composes ``k_e(country) = rf_local_10Y + beta * ERP_mature + CRP(country)``
 with ``beta = 1.0`` stub (Phase 2 refinement).
 
-Week 3.5 scope: compute for 7 T1 countries (US/DE/PT/IT/ES/FR/NL) using
-Week 3.5C vol_ratio + existing CRP compute + a Damodaran-standard
-mature ERP (5.5%) placeholder until the full ERP overlay (3.5B) lands.
-Persist to ``cost_of_capital_daily``.
+Scope: compute for 7 T1 countries (US/DE/PT/IT/ES/FR/NL). CRP comes from
+Week 3.5C vol_ratio + existing CRP compute; ERP comes from the persisted
+``erp_canonical`` row when available (US ships live ERP from erp-us c8
+onward). Non-US countries proxy the US ERP with a ``MATURE_ERP_PROXY_US``
+flag until per-country ERP overlays land (Week 4+). When no canonical
+row exists for the target (market, date), the pipeline falls back to
+the Damodaran-standard mature ERP 5.5% and emits the ``ERP_STUB`` flag.
 
 CLI:
 
     python -m sonar.pipelines.daily_cost_of_capital --country US --date 2024-01-02
     python -m sonar.pipelines.daily_cost_of_capital --all-t1 --date 2024-01-02
+
+Upstream: run ``daily_erp_us`` (or equivalent) first to populate
+``erp_canonical`` for the target date so this pipeline can read live
+ERP instead of the stub.
 
 Exit codes:
 
@@ -33,7 +40,7 @@ import structlog
 import typer
 from sqlalchemy.exc import IntegrityError
 
-from sonar.db.models import CostOfCapitalDaily, NSSYieldCurveSpot
+from sonar.db.models import CostOfCapitalDaily, ERPCanonical, NSSYieldCurveSpot
 from sonar.db.persistence import DuplicatePersistError
 from sonar.db.session import SessionLocal
 from sonar.overlays.crp import (
@@ -54,15 +61,17 @@ log = structlog.get_logger()
 
 METHODOLOGY_VERSION: str = "K_E_DAILY_v0.1"
 
-# 3.5F interim: Damodaran global mature-market ERP (decimal) — replace
-# once 3.5B lands the real ERP compute.
+# Damodaran global mature-market ERP (decimal) — used only when no
+# persisted erp_canonical row exists for the target market/date. Emits
+# the ERP_STUB flag so consumers know the composition is degraded.
 DAMODARAN_MATURE_ERP_DECIMAL: float = 0.055
 DAMODARAN_MATURE_ERP_BPS: int = round(DAMODARAN_MATURE_ERP_DECIMAL * 10_000)
 
 # Week 3.5F target countries.
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 
-# EUR periphery → DE benchmark; US world → US benchmark (itself).
+# Country → (currency, ERP proxy market_index). US and EA periphery share
+# SPX as the ERP input today — per-country ERP overlays land Week 4+.
 COUNTRY_TO_CURRENCY: dict[str, str] = {
     "US": "USD",
     "DE": "EUR",
@@ -74,6 +83,10 @@ COUNTRY_TO_CURRENCY: dict[str, str] = {
     "UK": "GBP",
     "JP": "JPY",
 }
+
+# All 7 T1 countries currently proxy the SPX canonical ERP. Swap per
+# country as each market's own ERP overlay comes online.
+COUNTRY_TO_ERP_MARKET_INDEX: dict[str, str] = dict.fromkeys(T1_7_COUNTRIES, "SPX")
 
 EXIT_OK = 0
 EXIT_INSUFFICIENT_DATA = 1
@@ -94,6 +107,31 @@ class KEResult:
     k_e_pct: float
     confidence: float
     flags: tuple[str, ...]
+
+
+def _lookup_erp_canonical(
+    session: Session, market_index: str, observation_date: date
+) -> int | None:
+    """Return ``erp_median_bps`` from the most recent canonical row for
+    ``(market_index, <= observation_date)``, or ``None`` if none exists.
+
+    The ``<=`` tolerance is intentional: ERP canonical rows are weekly
+    cadence (Factset + Shiller update weekly / monthly). Consumers at
+    daily cadence need the most recent row; spec §4 step 5.5 handles
+    freshness deductions further upstream.
+    """
+    row = (
+        session.query(ERPCanonical)
+        .filter(
+            ERPCanonical.market_index == market_index,
+            ERPCanonical.date <= observation_date,
+        )
+        .order_by(ERPCanonical.date.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    return int(row.erp_median_bps)
 
 
 def _fetch_nss_10y(session: Session, country_code: str, observation_date: date) -> float:
@@ -132,20 +170,26 @@ def compose_k_e(
     rf_local_decimal: float,
     crp: CRPCanonical,
     erp_mature_bps: int = DAMODARAN_MATURE_ERP_BPS,
+    erp_flags: tuple[str, ...] = (),
     beta: float = 1.0,
 ) -> KEResult:
     """Compose k_e per spec §4 (simplified):
 
     ``k_e = rf_local + beta * ERP_mature + CRP(country)``
 
-    all in decimal internally; convert at persistence boundary.
+    all in decimal internally; convert at persistence boundary. ``erp_flags``
+    are merged into the composite flag set (CRP flags + ERP-provenance
+    flags like ``MATURE_ERP_PROXY_US`` or ``ERP_STUB``).
     """
     crp_decimal = float(crp.crp_canonical_bps) / 10_000.0
     erp_decimal = erp_mature_bps / 10_000.0
     k_e_decimal = rf_local_decimal + beta * erp_decimal + crp_decimal
 
-    flags = tuple(crp.flags) if hasattr(crp, "flags") else ()
+    crp_flags = tuple(crp.flags) if hasattr(crp, "flags") else ()
+    flags = tuple(sorted(set(crp_flags) | set(erp_flags)))
     confidence = float(getattr(crp, "confidence", 1.0))
+    if "ERP_STUB" in flags:
+        confidence = max(0.0, confidence - 0.20)
 
     return KEResult(
         country_code=country_code,
@@ -224,6 +268,28 @@ def persist_k_e(session: Session, result: KEResult) -> None:
         raise
 
 
+def _resolve_erp_bps(
+    session: Session, country_code: str, observation_date: date
+) -> tuple[int, tuple[str, ...]]:
+    """Lookup the mature-market ERP for ``(country, date)``.
+
+    Returns ``(erp_bps, flags)``. Resolution order:
+
+    1. erp_canonical row for country's mapped market_index → use live bps.
+    2. If non-US proxy chain maps to SPX, use SPX canonical → tag
+       MATURE_ERP_PROXY_US (per Week 3.5 scope).
+    3. No canonical row anywhere → Damodaran-standard stub 5.5 %, tag
+       ERP_STUB.
+    """
+    market_index = COUNTRY_TO_ERP_MARKET_INDEX.get(country_code, "SPX")
+    live_bps = _lookup_erp_canonical(session, market_index, observation_date)
+    if live_bps is not None:
+        flags = () if country_code == "US" else ("MATURE_ERP_PROXY_US",)
+        return live_bps, flags
+    # No live canonical available → stub.
+    return DAMODARAN_MATURE_ERP_BPS, ("ERP_STUB",)
+
+
 def run_one(
     session: Session,
     country_code: str,
@@ -243,11 +309,14 @@ def run_one(
         rf_local_decimal=rf_local,
         rf_benchmark_decimal=rf_benchmark,
     )
+    erp_bps, erp_flags = _resolve_erp_bps(session, country_code, observation_date)
     k_e = compose_k_e(
         country_code=country_code,
         observation_date=observation_date,
         rf_local_decimal=rf_local,
         crp=crp,
+        erp_mature_bps=erp_bps,
+        erp_flags=erp_flags,
         beta=beta,
     )
     persist_k_e(session, k_e)
@@ -257,7 +326,9 @@ def run_one(
         date=observation_date.isoformat(),
         k_e_pct=round(k_e.k_e_pct * 100, 2),
         rf_local_pct=round(k_e.rf_local_pct * 100, 2),
+        erp_bps=k_e.erp_mature_bps,
         crp_bps=k_e.crp_bps,
+        flags=list(k_e.flags),
     )
     return k_e
 

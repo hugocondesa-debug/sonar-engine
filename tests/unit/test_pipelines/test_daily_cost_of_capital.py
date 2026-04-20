@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+import sonar.db.session  # noqa: F401 — register fk-on pragma listener
+from sonar.db.models import Base, ERPCanonical
 from sonar.overlays.crp import CRPCanonical, build_canonical, compute_sov_spread
+from sonar.overlays.erp import METHODOLOGY_VERSION_CANONICAL
 from sonar.pipelines.daily_cost_of_capital import (
     COUNTRY_TO_CURRENCY,
     DAMODARAN_MATURE_ERP_BPS,
     DAMODARAN_MATURE_ERP_DECIMAL,
     T1_7_COUNTRIES,
+    _lookup_erp_canonical,
+    _resolve_erp_bps,
     compose_k_e,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.orm import Session
 
 
 def _make_crp(country: str, crp_bps: int, flags: tuple[str, ...] = ()) -> CRPCanonical:
@@ -111,3 +124,137 @@ class TestConstants:
     def test_country_currency_mapping_complete(self) -> None:
         for c in T1_7_COUNTRIES:
             assert c in COUNTRY_TO_CURRENCY
+
+
+@pytest.fixture
+def db_session() -> Iterator[Session]:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _seed_erp_canonical(
+    session: Session,
+    market_index: str = "SPX",
+    observation_date: date = date(2024, 1, 2),
+    erp_median_bps: int = 472,
+) -> None:
+    import uuid  # noqa: PLC0415 — test-local
+
+    row = ERPCanonical(
+        erp_id=str(uuid.uuid4()),
+        market_index=market_index,
+        country_code="US",
+        date=observation_date,
+        methodology_version=METHODOLOGY_VERSION_CANONICAL,
+        erp_median_bps=erp_median_bps,
+        erp_range_bps=50,
+        methods_available=4,
+        erp_dcf_bps=480,
+        erp_gordon_bps=465,
+        erp_ey_bps=455,
+        erp_cape_bps=495,
+        forward_eps_divergence_pct=None,
+        xval_deviation_bps=None,
+        confidence=0.95,
+        flags=None,
+    )
+    session.add(row)
+    session.commit()
+
+
+class TestErpLookup:
+    def test_lookup_returns_none_on_empty_db(self, db_session: Session) -> None:
+        assert _lookup_erp_canonical(db_session, "SPX", date(2024, 1, 2)) is None
+
+    def test_lookup_returns_persisted_value(self, db_session: Session) -> None:
+        _seed_erp_canonical(db_session, erp_median_bps=472)
+        assert _lookup_erp_canonical(db_session, "SPX", date(2024, 1, 2)) == 472
+
+    def test_lookup_returns_most_recent_when_multiple(self, db_session: Session) -> None:
+        _seed_erp_canonical(db_session, observation_date=date(2023, 12, 15), erp_median_bps=400)
+        _seed_erp_canonical(db_session, observation_date=date(2024, 1, 2), erp_median_bps=472)
+        # Querying for 2024-01-10 should return the Jan 2 row (most recent on-or-before).
+        assert _lookup_erp_canonical(db_session, "SPX", date(2024, 1, 10)) == 472
+
+
+class TestResolveErpBps:
+    def test_us_live_has_no_proxy_flag(self, db_session: Session) -> None:
+        _seed_erp_canonical(db_session, erp_median_bps=472)
+        bps, flags = _resolve_erp_bps(db_session, "US", date(2024, 1, 2))
+        assert bps == 472
+        assert flags == ()
+
+    def test_pt_live_gets_proxy_flag(self, db_session: Session) -> None:
+        _seed_erp_canonical(db_session, erp_median_bps=472)
+        bps, flags = _resolve_erp_bps(db_session, "PT", date(2024, 1, 2))
+        assert bps == 472
+        assert flags == ("MATURE_ERP_PROXY_US",)
+
+    def test_no_canonical_falls_back_to_stub(self, db_session: Session) -> None:
+        bps, flags = _resolve_erp_bps(db_session, "US", date(2024, 1, 2))
+        assert bps == DAMODARAN_MATURE_ERP_BPS
+        assert "ERP_STUB" in flags
+
+
+class TestComposeKEIntegratesErpFlags:
+    def test_stub_flag_reduces_confidence(self) -> None:
+        crp = build_canonical(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            currency="USD",
+        )
+        result = compose_k_e(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            rf_local_decimal=0.04,
+            crp=crp,
+            erp_mature_bps=DAMODARAN_MATURE_ERP_BPS,
+            erp_flags=("ERP_STUB",),
+        )
+        assert "ERP_STUB" in result.flags
+        # Base crp confidence 1.0 - 0.20 deduction for stub.
+        assert result.confidence == pytest.approx(0.80)
+
+    def test_proxy_flag_carried_through(self) -> None:
+        crp = _make_crp("PT", 146)
+        result = compose_k_e(
+            country_code="PT",
+            observation_date=date(2024, 1, 2),
+            rf_local_decimal=0.031,
+            crp=crp,
+            erp_mature_bps=472,
+            erp_flags=("MATURE_ERP_PROXY_US",),
+        )
+        assert "MATURE_ERP_PROXY_US" in result.flags
+        # Proxy flag does not deduct confidence (only ERP_STUB does).
+        assert result.confidence == pytest.approx(0.9)
+
+    def test_live_erp_changes_k_e_vs_stub(self) -> None:
+        crp = build_canonical(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            currency="USD",
+        )
+        stub = compose_k_e(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            rf_local_decimal=0.04,
+            crp=crp,
+            erp_mature_bps=DAMODARAN_MATURE_ERP_BPS,  # 550 bps
+        )
+        live = compose_k_e(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            rf_local_decimal=0.04,
+            crp=crp,
+            erp_mature_bps=472,
+        )
+        # 550 - 472 = 78 bps delta → 0.0078 lower k_e with live.
+        assert stub.k_e_pct - live.k_e_pct == pytest.approx(0.0078, abs=1e-5)
