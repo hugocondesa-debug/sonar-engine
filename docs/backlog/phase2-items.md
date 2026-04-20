@@ -302,3 +302,16 @@ returns only the model definitions in `src/sonar/db/models.py` plus
 the migration scripts.
 
 ---
+
+## P2-028: Yardeni Research explicit written consent documentation
+
+**Status**: OPEN
+**Priority**: HIGH (blocker — upgrade if 30 days elapse without documentation)
+**Rationale**: Yardeni Research copyright explicit prohibits reproduction/derivative use without explicit written consent. Hugo undertakes direct email outreach to obtain consent for internal SONAR use (7365 Capital analytical framework). Authorization assumed granted pre-implementation per Hugo decision 2026-04-20; formal paper trail required.
+**Deliverable**: `docs/governance/licensing/yardeni-consent-YYYY-MM-DD.md` with email correspondence excerpt, granted scope, any restrictions, expiration if applicable.
+**Trigger for upgrade**:
+- 30+ days elapse from 2026-04-20 without documentation: → HIGH blocker (rollback Yardeni connector + remove derived data before any consumer boundary).
+- Yardeni denies consent or imposes restrictive terms: → scope reconsideration (FactSet + Damodaran only path, remove Yardeni from ERP spec).
+**Owner**: Hugo.
+
+---

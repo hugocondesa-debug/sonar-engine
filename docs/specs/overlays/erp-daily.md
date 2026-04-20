@@ -24,7 +24,7 @@ Compute daily Equity Risk Premium para **4 mature markets** (US S&P 500, EA STOX
 |---|---|---|---|
 | `index_level` | `float` (EOD close) | FRED `SP500` (US); TE `/markets/historical/{SXXP,FTAS,TPX}:IND` (EA/UK/JP) per Pattern 4 | DCF, EY, CAPE |
 | `trailing_earnings` | `float` | `shiller` (US); `factset_insight` (PDF, others) | CAPE denom, EY anchor |
-| `forward_earnings_est` | `float` | `factset_insight` | DCF, EY |
+| `forward_earnings_est` | `float` | `factset_insight` (primary, weekly PDF) + `yardeni` (secondary, weekly Earnings Squiggles PDF, explicit consent per P2-028) | DCF, EY; dual source enables cross-validation divergence flag |
 | `dividend_yield_pct` | `float` decimal | `multpl` (US); index-provider (EA/UK/JP) | Gordon |
 | `buyback_yield_pct` | `float` decimal | `spdji_buyback` (US quarterly); `NULL` others | Gordon |
 | `cape_ratio` | `float` | computed from `shiller ie_data` (US); synthesized others | CAPE |
@@ -120,6 +120,8 @@ ERP_CAPE  = (1 / CAPE) − real_risk_free
 
    > **Note**: Damodaran cross-validation applies to US market only. EA/UK/JP rows have `xval_deviation_bps = NULL`.
 
+8.5. **Cross-source forward-earnings divergence** (US only, Week 3.5+): when both FactSet and Yardeni forward EPS estimates are fresh (≤ 7 days), compute `forward_eps_divergence_pct = |factset_eps − yardeni_eps| / mean(factset_eps, yardeni_eps)`. Emit flag `ERP_SOURCE_DIVERGENCE` when `> 5%`. Does not affect canonical ERP computation (use FactSet primary); editorial signal only.
+
 9. Persist canonical row.
 
 ## 5. Dependencies
@@ -150,6 +152,7 @@ Flags → [`conventions/flags.md`](../conventions/flags.md). Exceptions → [`co
 | Stored `yield_curves_spot.methodology_version ≠` runtime | raise `VersionMismatchError` | n/a |
 | `FACTSET_URL` / `SPDJI_KEY` ausente no `.env` | raise `MissingSecretError` at startup | n/a |
 | `histimpl.xlsx` connector unavailable OR date.month not in file | `xval_deviation_bps = NULL`; no `XVAL_DRIFT` flag emitted | no impact |
+| `forward_eps_divergence_pct > 5%` (FactSet vs Yardeni, US only) | flag `ERP_SOURCE_DIVERGENCE`; no confidence impact; editorial signal | 0 |
 | Market slug unknown (ex: `"SPX500"` typo) | raise `UnknownConnectorError` | n/a |
 
 ## 7. Test fixtures
@@ -276,6 +279,7 @@ CREATE INDEX idx_erp_canonical_md ON erp_canonical (market_index, date);
   - Gordon M. (1959), "Dividends, Earnings, and Stock Prices", *RES* 41(2).
   - Fama E., French K. (2002), "The Equity Premium", *J. Finance* 57(2).
 - **Cross-validation**: Damodaran `histimpl.xlsx` monthly (US DCF; target < 20 bps); SPF long-run equity return (via `connectors/spf_philly`) como sanity range (< 100 bps face a SPF mean).
+- **Yardeni Research**: Earnings Squiggles methodology (time-weighted consensus current + next year). Weekly PDF publications. **Use requires explicit written consent from Yardeni Research** (P2-028 tracks authorization documentation).
 
 ## 11. Non-requirements
 

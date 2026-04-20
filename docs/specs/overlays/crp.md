@@ -31,11 +31,11 @@ Benchmark country is its own 0-bps anchor (DE CRP = 0; US CRP = 0 for USD-denomi
 | `sov_yield_benchmark_pct` | SOV_SPREAD | `float` | `yield_curves_spot` benchmark row (same tenor) |
 | `consolidated_sonar_notch` | RATING | `float` | `overlays/rating-spread.ratings_consolidated (country, date, rating_type='FC')` |
 | `default_spread_bps` | RATING | `int` | `overlays/rating-spread.ratings_spread_calibration (sonar_notch_int, calibration_date)` |
-| `equity_returns_daily` | vol | `pd.Series` | `connectors/twelvedata` (PSI-20, IBEX, FTSE MIB, BOVESPA, …); 5Y rolling, ≥ 750 obs. **Phase 2+ verify ToS** — twelvedata tier/licensing não validado em D-block. |
-| `bond_returns_daily` | vol | `pd.Series` | `connectors/te` / `yfinance` sovereign long-bond price series; 5Y rolling, ≥ 750 obs. **Phase 2+ verify** — yfinance scrape estability não validado em D-block. |
+| `equity_returns_daily` | vol | `pd.Series` | `connectors/fmp` (S&P 500, DAX, CAC, FTSE, NKY, SXXP, PSI-20, IBEX, FTSE MIB, BOVESPA, ...) — Ultimate tier, 30Y+ historical daily EOD; 5Y rolling window, ≥ 750 obs. |
+| `bond_returns_daily` | vol | `pd.Series` | `connectors/te` sovereign 10Y yield historical — daily yield changes as bond return proxy; 5Y rolling, ≥ 750 obs. |
 | `damodaran_standard_ratio` | vol fallback | `float` | `config/crp.yaml` (default `1.5`) |
 
-> **Connector validation pending (CAL-040)**: `twelvedata` tier/licensing and `yfinance` scrape stability unvalidated in Phase 0 D-block. Week 3 CRP ships with `damodaran_standard_ratio = 1.5` as default vol_ratio until CAL-040 closes; country-specific vol_ratio activates per-country as each connector validates.
+> **vol_ratio activation** (revised 2026-04-20): country-specific `σ_equity / σ_bond` via FMP Ultimate + TE historical yields is the default from Week 3.5 onward. `damodaran_standard_ratio = 1.5` remains fallback when connector unavailable or data insufficient (< 750 obs), flag `CRP_VOL_STANDARD`. Closes CAL-040 (formerly CAL-039 pre-Option-A renumber).
 
 > **WGB validation status**: check `docs/data_sources/credit.md` before Week 3 CRP CDS branch implementation. If unvalidated, Week 3 ships CRP via SOV_SPREAD + RATING branches only; CDS deferred to Week 4.
 
@@ -137,7 +137,7 @@ Benchmark countries (DE, US) → `default_spread = 0` shortcut, flag `CRP_BENCHM
 | `sqlalchemy` | 2.0 | persistence |
 | `pydantic` | 2.6 | output validation |
 
-No network inside the algorithm — CDS/bond/equity series pre-fetched by connectors (`wgb`, `te`, `twelvedata`, `yfinance`).
+No network inside the algorithm — CDS/bond/equity series pre-fetched by connectors (`wgb`, `te`, `fmp`).
 
 ## 6. Edge cases
 
@@ -284,7 +284,7 @@ CREATE INDEX idx_crp_canonical_cd ON crp_canonical (country_code, date);
 ## 10. Reference
 
 - **Methodology**: [`docs/reference/overlays/crp.md`](../../reference/overlays/crp.md) — Manual dos Sub-Modelos Parte IV, caps 10-12.
-- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ CDS scrape WGB + spreads; [`docs/data_sources/financial.md`](../../data_sources/financial.md) § equity/bond volatility; [`data_sources/D2_empirical_validation.md`](../../data_sources/D2_empirical_validation.md) (twelvedata/yfinance não testados).
+- **Data sources**: [`docs/data_sources/credit.md`](../../data_sources/credit.md) §§ CDS scrape WGB + spreads; [`docs/data_sources/financial.md`](../../data_sources/financial.md) § equity/bond volatility (FMP Ultimate + TE historical yields post CAL-040 close).
 - **Architecture**: [`specs/conventions/patterns.md`](../conventions/patterns.md) §Pattern 2 (Hierarchy best-of — CDS > SOV_SPREAD > RATING); [`adr/ADR-0005-country-tiers-classification.md`](../../adr/ADR-0005-country-tiers-classification.md) (CRP applicable T1-T4; T4 é CRP+rating-spread only per ADR-0005 §Decision).
 - **Licensing**: [`governance/LICENSING.md`](../../governance/LICENSING.md) §3 attribution + §4 use case matrix (agency ratings, WGB scrape, CDS sources); Override 3 (agency factual cite + paraphrase rationale).
 - **Proxies**: [`specs/conventions/proxies.md`](../conventions/proxies.md) — CDS rating-implied fallback registrado; vol_ratio Damodaran standard placeholder.

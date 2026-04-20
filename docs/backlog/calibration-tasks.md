@@ -228,7 +228,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-040 — Equity/bond vol data source validation
 
-- **Priority:** MEDIUM
+- **Priority:** MEDIUM → CLOSED 2026-04-20
 - **Trigger:** Week 3 CRP (vol_ratio country-specific branch)
 - **Scope:** Validate `twelvedata` (equity index daily 5Y history,
   Tier/licensing review) and `yfinance` (bond ETF price series, scrape
@@ -237,6 +237,12 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   standard 1.5 permanent.
 - **Blocker for:** CRP country-specific vol_ratio Week 3+; CRP ships
   with `damodaran_standard=1.5` interim.
+- **Status**: CLOSED 2026-04-20 — resolved via FMP Ultimate (equity
+  historical) + TE historical yields (bond vol proxy) pivot. Neither
+  twelvedata nor yfinance needed. Country-specific vol_ratio
+  activates Week 3.5. (Note: brief `spec-sweep-crp-erp-brief.md`
+  referenced this entry as `CAL-039` reflecting its pre-Option-A-
+  renumber label; actual ID post-renumber is CAL-040.)
 
 ### CAL-041 — CRP distress CDS threshold calibration
 
@@ -285,6 +291,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   EA/UK/JP follow as connectors green-light.
 - **Blocker for:** L6 cost-of-capital pipeline; integration tests
   asserting `k_e = rf + β·ERP + CRP`.
+- **Unblock update 2026-04-20**: FactSet PDF scrape path confirmed
+  tractable + Yardeni secondary source enabled (P2-028 consent
+  path). multpl + spdji scrapers risk-accepted per Hugo. Week 3.5
+  Sub-sprint 3.5B implements full 4-method ERP US.
 
 ### CAL-045 — Treasury connectors aft_france / mef_italy (Week 3 deferred)
 
