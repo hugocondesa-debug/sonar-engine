@@ -20,6 +20,7 @@ from sonar.db.models import (
     ERPCAPE,
     ERPDCF,
     ERPEY,
+    Dsr,
     ERPCanonical,
     ERPGordon,
     IndexValue,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from sonar.indices.base import IndexResult
+    from sonar.indices.credit.l4_dsr import DsrResult
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
@@ -447,6 +449,54 @@ def persist_erp_fit_result(
             err = (
                 f"ERP fit already persisted: market={result.market_index}, "
                 f"date={result.observation_date}, erp_id={result.erp_id}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_dsr_row(result: DsrResult) -> Dsr:
+    return Dsr(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        segment=result.segment,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        dsr_pct=result.dsr_pct,
+        dsr_deviation_pp=result.dsr_deviation_pp,
+        lending_rate_pct=result.lending_rate_pct,
+        avg_maturity_years=result.avg_maturity_years,
+        debt_to_gdp_ratio=result.debt_to_gdp_ratio,
+        annuity_factor=result.annuity_factor,
+        formula_mode=result.formula_mode,
+        band=result.band,
+        denominator=result.denominator,
+        components_json=result.components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_dsr_result(session: Session, result: DsrResult) -> None:
+    """Persist a single L4 DSR row atomically.
+
+    Re-persisting the same ``(country_code, date, methodology_version,
+    segment)`` quadruple raises :class:`DuplicatePersistError` and the
+    transaction rolls back.
+    """
+    row = _to_dsr_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"DSR row already persisted: country={result.country_code}, "
+                f"date={result.date}, segment={result.segment}, "
+                f"version={result.methodology_version}"
             )
             raise DuplicatePersistError(err) from e
         raise
