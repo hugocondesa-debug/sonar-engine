@@ -22,6 +22,7 @@ from sonar.db.models import (
     ERPEY,
     CreditGdpGap,
     CreditGdpStock,
+    CreditImpulse,
     Dsr,
     ERPCanonical,
     ERPGordon,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from sonar.indices.base import IndexResult
     from sonar.indices.credit.l1_credit_gdp_stock import CreditGdpStockResult
     from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapResult
+    from sonar.indices.credit.l3_credit_impulse import CreditImpulseResult
     from sonar.indices.credit.l4_dsr import DsrResult
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
@@ -575,6 +577,48 @@ def persist_credit_gdp_gap_result(session: Session, result: CreditGdpGapResult) 
             err = (
                 f"L2 row already persisted: country={result.country_code}, "
                 f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_credit_impulse_row(result: CreditImpulseResult) -> CreditImpulse:
+    return CreditImpulse(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        segment=result.segment,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        impulse_pp=result.impulse_pp,
+        flow_t_lcu=result.flow_t_lcu,
+        flow_t_minus4_lcu=result.flow_t_minus4_lcu,
+        delta_flow_lcu=result.delta_flow_lcu,
+        gdp_t_minus4_lcu=result.gdp_t_minus4_lcu,
+        series_variant=result.series_variant,
+        smoothing=result.smoothing,
+        state=result.state,
+        components_json=result.components_json,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_credit_impulse_result(session: Session, result: CreditImpulseResult) -> None:
+    """Persist a single L3 ``credit_impulse`` row atomically (segment-aware)."""
+    row = _to_credit_impulse_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"L3 row already persisted: country={result.country_code}, "
+                f"date={result.date}, segment={result.segment}, "
+                f"version={result.methodology_version}"
             )
             raise DuplicatePersistError(err) from e
         raise
