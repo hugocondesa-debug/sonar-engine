@@ -858,6 +858,100 @@ class FinancialPositioning(Base):
     )
 
 
+class E1Activity(Base):
+    """Row per spec ``E1-activity.md`` §8 — coincident activity index."""
+
+    __tablename__ = "idx_economic_e1_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connectors: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_e1_score_normalized"),
+        CheckConstraint("components_available BETWEEN 4 AND 6", name="ck_e1_components_available"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_e1_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_e1_cdm"),
+        Index("idx_e1_cd", "country_code", "date"),
+    )
+
+
+class E3Labor(Base):
+    """Row per spec ``E3-labor.md`` §8 — labor market depth index."""
+
+    __tablename__ = "idx_economic_e3_labor"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    sahm_triggered: Mapped[int] = mapped_column(Integer, nullable=False)
+    sahm_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connectors: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_e3_score_normalized"),
+        CheckConstraint("sahm_triggered IN (0, 1)", name="ck_e3_sahm_triggered"),
+        CheckConstraint("components_available BETWEEN 6 AND 10", name="ck_e3_components_available"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_e3_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_e3_cdm"),
+        Index("idx_e3_cd", "country_code", "date"),
+        Index("idx_e3_sahm", "country_code", "sahm_triggered", "date"),
+    )
+
+
+class E4Sentiment(Base):
+    """Row per spec ``E4-sentiment.md`` §8 — sentiment + expectations index."""
+
+    __tablename__ = "idx_economic_e4_sentiment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connectors: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_e4_score_normalized"),
+        CheckConstraint("components_available BETWEEN 6 AND 13", name="ck_e4_components_available"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_e4_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_e4_cdm"),
+        Index("idx_e4_cd", "country_code", "date"),
+    )
+
+
 # === Indices models end ===
 
 
