@@ -565,4 +565,165 @@ class IndexValue(Base):
     )
 
 
+# Credit L1-L4 dedicated tables per docs/specs/indices/credit/<L>-*.md §8.
+# Migration 009. NOT polymorphic index_values — CCCS sub-indices have
+# substantially different extra columns (L4 has 11 extras incl.
+# annuity_factor + formula_mode + band + denominator).
+
+
+class CreditGdpStock(Base):
+    __tablename__ = "credit_to_gdp_stock"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    series_variant: Mapped[str] = mapped_column(String(2), nullable=False)
+    gdp_vintage_mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    structural_band: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("series_variant IN ('Q', 'F')", name="ck_l1_cgs_series_variant"),
+        CheckConstraint(
+            "gdp_vintage_mode IN ('production', 'backtest')", name="ck_l1_cgs_vintage_mode"
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_l1_cgs_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_l1_cgs_cdm"),
+        Index("idx_l1_cgs_cd", "country_code", "date"),
+    )
+
+
+class CreditGdpGap(Base):
+    __tablename__ = "credit_to_gdp_gap"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    gap_hp_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    gap_hamilton_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    trend_gdp_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    hp_lambda: Mapped[int] = mapped_column(Integer, nullable=False, server_default="400000")
+    hamilton_horizon_q: Mapped[int] = mapped_column(Integer, nullable=False, server_default="8")
+    concordance: Mapped[str] = mapped_column(String(16), nullable=False)
+    phase_band: Mapped[str] = mapped_column(String(16), nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "concordance IN ('both_above','both_below','divergent')",
+            name="ck_l2_cgg_concordance",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_l2_cgg_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_l2_cgg_cdm"),
+        Index("idx_l2_cgg_cd", "country_code", "date"),
+    )
+
+
+class CreditImpulse(Base):
+    __tablename__ = "credit_impulse"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    segment: Mapped[str] = mapped_column(String(4), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    impulse_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    flow_t_lcu: Mapped[float] = mapped_column(Float, nullable=False)
+    flow_t_minus4_lcu: Mapped[float] = mapped_column(Float, nullable=False)
+    delta_flow_lcu: Mapped[float] = mapped_column(Float, nullable=False)
+    gdp_t_minus4_lcu: Mapped[float] = mapped_column(Float, nullable=False)
+    series_variant: Mapped[str] = mapped_column(String(2), nullable=False)
+    smoothing: Mapped[str] = mapped_column(String(4), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("segment IN ('PNFS','HH','NFC')", name="ck_l3_ci_segment"),
+        CheckConstraint("series_variant IN ('Q','F')", name="ck_l3_ci_series_variant"),
+        CheckConstraint("smoothing IN ('raw','ma4')", name="ck_l3_ci_smoothing"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_l3_ci_confidence"),
+        UniqueConstraint(
+            "country_code",
+            "date",
+            "methodology_version",
+            "segment",
+            name="uq_l3_ci_cdms",
+        ),
+        Index("idx_l3_ci_cd", "country_code", "date"),
+    )
+
+
+class Dsr(Base):
+    __tablename__ = "dsr"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    segment: Mapped[str] = mapped_column(String(4), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    dsr_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    dsr_deviation_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    lending_rate_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_maturity_years: Mapped[float] = mapped_column(Float, nullable=False)
+    debt_to_gdp_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    annuity_factor: Mapped[float] = mapped_column(Float, nullable=False)
+    formula_mode: Mapped[str] = mapped_column(String(4), nullable=False)
+    band: Mapped[str] = mapped_column(String(16), nullable=False)
+    denominator: Mapped[str] = mapped_column(String(32), nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("segment IN ('PNFS','HH','NFC')", name="ck_l4_dsr_segment"),
+        CheckConstraint("formula_mode IN ('full','o2','o1')", name="ck_l4_dsr_formula_mode"),
+        CheckConstraint("band IN ('baseline','alert','critical')", name="ck_l4_dsr_band"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_l4_dsr_confidence"),
+        UniqueConstraint(
+            "country_code",
+            "date",
+            "methodology_version",
+            "segment",
+            name="uq_l4_dsr_cdms",
+        ),
+        Index("idx_l4_dsr_cd", "country_code", "date"),
+    )
+
+
 # === Indices models end ===
