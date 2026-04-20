@@ -42,13 +42,13 @@ jobs:
         run: uv pip install --system -e ".[dev]"
 
       - name: Ruff check
-        run: ruff check sonar tests
+        run: ruff check src/sonar tests
 
       - name: Ruff format (check only)
-        run: ruff format --check sonar tests
+        run: ruff format --check src/sonar tests
 
       - name: MyPy
-        run: mypy sonar
+        run: mypy src/sonar
 
   # ==========================================================================
   # Unit tests — mocked, fast, per Python version

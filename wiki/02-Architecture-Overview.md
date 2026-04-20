@@ -1,6 +1,6 @@
 # 02 · Architecture Overview
 
-Short summary of the SONAR architecture. Full technical architecture in [docs/ARCHITECTURE.md](https://github.com/hugocondesa-debug/sonar/blob/main/docs/ARCHITECTURE.md).
+Short summary of the SONAR architecture. Full technical architecture in [docs/ARCHITECTURE.md](https://github.com/hugocondesa-debug/sonar-engine/blob/main/docs/ARCHITECTURE.md).
 
 ## Five layers
 
@@ -78,6 +78,6 @@ Schema v18 com tables por layer:
 
 ---
 
-*Full architecture: [docs/ARCHITECTURE.md](https://github.com/hugocondesa-debug/sonar/blob/main/docs/ARCHITECTURE.md)*
+*Full architecture: [docs/ARCHITECTURE.md](https://github.com/hugocondesa-debug/sonar-engine/blob/main/docs/ARCHITECTURE.md)*
 
 *Next: [03 · Four Cycles](03-Four-Cycles)*

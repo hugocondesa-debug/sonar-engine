@@ -34,8 +34,8 @@ Se chegaste aqui a partir de uma coluna "A Equação" ou comunicação 7365 Capi
 Se vais trabalhar no código:
 
 - [Development Guide](07-Development-Guide) — como começar
-- [Coding Standards](https://github.com/hugocondesa-debug/sonar/blob/main/docs/CODING_STANDARDS.md) — conventions
-- [Architecture Decision Records](https://github.com/hugocondesa-debug/sonar/tree/main/docs/architecture/adr) — why things are the way they are
+- [Coding Standards](https://github.com/hugocondesa-debug/sonar-engine/blob/main/docs/CODING_STANDARDS.md) — conventions
+- [Architecture Decision Records](https://github.com/hugocondesa-debug/sonar-engine/tree/main/docs/architecture/adr) — why things are the way they are
 
 ---
 
@@ -63,7 +63,7 @@ Se vais trabalhar no código:
 ## Contact
 
 - **Maintainer**: Hugo, 7365 Capital
-- **Issues**: [GitHub Issues](https://github.com/hugocondesa-debug/sonar/issues)
+- **Issues**: [GitHub Issues](https://github.com/hugocondesa-debug/sonar-engine/issues)
 - **Editorial**: "A Equação" (Substack)
 
 ---

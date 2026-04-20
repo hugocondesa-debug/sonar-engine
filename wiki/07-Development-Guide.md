@@ -16,7 +16,7 @@ Guia prático para contribuir ao SONAR. Ver também [CODING_STANDARDS.md](../doc
 
 ```bash
 # 1. Clone do repo
-gh repo clone hugocondesa-debug/sonar
+gh repo clone hugocondesa-debug/sonar-engine
 cd sonar
 
 # 2. Virtual environment
