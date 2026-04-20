@@ -56,6 +56,9 @@ repos:
           - httpx>=0.27
           - tenacity>=9.0
           - structlog>=24.0
+          - numpy>=1.26
+          - scipy>=1.13
+          - statsmodels>=0.14
         args: [--config-file=pyproject.toml]
         exclude: ^(tests/|scripts/|notebooks/|docs/)
 
