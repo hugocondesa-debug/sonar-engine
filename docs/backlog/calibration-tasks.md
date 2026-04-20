@@ -244,6 +244,39 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   referenced this entry as `CAL-039` reflecting its pre-Option-A-
   renumber label; actual ID post-renumber is CAL-040.)
 
+### CAL-019 — BIS WS_TC key unit code debug (CLOSED 2026-04-20)
+
+- **Priority:** HIGH → **CLOSED 2026-04-20** via credit-indices-brief-v3
+  Commit 1.
+- **Note on ID collision:** the table row at top of this file under
+  "60m per country / credit phase bands" also carries the label CAL-019
+  referencing phase bands in `indices/credit/README.md:139`. That is a
+  pre-existing ID re-use (doc inconsistency surfaced during Phase 0
+  Bloco D). The WS_TC key-debug usage documented here is the one
+  referenced by `docs/data_sources/credit.md` (pre-2026-04-20 §3.1
+  Finding D1-T2) and by CAL-053. Phase-bands CAL-019 remains open.
+- **Trigger (original, 2026-04-18):** BIS WS_TC smoke test
+  `Q.PT.P.M.770A` returned 404 across all T1 countries tested;
+  key format hypothesised deprecated but not resolved.
+- **Scope (resolved):** hit BIS structure endpoint
+  `GET /structure/dataflow/BIS/WS_TC?references=all&detail=full`,
+  parse `BIS_TOTAL_CREDIT(2.0)` dimension list, resolve
+  `UNIT_TYPE=770` (Percentage of GDP) and discover 7-dim key
+  (vs the broken 5-dim key): FREQ.BORROWERS_CTY.TC_BORROWERS.
+  TC_LENDERS.VALUATION.UNIT_TYPE.TC_ADJUST.
+- **Resolution (2026-04-20)**: canonical key for L1 consumers is
+  `Q.{CTY}.P.A.M.770.A`. Empirical 7/7 T1 HTTP 200 on
+  US/DE/PT/IT/ES/FR/NL with plausible credit-to-GDP values (US 147%,
+  NL 285%, IT 98% range). `docs/data_sources/credit.md` §3.1 amended.
+  Structure response cached
+  `tests/fixtures/bis/ws_tc_structure.json`. Bonus: validated
+  WS_DSR 3-dim key `Q.{CTY}.P` and WS_CREDIT_GAP 5-dim key
+  `Q.{CTY}.P.A.{CG_DTYPE}` (CG_DTYPE=C → gap) for the same 7 T1
+  countries in the same commit.
+- **Unblocks (closed):** CAL-053 (BIS connector) can proceed;
+  CAL-052 resolution remains a Hugo decision but data layer is no
+  longer a blocker.
+
 ### CAL-041 — CRP distress CDS threshold calibration
 
 - **Priority:** LOW
@@ -276,25 +309,22 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CSV subscription ToS review).
 - **Blocker for:** UK/JP/EM ExpInf coverage Week 4+.
 
-### CAL-044 — ERP overlay implementation (Week 3 deferred)
+### CAL-044 — ERP overlay implementation (Week 3 deferred → CLOSED Week 3.5B-equivalent via ERP US brief)
 
-- **Priority:** HIGH
-- **Trigger:** Week 3 brief §1 ERP scope was partially implemented
-  but not completed in this session — needs FactSet PDF scrape,
-  multpl + spdji web scrapers, and the 4-method DCF/Gordon/EY/CAPE
-  compute layer with Damodaran xval. Migration 005 used by CRP
-  instead; ERP migration becomes 006.
-- **Scope:** All Week 3 brief items 3B-1 through 3B-6 + the
-  damodaran_annual_historical seeding source. Connector validation
-  (CAL-036 TE for EA SXXP, CAL-040 multpl/yfinance) gates parts of
-  this — accept graceful degradation: ship US 4-method first;
-  EA/UK/JP follow as connectors green-light.
-- **Blocker for:** L6 cost-of-capital pipeline; integration tests
-  asserting `k_e = rf + β·ERP + CRP`.
-- **Unblock update 2026-04-20**: FactSet PDF scrape path confirmed
-  tractable + Yardeni secondary source enabled (P2-028 consent
-  path). multpl + spdji scrapers risk-accepted per Hugo. Week 3.5
-  Sub-sprint 3.5B implements full 4-method ERP US.
+- **Priority:** HIGH → **CLOSED 2026-04-20** (superseded by CAL-048
+  which shipped in the 8-commit ERP US implementation brief;
+  retrospective at `docs/planning/retrospectives/erp-us-implementation-report.md`).
+- **Original trigger:** Week 3 brief §1 ERP scope partially
+  implemented, needed FactSet PDF scrape, multpl + spdji web
+  scrapers, and the 4-method DCF/Gordon/EY/CAPE compute layer with
+  Damodaran xval.
+- **Resolution:** Re-chunked as CAL-048 and delivered across 8
+  commits (`98fbe2e`..`6f3f9f0`) during the ERP US brief —
+  migration 007 + 5 erp_* tables + 4-method compute + Damodaran
+  xval + FactSet/Yardeni divergence flag + 42 behavioural tests +
+  pipeline wiring. US-only scope per original graceful-degradation
+  plan; EA/UK/JP per-country overlays remain Week 4+ scope (not
+  part of this CAL closure).
 
 ### CAL-045 — Treasury connectors aft_france / mef_italy (Week 3 deferred)
 
@@ -331,21 +361,25 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   lands. Wiring to real ERP: one-line swap from constant to
   `erp_canonical` SELECT.
 
-### CAL-048 — ERP overlay full implementation (Week 3.5B deferred)
+### CAL-048 — ERP overlay full implementation (Week 3.5B deferred → CLOSED)
 
-- **Priority:** HIGH
-- **Trigger:** Week 3.5 brief §3 3.5B scope not executed this session
-  — 6 connector subtasks (FactSet PDF, Yardeni PDF, multpl, spdji,
-  Shiller download, Damodaran histimpl) each carry high URL-stability
-  / consent-verification risk that exceeded session budget once 3.5A
-  + 3.5C + 3.5F pure-compute path was prioritized.
-- **Scope:** Week 3.5 brief §3 items 3.5B-1 through 3.5B-6 (6
-  connectors + full 4-method ERP overlay + migration 007 with 5 erp_*
-  tables per spec §8 + Damodaran xval + FactSet-vs-Yardeni
-  divergence flag + fixture suite ≥ 25 behavioral tests).
-- **Unblocks:** pipeline wiring to real ERP (removes Damodaran
-  placeholder in daily_cost_of_capital.py); L3 F1 Valuations index
-  (needs ERP), L4 financial-cycle consumers.
+- **Priority:** HIGH → **CLOSED 2026-04-20** via 8-commit ERP US
+  implementation brief (`98fbe2e`..`6f3f9f0`). Retrospective at
+  `docs/planning/retrospectives/erp-us-implementation-report.md`.
+- **Resolution summary:** Migration 007 + 5 `erp_*` tables shipped;
+  6 L0 connectors delivered (Damodaran histimpl.xlsx, multpl, spdji
+  buyback stub, FactSet Earnings Insight PDF, Yardeni Squiggles
+  PDF, Shiller already pre-existing); 4-method compute
+  (DCF/Gordon/EY/CAPE) with canonical aggregation at 94.42 %
+  coverage on `erp.py`; Damodaran xval + FactSet↔Yardeni divergence
+  flags wired; 42 behavioural tests + 4 spec §7 fixtures; daily
+  cost-of-capital pipeline now reads live ERP canonical (US k_e
+  pre-brief 9.65 % stub → post-brief 7.37 % computed on
+  2024-01-02, −228 bps). EA/UK/JP overlays proxy US with
+  `MATURE_ERP_PROXY_US` flag pending Week 4+.
+- **Gaps flagged** (follow-up CALs): CAL-056 (Damodaran connector
+  HTTP coverage gap — 75 % vs 92 % connectors hard gate); CAL-057
+  (`daily_erp_us` L8 pipeline for live connector orchestration).
 
 ### CAL-049 — FR/IT linkers + EA BEI + PT DERIVED (Week 3.5D deferred)
 
@@ -497,9 +531,47 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   sub-index at full spec weight; Dilemma trigger A logic that needs
   `anchor_status` + policy-surprise amplitude jointly.
 
+### CAL-056 — Damodaran connector HTTP / cache / aclose coverage gap (ERP US brief surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** ERP US brief retrospective flagged
+  `src/sonar/connectors/damodaran.py` at 75.00 % coverage — below the
+  92 % connectors hard gate. Parse path (`_parse_year`) is
+  exhaustively tested; HTTP `_download`, `fetch_raw_xlsx` cache-miss
+  path, and `aclose` remain uncovered. Same pattern used in the
+  FactSet + Yardeni tests (pytest-httpx / AsyncMock / cache
+  pre-seeding) applies directly.
+- **Scope:** Add tests for (a) HTTP happy path with `pytest-httpx`
+  mocking the xlsx body, (b) HTTP retry exhaustion, (c) cache hit
+  bypassing HTTP, (d) `aclose` closing both client and cache.
+  Target ≥ 92 %.
+- **Unblocks:** CAL-048 acceptance strictness (connectors hard-gate
+  compliance across the ERP connector family).
+
+### CAL-057 — `daily_erp_us` pipeline for live connector orchestration (ERP US brief surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** ERP US brief commit 8 (`6f3f9f0`) wired
+  `daily_cost_of_capital` to **read** `erp_canonical` rows instead of
+  the 5.5 % stub, but explicitly deferred the **write** path: no
+  module today fetches FactSet + Yardeni + Shiller + multpl + spdji
+  + FRED SP500 + Damodaran, calls `fit_erp_us`, and persists. Until
+  such a pipeline exists, `erp_canonical` is populated only by direct
+  test invocations / ad-hoc notebooks.
+- **Scope:** New `src/sonar/pipelines/daily_erp_us.py` CLI
+  (`--date YYYY-MM-DD`) that orchestrates the 7 connectors (FactSet
+  + Yardeni best-effort + rest hard), assembles `ERPInput`, calls
+  `fit_erp_us(inputs, damodaran_erp_decimal=...)`, persists via
+  `persist_erp_fit_result`. Graceful degradation: each connector
+  failure emits the relevant flag (`OVERLAY_MISS` etc.) but does not
+  abort the fit unless < 2 methods remain. Integration test with
+  cassette fixtures for all 7 sources.
+- **Unblocks:** production `daily_cost_of_capital` runs with live
+  ERP (rather than depending on manual `fit_erp_us` invocations).
+
 ## Não-categorizado por horizonte
 
-Zero items. Todos os 20 têm horizonte explícito no spec.
+Zero items. Todos têm horizonte explícito no spec.
 
 ## Workflow de recalibração
 

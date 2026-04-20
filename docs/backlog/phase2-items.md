@@ -315,3 +315,46 @@ the migration scripts.
 **Owner**: Hugo.
 
 ---
+
+## P2-029: Codecov upload re-introduction
+
+**Status**: OPEN — deferred
+**Priority**: LOW
+**Rationale**: Codecov v4 tokenless upload was removed in commit
+`bd276cd` (CI saga fix #3) because the action rejects uploads without
+a repo token despite `fail_ci_if_error: false`. Coverage tracking now
+lives in `docs/planning/phase1-coverage-policy.md` local gates. If
+Phase 2 adds external coverage dashboards or PR-comment coverage
+annotations, re-introduce the step with a repo secret token.
+**Deliverable**: restore `- uses: codecov/codecov-action@v4` step in
+`.github/workflows/ci.yml` test-unit job with `token:
+${{ secrets.CODECOV_TOKEN }}`. Validate coverage.xml upload end-to-end
+at least once.
+**Trigger for activation**: external coverage reporting becomes a
+team requirement (currently single-operator project — local gates
+sufficient).
+**Owner**: Hugo.
+
+---
+
+## P2-030: GitHub Actions version maintenance (setup-uv@v3, Node 24, etc.)
+
+**Status**: OPEN
+**Priority**: LOW
+**Rationale**: CI saga close audit (`e16f0ed`) flagged cosmetic
+deferrals:
+- `astral-sh/setup-uv@v2` → `v3` (one major version behind; @v2 works
+  correctly but loses the newer `enable-cache: true` ergonomics).
+- Multiple actions annotated "Node.js 20 deprecated" by GitHub —
+  forced migration to Node 24 default on 2026-06-02. Affected:
+  `actions/checkout@v4`, `actions/setup-python@v5`,
+  `astral-sh/setup-uv@v2`, `gitleaks/gitleaks-action@v2`.
+**Deliverable**: single hygiene-sweep PR bumping all GHA versions +
+enabling `enable-cache: true` on setup-uv. Validate no behaviour
+regression across the 6 CI jobs.
+**Trigger for activation**: (a) before 2026-06-02 Node 24 forced
+migration, or (b) any Phase 2 workflow change that would otherwise
+touch `ci.yml` anyway — bundle the bumps in.
+**Owner**: Hugo.
+
+---
