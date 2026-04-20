@@ -11,6 +11,7 @@ Sorted newest-first within each phase.
 
 | File | Phase / Week | Summary | Date |
 |---|---|---|---|
+| [`week5-sprint-2b-cccs-fcs-report.md`](./week5-sprint-2b-cccs-fcs-report.md) | Phase 1 — Week 5 Sprint 2b CCCS + FCS composites (parallel to Sprint 2a) | 7 commits delivering CCCS + FCS L4 cycle composites per spec §4 + Policy 1 fail-mode helper + migration 013. Hysteresis + boom overlay + tier-conditional Policy 4 shipped. Pre-flight HALT #0 fired + reconciled (Option B spec-authoritative). | 2026-04-20 |
 | [`week5-ecs-indices-report.md`](./week5-ecs-indices-report.md) | Phase 1 — Week 5 ECS (parallel to Sprint 1 F-cycle) | 5 commits delivering E1 Activity + E3 Labor + E4 Sentiment compute layers per spec §4 + ORM + migration 012. Connector commits descoped to CAL-080..090 per user §7 pre-auth trim. Pre-flight HALT #0 fired + reconciled. | 2026-04-20 |
 
 ## Phase 1 — Week 3.5
