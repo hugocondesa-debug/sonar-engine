@@ -15,6 +15,7 @@ from sonar.connectors.bis import BisObservation
 from sonar.db.models import Base, BisCreditRaw
 from sonar.db.persistence import persist_bis_raw_observations
 from sonar.pipelines.daily_bis_ingestion import (
+    DATAFLOWS,
     T1_COUNTRIES,
     UNIT_DESCRIPTOR,
     _hash_obs,
@@ -173,3 +174,63 @@ class TestRunIngestion:
         )
         assert report["successes"] == 1
         assert report["failures"] == 1
+
+    async def test_dispatch_all_three_dataflows(self, db_session: Session) -> None:
+        fake_connector = AsyncMock()
+        fake_connector.fetch_credit_stock_ratio = AsyncMock(return_value=[_obs(country="US")])
+        fake_connector.fetch_dsr = AsyncMock(return_value=[_obs(country="US", value=14.5)])
+        fake_connector.fetch_credit_gap = AsyncMock(return_value=[_obs(country="US", value=-1.2)])
+        report = await run_ingestion(
+            session=db_session,
+            connector=fake_connector,
+            countries=["US"],
+            dataflows=list(DATAFLOWS),
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 7, 1),
+        )
+        assert report["successes"] == 3
+        fake_connector.fetch_credit_stock_ratio.assert_called_once()
+        fake_connector.fetch_dsr.assert_called_once()
+        fake_connector.fetch_credit_gap.assert_called_once()
+
+
+class TestCli:
+    def test_cli_invalid_date_exits_config(self) -> None:
+        import typer  # noqa: PLC0415
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from sonar.pipelines.daily_bis_ingestion import main  # noqa: PLC0415
+
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        result = runner.invoke(app, ["--start-date", "not-a-date"])
+        assert result.exit_code == 1
+        assert "Invalid date" in result.output
+
+    def test_cli_reversed_dates_exits_config(self) -> None:
+        import typer  # noqa: PLC0415
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from sonar.pipelines.daily_bis_ingestion import main  # noqa: PLC0415
+
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        result = runner.invoke(app, ["--start-date", "2024-06-01", "--end-date", "2024-01-01"])
+        assert result.exit_code == 1
+        assert "after end-date" in result.output
+
+    def test_cli_unknown_country_exits_config(self) -> None:
+        import typer  # noqa: PLC0415
+        from typer.testing import CliRunner  # noqa: PLC0415
+
+        from sonar.pipelines.daily_bis_ingestion import main  # noqa: PLC0415
+
+        app = typer.Typer()
+        app.command()(main)
+        runner = CliRunner()
+        result = runner.invoke(
+            app, ["--start-date", "2024-01-01", "--end-date", "2024-07-01", "--countries", "XX"]
+        )
+        assert result.exit_code == 1

@@ -548,6 +548,69 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** CAL-048 acceptance strictness (connectors hard-gate
   compliance across the ERP connector family).
 
+### CAL-058 — BIS ingestion pipeline + DbBackedInputsBuilder (credit track surfaced → CLOSED)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via 6-commit CAL-058
+  brief (`e565898`..retrospective commit). Retrospective at
+  `docs/planning/retrospectives/cal-058-bis-ingestion-report.md`.
+- **Original trigger:** Credit track c9/10 shipped
+  `daily_credit_indices.py` with a pluggable `InputsBuilder` whose
+  default path returns an empty bundle. Production mode needed (a)
+  a BIS-fetch pass that writes raw observations to a persistent
+  cache and (b) a DB-backed builder that reads them.
+- **Resolution:** Migration 011 added `bis_credit_raw`;
+  `daily_bis_ingestion.py` pipeline fetches WS_TC / WS_DSR /
+  WS_CREDIT_GAP for 7 T1 countries with idempotent upsert;
+  `DbBackedInputsBuilder` assembles L1 + L2 inputs from the raw
+  table (L3 + L4 scope-trimmed — see CAL-059/060 below).
+- **Scope trims (documented in retrospective):**
+  - CAL-059 (LCU ingestion for L3 credit impulse).
+  - CAL-060 (lending-rate + maturity ingestion for L4 DSR).
+  - CAL-061 (lift `daily_bis_ingestion` CLI coverage from 80.8% to 85%+).
+
+### CAL-059 — LCU credit stock + GDP ingestion for L3 impulse (CAL-058 surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** `DbBackedInputsBuilder` leaves L3 `None` because
+  `bis_credit_raw` carries only credit-to-GDP ratios, not the
+  LCU-level series (`credit_stock_lcu_history` +
+  `gdp_nominal_lcu_history`) L3 credit-impulse compute requires.
+- **Scope:** Add ingestion of (a) FRED `TCMDO` + `GDP` for US, (b)
+  Eurostat `nasq_10_f_bs` + `namq_10_gdp` for EA periphery, (c) BIS
+  embedded LCU where available; extend `DbBackedInputsBuilder` to
+  populate `CreditImpulseInputs` with the assembled histories.
+- **Unblocks:** L3 credit impulse rows in `--backend=db` production
+  mode (currently always skipped).
+
+### CAL-060 — L4 DSR input assembly (CAL-058 surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** `DbBackedInputsBuilder` leaves L4 `None` because DSR
+  compute needs `lending_rate_pct`, `avg_maturity_years`, and
+  segment-level `debt_to_gdp_ratio` — none of which come from
+  `bis_credit_raw` alone.
+- **Scope:** Derive `lending_rate_pct` from NSS 10Y nominal (or
+  national central-bank direct data where superior),
+  `avg_maturity_years` from BIS-embedded segment maturity where
+  available + fallback national sources, `debt_to_gdp_ratio` from
+  WS_TC (already ingested). Extend `DbBackedInputsBuilder` to
+  populate `DsrInputs`.
+- **Unblocks:** L4 DSR rows in `--backend=db` production mode + US
+  DSR 2024-Q2 canary within 1pp of BIS-published (CAL-058 brief §6
+  partial acceptance).
+
+### CAL-061 — `daily_bis_ingestion` CLI wrapper coverage lift (CAL-058 surfaced)
+
+- **Priority:** LOW
+- **Trigger:** CAL-058 shipped `daily_bis_ingestion.py` at 80.8%
+  coverage vs the 85% brief target. Gap lives in `main()` + the
+  `asyncio.run(_orchestrate())` wrapper.
+- **Scope:** Add Typer `CliRunner` smoke tests covering the full
+  CLI path end-to-end (not just config-error paths already
+  covered). Likely `monkeypatch`-heavy for the connector + session.
+- **Unblocks:** Connector-scope coverage hard-gate compliance for
+  the full ingestion family.
+
 ### CAL-057 — `daily_erp_us` pipeline for live connector orchestration (ERP US brief surfaced)
 
 - **Priority:** MEDIUM

@@ -11,6 +11,7 @@ Sorted newest-first within each phase.
 
 | File | Phase / Week | Summary | Date |
 |---|---|---|---|
+| [`cal-058-bis-ingestion-report.md`](./cal-058-bis-ingestion-report.md) | Phase 1 — CAL-058 BIS ingestion brief (post-credit-track) | 6 commits delivering `bis_credit_raw` ORM + migration 011 + daily ingestion pipeline + `DbBackedInputsBuilder` (L1+L2). Parallel track to F-cycle. Closes CAL-058; surfaces CAL-059/060/061. | 2026-04-20 |
 | [`erp-us-implementation-report.md`](./erp-us-implementation-report.md) | Phase 1 — ERP US brief (post-Week-3.5) | 8 commits delivering ERP 4-method compute + 6 connectors + persistence + pipeline wiring; US `k_e` stub → computed (−228 bps). Closes CAL-048. | 2026-04-20 |
 | [`l3-indices-implementation-report.md`](./l3-indices-implementation-report.md) | Phase 1 — L3 indices brief (post-Week-3.5) | L3 scaffolding + migration 008 + E2 Leading slope subset + M3 anchor subset + orchestrator. Parallel track to ERP US brief; surfaces CAL-051..055. | 2026-04-20 |
 | [`week3-5-sprint-final-report.md`](./week3-5-sprint-final-report.md) | Phase 1 — Week 3.5 | Final consolidated report. 3 of 6 sub-sprints delivered (3.5A, 3.5C, 3.5F); 3.5B/D/E deferred to CAL-048/049/050. | 2026-04-20 |

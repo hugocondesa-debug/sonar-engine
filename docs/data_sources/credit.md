@@ -463,6 +463,32 @@ Se ≥2 sub-indices missing → `CCCS = NULL`, flag `COVERAGE_INSUFFICIENT`.
 
 ---
 
+## 7.5 Ingestion cadence — BIS credit side (CAL-058)
+
+BIS quarterly observations for WS_TC / WS_DSR / WS_CREDIT_GAP are
+pulled into `bis_credit_raw` by a daily pass.
+
+- **Pipeline**: `python -m sonar.pipelines.daily_bis_ingestion`
+- **Defaults**: last 90 days back from today, all 7 T1 countries,
+  all 3 dataflows (21 fetches / pass, ~21 s wall clock at BIS
+  polite-use 1 req/sec pacing).
+- **Semantics**: idempotent upsert. `persist_bis_raw_observations`
+  per-row SELECT-then-INSERT/UPDATE by `(country, date, dataflow)`;
+  existing rows with matching `fetch_response_hash` are skipped,
+  mismatching hash triggers in-place update with a
+  `BIS_DATA_REVISION` warning log. Returns `{new, skipped, updated}`
+  counts.
+- **Revision detection**: `fetch_response_hash` is sha256 over
+  `(country, date, value_pct, series_key)` — narrow hash, not
+  full-response, because BIS embeds request timestamps that would
+  otherwise break hash stability.
+- **Consumer**: `daily_credit_indices --backend=db` drives a
+  `DbBackedInputsBuilder` that reads 22Y of WS_TC history per
+  `(country, date)` and assembles L1 + L2 inputs (L3 + L4 remain
+  scope-trimmed pending CAL-059 / CAL-060).
+
+---
+
 ## 8. Cross-refs
 
 ### 8.1 Specs consumer
