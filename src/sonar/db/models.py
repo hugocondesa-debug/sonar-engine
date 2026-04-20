@@ -325,6 +325,32 @@ class RatingsConsolidated(Base):
     )
 
 
+class CostOfCapitalDaily(Base):
+    __tablename__ = "cost_of_capital_daily"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    rf_local_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    erp_mature_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    crp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    beta: Mapped[float] = mapped_column(Float, nullable=False)
+    k_e_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_kc_confidence"),
+        CheckConstraint("beta > 0", name="ck_kc_beta"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_kc_cdm"),
+        Index("idx_kc_cd", "country_code", "date"),
+    )
+
+
 class RatingsSpreadCalibration(Base):
     __tablename__ = "ratings_spread_calibration"
 
