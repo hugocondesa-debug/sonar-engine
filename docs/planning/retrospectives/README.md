@@ -7,6 +7,12 @@ backlog items, blockers for next work.
 
 Sorted newest-first within each phase.
 
+## Phase 1 — Week 6
+
+| File | Phase / Week | Summary | Date |
+|---|---|---|---|
+| [`week6-sprint-1b-msc-indices-report.md`](./week6-sprint-1b-msc-indices-report.md) | Phase 1 — Week 6 Sprint 1b MSC monetary indices (parallel to TE extension) | 4 commits delivering M1 / M2 / M4 compute layers per spec §4 + ORMs + migration 014 + r* and CB-targets YAML loaders. Connectors descoped to CAL-095..100 follow-ups. Brief 10-13 commits trimmed to 4 per established Week 5 ECS / Sprint 2b pattern. | 2026-04-20 |
+
 ## Phase 1 — Week 5
 
 | File | Phase / Week | Summary | Date |

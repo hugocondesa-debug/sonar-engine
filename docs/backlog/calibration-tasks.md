@@ -922,6 +922,83 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   round-trip.
 - **Unblocks:** End-to-end validation ahead of ECS composite.
 
+### CAL-095 — Full HLW r* connector (Week 6 Sprint 1b surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** M1 + M2 currently read r_star from
+  `src/sonar/config/r_star_values.yaml` (hardcoded NY Fed Q4 2024
+  values). Phase 1 workaround per user key decision; Phase 2+ needs
+  proper connector for quarterly NY Fed HLW + Holston-Laubach-
+  Williams EA equivalent releases.
+- **Scope:** `src/sonar/connectors/hlw.py` polling
+  https://www.newyorkfed.org/research/policy/rstar quarterly. Cross-
+  validation: pulled values must match YAML for the most recent
+  quarter (xval drift detection); CALIBRATION_STALE flag stays as
+  per CCCS spec §2.
+- **Unblocks:** Removes `last_updated` manual ritual; auto-refresh
+  for r* across US/EA + future UK/JP/CA/AU additions.
+
+### CAL-096 — FRED monetary-series extension (Week 6 Sprint 1b surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 6 Sprint 1b brief §Commit 3 descoped — connector
+  layer not built. Compute layer ready but cannot persist live rows
+  without FRED helpers for WALCL (Fed balance sheet), DTWEXBGS
+  (USD NEER), MORTGAGE30US, NFCI / ANFCI, BAMLH0A0HYM2, PCEPILFE
+  (verify if shipped earlier), VIXCLS (verify).
+- **Scope:** `src/sonar/connectors/fred.py` extension under new
+  `# === Monetary indicators ===` section with helper resolvers
+  matching M1/M2/M4 input dataclass field names. Cassette-replay tests
+  per series + slow-marked live canaries.
+- **Unblocks:** Live M1 + M4 wiring for US.
+
+### CAL-097 — CBO output gap connector (Week 6 Sprint 1b surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 6 Sprint 1b brief §Commit 4 descoped. M2 needs
+  output_gap_pct input (US primary).
+- **Scope:** Path A — verify FRED `GDPPOT` (potential GDP) availability,
+  compute gap = GDP / GDPPOT - 1; if absent, Path B = CBO Excel scrape
+  with schema-drift guard. Start with Path A (trivial).
+- **Unblocks:** Live M2 (US output_gap input).
+
+### CAL-098 — ECB SDW M1-EA builder integration (Week 6 Sprint 1b surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 6 Sprint 1b brief §Commit 9 descoped. M1 EA
+  needs ECB DFR (policy rate) + ILM (balance sheet) keys empirically
+  validated.
+- **Scope:** `src/sonar/indices/monetary/builders.py` with
+  `build_m1_ea(...)` reading ECB SDW dataflow keys (DFR
+  `M.U2.EUR.4F.KR.DFR.LEV` + ILM equivalent). Live key probing per
+  CAL-019 BIS pattern.
+- **Unblocks:** M1 EA persisted rows.
+
+### CAL-099 — Krippner / Wu-Xia shadow rate connector (Week 6 Sprint 1b surfaced)
+
+- **Priority:** LOW
+- **Trigger:** M1 spec §2 precondition allows shadow := policy when
+  policy > 0.5% (above ZLB). Current US (~5%) + EA (~3%) above ZLB
+  so workaround spec-compliant. Connector only needed when
+  policy returns to ZLB territory (post-2008 US, 2020-22 EA periods).
+- **Scope:** `src/sonar/connectors/krippner.py` (or wu_xia equivalent)
+  polling Atlanta Fed Wu-Xia / Reserve Bank of NZ Krippner shadow rate
+  series.
+- **Unblocks:** Historical M1 backfill across ZLB periods.
+
+### CAL-100 — Monetary input builders + integration smoke (Week 6 Sprint 1b surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** Week 6 Sprint 1b brief §Commits 9-10 descoped. End-to-
+  end live persistence path needs builder layer + slow-marked
+  canaries.
+- **Scope:** `src/sonar/indices/monetary/builders.py` with
+  `build_m{1,2,4}_inputs(country, date, fred_conn, ecb_sdw_conn,
+  cbo_conn)`; `tests/integration/test_monetary_indices_live.py`
+  with 4 @slow canaries for US M1/M2/M4 + M1 EA per brief §Commit 10.
+- **Unblocks:** M1 + M2 + M4 US + M1 EA rows persisted for production
+  date (2024-12-31). MSC composite Week 7+ depends on this.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos têm horizonte explícito no spec.
