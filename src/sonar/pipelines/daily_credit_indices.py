@@ -8,19 +8,19 @@ formula in this phase; they are inputs for the CCCS composite (Week 5+).
 
 Build inputs strategy:
 
-- **Production path** (future: post-BIS-ingestion brief): read the
-  latest persisted BIS rows (once we have an ingestion pipeline) and
-  assemble :class:`CreditIndicesInputs` from the DB.
-- **Current MVP path**: exposes a pluggable ``build_inputs`` callable
-  so the pipeline structure is ready for BIS ingestion but the default
-  behaviour is a conservative skip (all four sub-indices record
-  ``no inputs provided`` in the orchestrator skips dict). Tests inject
-  a synthetic builder to exercise the end-to-end wiring.
+- **Default path**: empty bundle → orchestrator skips (kept for
+  backward-compat with credit-track tests).
+- **DB-backed path** (CAL-058): :class:`DbBackedInputsBuilder` reads
+  persisted BIS observations from ``bis_credit_raw`` and assembles
+  L1 + L2 inputs directly. L3 + L4 require inputs beyond BIS (LCU
+  series for L3; lending-rate + maturity for L4) and stay ``None``
+  under this builder; future CALs wire their own sources.
 
 CLI::
 
     python -m sonar.pipelines.daily_credit_indices --country PT --date 2024-06-30
     python -m sonar.pipelines.daily_credit_indices --all-t1 --date 2024-06-30
+    python -m sonar.pipelines.daily_credit_indices --country US --date 2024-06-30 --backend=db
 
 Exit codes mirror :mod:`daily_cost_of_capital`: 0 clean, 1 no inputs,
 3 duplicate, 4 IO.
@@ -31,13 +31,17 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from datetime import date
+from itertools import pairwise
 from typing import TYPE_CHECKING, Protocol
 
 import structlog
 import typer
 
+from sonar.db.models import BisCreditRaw
 from sonar.db.persistence import DuplicatePersistError, persist_many_credit_results
 from sonar.db.session import SessionLocal
+from sonar.indices.credit.l1_credit_gdp_stock import CreditGdpStockInputs
+from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapInputs
 from sonar.indices.orchestrator import (
     CreditIndicesInputs,
     CreditIndicesResults,
@@ -50,15 +54,27 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = [
+    "L1_L2_LOOKBACK_YEARS",
+    "MIN_L1_HISTORY_QUARTERS",
+    "MIN_L2_HISTORY_QUARTERS",
     "T1_7_COUNTRIES",
     "CreditPipelineOutcome",
+    "DbBackedInputsBuilder",
     "InputsBuilder",
+    "InsufficientInputsError",
     "default_inputs_builder",
     "main",
     "run_one",
 ]
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+
+# DbBackedInputsBuilder history windows + hard minima per spec §§2-4 for
+# L1 / L2. L1 needs a rolling 20Y z-score baseline; L2 needs enough
+# quarters for HP one-sided filter stability (spec recommends 25Y).
+L1_L2_LOOKBACK_YEARS: int = 22  # fetch 22Y of history; compute window is 20Y
+MIN_L1_HISTORY_QUARTERS: int = 20  # hard min (5Y) for meaningful z-score
+MIN_L2_HISTORY_QUARTERS: int = 80  # 20Y minimum for credible HP trend
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1
@@ -83,17 +99,158 @@ def default_inputs_builder(
     country_code: str,
     observation_date: date,
 ) -> CreditIndicesInputs:
-    """MVP default — returns an empty bundle so the orchestrator skips.
+    """Backward-compat default — returns an empty bundle so the orchestrator skips.
 
-    The real implementation will read the latest persisted BIS rows for
-    ``(country, date)`` and assemble typed inputs; that wiring is
-    deferred to a dedicated BIS-ingestion brief (CAL-058 surfaced in
-    Commit 10 retro).
+    Opt into DB-backed assembly via :class:`DbBackedInputsBuilder`
+    (CAL-058).
     """
     return CreditIndicesInputs(
         country_code=country_code,
         observation_date=observation_date,
     )
+
+
+class InsufficientInputsError(Exception):
+    """Raised by :class:`DbBackedInputsBuilder` when history falls short.
+
+    The builder prefers this over silently returning a partial bundle
+    so the pipeline surfaces data gaps as exit-code 1 (no inputs)
+    rather than trying to compute a degraded sub-index.
+    """
+
+
+class DbBackedInputsBuilder:
+    """Reads ``bis_credit_raw`` and assembles L1 + L2 inputs for compute.
+
+    Scope (CAL-058 c4/6):
+
+    * L1 (credit-to-GDP stock) + L2 (credit-to-GDP gap) — assembled
+      from ``WS_TC`` quarterly observations over the trailing
+      :data:`L1_L2_LOOKBACK_YEARS`. Interpolation fills single-quarter
+      gaps linearly; larger gaps or history below the hard minimum
+      raise :class:`InsufficientInputsError`.
+    * L3 (credit impulse) — **left None**. Requires LCU levels of
+      credit + GDP which ``bis_credit_raw`` does not carry. Future
+      CAL will wire FRED / Eurostat LCU ingestion.
+    * L4 (DSR) — **left None**. Requires lending rate + average
+      maturity + segment debt-to-GDP (decimal) not available from
+      ``bis_credit_raw`` alone. Future CAL will assemble from NSS +
+      household-credit splits.
+
+    Orchestrator skips any sub-index whose input slot is ``None``;
+    downstream persistence writes whichever indices computed.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def __call__(
+        self, session: Session, country_code: str, observation_date: date
+    ) -> CreditIndicesInputs:  # pragma: no cover — trivial delegate
+        return self.build(country_code, observation_date, session=session)
+
+    def build(
+        self,
+        country_code: str,
+        observation_date: date,
+        *,
+        session: Session | None = None,
+    ) -> CreditIndicesInputs:
+        """Fetch + assemble inputs. Raises :class:`InsufficientInputsError`."""
+        sess = session or self.session
+        ws_tc_rows = self._fetch_rows(sess, country_code, observation_date, "WS_TC")
+        if not ws_tc_rows:
+            msg = (
+                f"No WS_TC observations in bis_credit_raw for country={country_code} "
+                f"up to {observation_date.isoformat()}"
+            )
+            raise InsufficientInputsError(msg)
+
+        ratio_history = _interpolate_quarterly([(r.date, r.value_raw) for r in ws_tc_rows])
+        if len(ratio_history) < MIN_L1_HISTORY_QUARTERS:
+            msg = (
+                f"WS_TC history too short for L1 (n={len(ratio_history)} "
+                f"< {MIN_L1_HISTORY_QUARTERS})"
+            )
+            raise InsufficientInputsError(msg)
+
+        current_ratio = ratio_history[-1]
+
+        l1 = CreditGdpStockInputs(
+            country_code=country_code,
+            observation_date=observation_date,
+            ratio_pct=current_ratio,
+            ratio_pct_history=tuple(ratio_history),
+        )
+        l2 = (
+            CreditGdpGapInputs(
+                country_code=country_code,
+                observation_date=observation_date,
+                ratio_pct_history=tuple(ratio_history),
+            )
+            if len(ratio_history) >= MIN_L2_HISTORY_QUARTERS
+            else None
+        )
+        return CreditIndicesInputs(
+            country_code=country_code,
+            observation_date=observation_date,
+            l1=l1,
+            l2=l2,
+            l3=None,  # requires LCU series not in bis_credit_raw
+            l4=None,  # requires lending rate + maturity not in bis_credit_raw
+        )
+
+    @staticmethod
+    def _fetch_rows(
+        session: Session, country_code: str, observation_date: date, dataflow: str
+    ) -> list[BisCreditRaw]:
+        cutoff = observation_date.replace(year=observation_date.year - L1_L2_LOOKBACK_YEARS)
+        return (
+            session.query(BisCreditRaw)
+            .filter(
+                BisCreditRaw.country_code == country_code,
+                BisCreditRaw.dataflow == dataflow,
+                BisCreditRaw.date >= cutoff,
+                BisCreditRaw.date <= observation_date,
+            )
+            .order_by(BisCreditRaw.date.asc())
+            .all()
+        )
+
+
+def _interpolate_quarterly(points: list[tuple[date, float]]) -> list[float]:
+    """Sort by date, fill single-quarter gaps via linear interp; raise on larger.
+
+    BIS ingests quarterly (March / June / September / December). Missing
+    intermediate quarters are interpolated if exactly one quarter short;
+    multi-quarter gaps raise :class:`InsufficientInputsError` (caller
+    decides whether to skip or abort).
+    """
+    if not points:
+        return []
+    sorted_points = sorted(points, key=lambda p: p[0])
+    out: list[float] = [sorted_points[0][1]]
+    for prev, curr in pairwise(sorted_points):
+        q_gap = _quarters_between(prev[0], curr[0])
+        if q_gap == 1:
+            out.append(curr[1])
+            continue
+        if q_gap == 2:
+            # One missing quarter — linear interp.
+            out.append((prev[1] + curr[1]) / 2.0)
+            out.append(curr[1])
+            continue
+        msg = (
+            f"Gap of {q_gap} quarters between {prev[0]} and {curr[0]} "
+            f"exceeds interpolation tolerance of 1 quarter"
+        )
+        raise InsufficientInputsError(msg)
+    return out
+
+
+def _quarters_between(earlier: date, later: date) -> int:
+    """Calendar-quarter distance; expects dates on quarter-ends."""
+    return (later.year - earlier.year) * 4 + (later.month - earlier.month) // 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +296,11 @@ def main(
         "--all-t1",
         help="Iterate over all 7 T1 countries (US/DE/PT/IT/ES/FR/NL).",
     ),
+    backend: str = typer.Option(
+        "default",
+        "--backend",
+        help="Inputs source: 'default' (empty bundle skip) or 'db' (DbBackedInputsBuilder).",
+    ),
 ) -> None:
     """Run the daily credit-indices pipeline."""
     try:
@@ -151,13 +313,19 @@ def main(
     if not targets or targets == [""]:
         typer.echo("Must pass --country or --all-t1", err=True)
         sys.exit(EXIT_IO)
+    if backend not in {"default", "db"}:
+        typer.echo(f"Unknown --backend={backend!r}; expected 'default' or 'db'", err=True)
+        sys.exit(EXIT_IO)
 
     session = SessionLocal()
+    builder: InputsBuilder = (
+        DbBackedInputsBuilder(session) if backend == "db" else default_inputs_builder
+    )
     exit_code = EXIT_OK
     try:
         for c in targets:
             try:
-                outcome = run_one(session, c, obs_date)
+                outcome = run_one(session, c, obs_date, inputs_builder=builder)
                 if sum(outcome.persisted.values()) == 0:
                     log.warning(
                         "credit_indices.no_inputs",
@@ -166,6 +334,9 @@ def main(
                         skips=outcome.results.skips,
                     )
                     exit_code = exit_code or EXIT_NO_INPUTS
+            except InsufficientInputsError as exc:
+                log.error("credit_indices.insufficient_inputs", country=c, error=str(exc))
+                exit_code = exit_code or EXIT_NO_INPUTS
             except DuplicatePersistError as exc:
                 log.error("credit_indices.duplicate", country=c, error=str(exc))
                 exit_code = EXIT_DUPLICATE
