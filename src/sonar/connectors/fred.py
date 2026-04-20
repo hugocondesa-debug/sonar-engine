@@ -475,6 +475,63 @@ class FredConnector(BaseConnector):
         """Quarterly SLOOS net pct tightening C&I loans via ``DRTSCILM``."""
         return await self.fetch_economic_series("DRTSCILM", start, end)
 
+    # ----------------------------------------------------------------------
+    # === Monetary indicators (M1 / M2 / M4) === — CAL-096 (week6 sprint 2b)
+    # ----------------------------------------------------------------------
+
+    async def fetch_fed_funds_target_upper_us(
+        self, start: date, end: date
+    ) -> list[FredEconomicObservation]:
+        """Fed funds target rate, upper bound (``DFEDTARU``).
+
+        Daily series; preferred per spec M1 v0.2 (DFEDTAR removed
+        2008-12-16). Use midpoint of upper + lower for policy rate.
+        """
+        return await self.fetch_economic_series("DFEDTARU", start, end)
+
+    async def fetch_fed_funds_target_lower_us(
+        self, start: date, end: date
+    ) -> list[FredEconomicObservation]:
+        """Fed funds target rate, lower bound (``DFEDTARL``)."""
+        return await self.fetch_economic_series("DFEDTARL", start, end)
+
+    async def fetch_fed_funds_effective_us(
+        self, start: date, end: date
+    ) -> list[FredEconomicObservation]:
+        """Effective Fed funds rate (``FEDFUNDS``) — fallback when target range absent."""
+        return await self.fetch_economic_series("FEDFUNDS", start, end)
+
+    async def fetch_fed_balance_sheet_us(
+        self, start: date, end: date
+    ) -> list[FredEconomicObservation]:
+        """Fed balance-sheet level (``WALCL``) — weekly, USD millions."""
+        return await self.fetch_economic_series("WALCL", start, end)
+
+    async def fetch_pce_core_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """Core PCE price index level (``PCEPILFE``) — monthly. Caller computes YoY."""
+        return await self.fetch_economic_series("PCEPILFE", start, end)
+
+    async def fetch_pce_core_yoy_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """Core PCE YoY % change (decimal). Spans 13 months internally for the YoY transform."""
+        levels = await self.fetch_pce_core_us(start, end)
+        return _yoy_transform(levels, periods_per_year=12)
+
+    async def fetch_usd_neer_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """Trade-weighted broad USD NEER (``DTWEXBGS``) — daily index."""
+        return await self.fetch_economic_series("DTWEXBGS", start, end)
+
+    async def fetch_mortgage_30y_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """30-year fixed mortgage rate (``MORTGAGE30US``) — weekly, percent."""
+        return await self.fetch_economic_series("MORTGAGE30US", start, end)
+
+    async def fetch_nfci_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """Chicago Fed National Financial Conditions Index (``NFCI``) — weekly z-score."""
+        return await self.fetch_economic_series("NFCI", start, end)
+
+    async def fetch_potential_gdp_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """CBO real potential GDP (``GDPPOT``) — quarterly, $bn (chained 2017)."""
+        return await self.fetch_economic_series("GDPPOT", start, end)
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()

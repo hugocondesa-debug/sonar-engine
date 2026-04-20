@@ -938,7 +938,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** Removes `last_updated` manual ritual; auto-refresh
   for r* across US/EA + future UK/JP/CA/AU additions.
 
-### CAL-096 — FRED monetary-series extension (Week 6 Sprint 1b surfaced)
+### CAL-096 — FRED monetary-series extension (Week 6 Sprint 1b surfaced) — **CLOSED** (Week 6 Sprint 2b)
 
 - **Priority:** MEDIUM
 - **Trigger:** Week 6 Sprint 1b brief §Commit 3 descoped — connector
@@ -951,6 +951,20 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   matching M1/M2/M4 input dataclass field names. Cassette-replay tests
   per series + slow-marked live canaries.
 - **Unblocks:** Live M1 + M4 wiring for US.
+- **Resolution (Week 6 Sprint 2b):** 10 new helpers shipped under
+  `# === Monetary indicators (M1 / M2 / M4) === — CAL-096`:
+  `fetch_fed_funds_target_upper_us` (DFEDTARU), `_lower_us`
+  (DFEDTARL), `fetch_fed_funds_effective_us` (FEDFUNDS),
+  `fetch_fed_balance_sheet_us` (WALCL), `fetch_pce_core_us`
+  (PCEPILFE level) + `fetch_pce_core_yoy_us` (YoY via
+  `_yoy_transform`), `fetch_usd_neer_us` (DTWEXBGS),
+  `fetch_mortgage_30y_us` (MORTGAGE30US), `fetch_nfci_us` (NFCI),
+  `fetch_potential_gdp_us` (GDPPOT). Cassette-replay tests +
+  3 `@pytest.mark.slow` live canaries (DFEDTARU + PCEPILFE +
+  DTWEXBGS) in `tests/unit/test_connectors/test_fred_monetary.py`.
+  VIXCLS already shipped under CAL-083 (E4); BAMLH0A0HYM2 not
+  required by M1/M2/M4 spec §4 (FCS scope). ANFCI deferred — NFCI
+  alone is the M4 direct-path signal.
 
 ### CAL-097 — CBO output gap connector (Week 6 Sprint 1b surfaced)
 
