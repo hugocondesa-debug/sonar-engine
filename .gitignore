@@ -153,6 +153,7 @@ Thumbs.db
 !docs/methodology/**/*.docx  # allow methodology manuals
 *.xlsx
 !docs/**/*.xlsx
+!tests/cassettes/**/*.xlsx
 *.parquet
 *.h5
 *.hdf5
