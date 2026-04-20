@@ -4,7 +4,7 @@ Contexto operacional para Claude Code no repo SONAR v2. Ler antes de qualquer ta
 
 ## 1. Identidade do projecto
 
-SONAR v2 é motor analítico de ciclos macroeconómicos e overlays quantitativos para 7365 Capital. Arquitectura 9-layer: L0 `connectors/` → L1 `db/` → L2 `overlays/` → L3 `indices/` → L4 `cycles/` → L5 `regimes/` → L6 `integration/` → L7 `outputs/` → L8 `pipelines/`. Phase actual: 0 (specs merged) transitando para Phase 1 (primeiros connectors + NSS overlay end-to-end). Operator solo: Hugo Condesa.
+SONAR v2 é motor analítico de ciclos macroeconómicos e overlays quantitativos para 7365 Capital. Arquitectura 9-layer: L0 `connectors/` → L1 `db/` → L2 `overlays/` → L3 `indices/` → L4 `cycles/` → L5 `regimes/` → L6 `integration/` → L7 `outputs/` → L8 `pipelines/`. Phase actual: Phase 1 Week 3.5 em curso (ERP US brief + L3 indices brief merged 2026-04-20; overlays NSS/rating-spread/expected-inflation/CRP/ERP live; pipeline daily-cost-of-capital live). Operator solo: Hugo Condesa.
 
 ## 2. Fonte de verdade — ordem de consulta
 
@@ -69,7 +69,7 @@ Contexto conversacional detalhado (log de sessões Claude chat, decisões histó
 
 ## 9. Estado actual
 
-Phase 0 Bloco C em curso. Specs P0-P5 merged. ARCHITECTURE.md refactorizado (`0308cbf`). Próximos: CLAUDE.md (este) → ROADMAP → REPOSITORY_STRUCTURE → MIGRATION_PLAN → GLOSSARY → ADRs → governance → conventions novas → backlog → flags refactor.
+Phase 1 Week 3.5 em curso. Live em `main` (2026-04-20): 5 overlays L2 (NSS/rating-spread/expected-inflation/CRP/ERP), L3 indices scaffold + E2 leading subset + M3 market-expectations subset, pipeline L6 `daily_cost_of_capital` (live ERP canonical for US, `MATURE_ERP_PROXY_US` for EA/UK/JP). Briefs fechados: ERP US (8 commits, `98fbe2e`..`6f3f9f0`), L3 indices (6 commits parallel), 5 sub-sprints Week 3.5 (A/C/F shipped; B/D/E deferred → CAL-048/049/050 — 048 já CLOSED pelo brief ERP). Retrospectives em `docs/planning/retrospectives/` (index aí mesmo). Próximos: Credit indices brief v3 (tmux `sonar-l3`), `daily_erp_us` L8 pipeline (CAL-057), EA/UK/JP per-country ERP overlays (Week 4+).
 
 ## 10. Regra-resumo
 

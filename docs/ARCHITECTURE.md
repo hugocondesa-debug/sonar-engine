@@ -1,8 +1,8 @@
 # SONAR v2 — Architecture
 
-**Status**: v2.0 · Phase 0 specs merged · implementação Phase 1 pendente
+**Status**: v2.0 · Phase 1 Week 3.5 em curso — 5 overlays L2 live (NSS/rating-spread/expected-inflation/CRP/ERP), L3 indices scaffold + E2/M3 subsets, L6 `daily_cost_of_capital` pipeline live.
 **Maintainer**: Hugo · 7365 Capital
-**Última revisão arquitetural**: 2026-04-18
+**Última revisão arquitetural**: 2026-04-20
 
 ## 1. Propósito e escopo
 
@@ -14,7 +14,7 @@ SONAR é motor analítico de ciclos macroeconómicos e overlays quantitativos pa
 
 **Escopo v2 Phase 0-1** (horizonte actual):
 - Specs L0-L8 merged em `docs/specs/` — 5 overlays + 16 indices + 4 cycles + conventions + pipelines stubs.
-- Implementação Phase 1: connectors (L0) + db schema (L1) + primeiro overlay end-to-end (NSS).
+- Implementação Phase 1 Week 3.5 delivered: L0 connectors (FRED/ECB-SDW/Bundesbank/TE/FMP/Shiller/Damodaran/multpl/spdji/FactSet/Yardeni); L1 schema (migrations 001-008); L2 overlays (NSS/rating-spread/expected-inflation/CRP/ERP 4-method); L3 indices scaffold + E2/M3 subsets; L6 `daily_cost_of_capital` pipeline.
 - SQLite-first; Postgres é Phase 2+ (§10).
 
 ## 2. Princípios arquiteturais
