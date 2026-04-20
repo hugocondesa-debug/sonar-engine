@@ -18,9 +18,15 @@ if TYPE_CHECKING:
     from pytest_httpx import HTTPXMock
 
 from sonar.connectors.ecb_sdw import (
+    ECB_DFR_DATAFLOW,
+    ECB_DFR_SERIES_ID,
     ECB_EA_NOMINAL_SERIES,
+    ECB_EUROSYSTEM_BS_DATAFLOW,
+    ECB_EUROSYSTEM_BS_SERIES_ID,
     ECB_SERIES_TENORS,
+    EcbMonetaryObservation,
     EcbSdwConnector,
+    _parse_time_period,
 )
 
 
@@ -136,6 +142,83 @@ async def test_fetch_yield_curve_rejects_non_ea(
         await ecb_connector.fetch_yield_curve_nominal(
             country="DE", observation_date=date(2024, 1, 2)
         )
+
+
+# ---------------------------------------------------------------------------
+# M1-EA monetary series (CAL-098, week6 sprint 2b)
+# ---------------------------------------------------------------------------
+
+
+def test_m1_ea_dataflow_constants() -> None:
+    assert ECB_DFR_DATAFLOW == "FM"
+    assert ECB_DFR_SERIES_ID == "D.U2.EUR.4F.KR.DFR.LEV"
+    assert ECB_EUROSYSTEM_BS_DATAFLOW == "ILM"
+    assert ECB_EUROSYSTEM_BS_SERIES_ID == "W.U2.C.T000000.Z5.Z01"
+
+
+def test_parse_time_period_daily() -> None:
+    assert _parse_time_period("2024-12-18") == date(2024, 12, 18)
+
+
+def test_parse_time_period_weekly_friday_anchor() -> None:
+    # ISO week 2024-W41 Friday = 2024-10-11
+    assert _parse_time_period("2024-W41") == date(2024, 10, 11)
+
+
+def test_parse_time_period_invalid_returns_none() -> None:
+    assert _parse_time_period("") is None
+    assert _parse_time_period("not-a-date") is None
+    assert _parse_time_period("2024-W99") is None  # week 99 doesn't exist
+
+
+async def test_fetch_dfr_rate_happy(httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        text=_csv([("2024-12-16", "3.25"), ("2024-12-17", "3.25"), ("2024-12-18", "3.00")]),
+    )
+    obs = await ecb_connector.fetch_dfr_rate(date(2024, 12, 1), date(2024, 12, 31))
+    assert len(obs) == 3
+    assert all(isinstance(o, EcbMonetaryObservation) for o in obs)
+    assert obs[0].dataflow == "FM"
+    assert obs[0].source_series_id == ECB_DFR_SERIES_ID
+    assert obs[-1].value == pytest.approx(3.00)
+
+
+async def test_fetch_dfr_rate_filters_na(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        text=_csv([("2024-12-16", "3.25"), ("2024-12-17", "NA"), ("2024-12-18", "3.00")]),
+    )
+    obs = await ecb_connector.fetch_dfr_rate(date(2024, 12, 1), date(2024, 12, 31))
+    assert len(obs) == 2
+
+
+async def test_fetch_eurosystem_balance_sheet_happy(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        text=_csv([("2024-W41", "6441605"), ("2024-W42", "6420100")]),
+    )
+    obs = await ecb_connector.fetch_eurosystem_balance_sheet(date(2024, 10, 1), date(2024, 10, 31))
+    assert len(obs) == 2
+    assert obs[0].observation_date == date(2024, 10, 11)
+    assert obs[0].dataflow == "ILM"
+    assert obs[0].source_series_id == ECB_EUROSYSTEM_BS_SERIES_ID
+    # ~6.4T EUR — level in millions.
+    assert 5_000_000 < obs[0].value < 10_000_000
+
+
+async def test_fetch_monetary_caches_hit(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    httpx_mock.add_response(method="GET", text=_csv([("2024-12-18", "3.00")]))
+    first = await ecb_connector.fetch_dfr_rate(date(2024, 12, 1), date(2024, 12, 31))
+    second = await ecb_connector.fetch_dfr_rate(date(2024, 12, 1), date(2024, 12, 31))
+    assert first == second
+    assert len(httpx_mock.get_requests()) == 1
 
 
 async def test_cache_hit_no_http(httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector) -> None:

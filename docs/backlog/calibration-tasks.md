@@ -985,7 +985,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   covering the 2Y window. Excel fallback deliberately not implemented —
   re-open only if GDPPOT is ever delisted.
 
-### CAL-098 — ECB SDW M1-EA builder integration (Week 6 Sprint 1b surfaced)
+### CAL-098 — ECB SDW M1-EA builder integration (Week 6 Sprint 1b surfaced) — **CLOSED** (Week 6 Sprint 2b)
 
 - **Priority:** MEDIUM
 - **Trigger:** Week 6 Sprint 1b brief §Commit 9 descoped. M1 EA
@@ -996,6 +996,23 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `M.U2.EUR.4F.KR.DFR.LEV` + ILM equivalent). Live key probing per
   CAL-019 BIS pattern.
 - **Unblocks:** M1 EA persisted rows.
+- **Resolution (Week 6 Sprint 2b, part 1 — connector layer):**
+  Pre-flight live probe confirmed canonical keys:
+  - DFR: ``FM/D.U2.EUR.4F.KR.DFR.LEV`` (daily, 3.0 % on 2024-12-18)
+  - Eurosystem total assets: ``ILM/W.U2.C.T000000.Z5.Z01`` (weekly,
+    ≈6.44T EUR on 2024-W41)
+
+  `src/sonar/connectors/ecb_sdw.py` extended:
+  - `_fetch_raw` now accepts a ``dataflow`` override (kept
+    backward-compatible default ``YC``).
+  - New `EcbMonetaryObservation` dataclass (generic, no tenor field).
+  - `fetch_dfr_rate(start, end)` + `fetch_eurosystem_balance_sheet(start, end)`
+    wrapping the new dataflow paths via `_fetch_monetary_series` helper.
+  - `_parse_time_period` handles both daily ISO dates and weekly
+    ``YYYY-Www`` periods (Friday-anchor per ECB weekly convention,
+    since Python 3.11+ fromisoformat treats week-only strings as Monday).
+
+  Part 2 (MonetaryInputsBuilder wiring) lands in C4 of this sprint.
 
 ### CAL-099 — Krippner / Wu-Xia shadow rate connector (Week 6 Sprint 1b surfaced)
 
