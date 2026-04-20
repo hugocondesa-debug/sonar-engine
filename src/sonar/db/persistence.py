@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.exc import IntegrityError
 
 from sonar.db.models import (
+    IndexValue,
     NSSYieldCurveForwards,
     NSSYieldCurveReal,
     NSSYieldCurveSpot,
@@ -27,10 +28,12 @@ from sonar.db.models import (
 from sonar.overlays.rating_spread import _compute_confidence
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import date
 
     from sqlalchemy.orm import Session
 
+    from sonar.indices.base import IndexResult
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
 
@@ -237,3 +240,65 @@ def persist_rating_consolidated(
             )
             raise DuplicatePersistError(err) from e
         raise
+
+
+def _to_index_row(result: IndexResult) -> IndexValue:
+    return IndexValue(
+        index_code=result.index_code,
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        raw_value=result.raw_value,
+        zscore_clamped=result.zscore_clamped,
+        value_0_100=result.value_0_100,
+        sub_indicators_json=json.dumps(result.sub_indicators, default=str),
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_overlays_json=json.dumps(result.source_overlays, default=str),
+    )
+
+
+def persist_index_value(session: Session, result: IndexResult) -> None:
+    """Persist a single :class:`IndexResult` row atomically.
+
+    Re-persisting the same ``(index_code, country, date,
+    methodology_version)`` triplet raises ``DuplicatePersistError`` —
+    callers decide overwrite policy explicitly (Phase 2+ may expose a
+    ``mode="overwrite"`` flag once we have idempotency semantics).
+    """
+    row = _to_index_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"Index value already persisted: index={result.index_code}, "
+                f"country={result.country_code}, date={result.date}, "
+                f"version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def persist_many_index_values(session: Session, results: Iterable[IndexResult]) -> int:
+    """Persist multiple index rows inside a single transaction.
+
+    Returns the number of rows inserted. On any UNIQUE violation the
+    whole batch rolls back and ``DuplicatePersistError`` is raised
+    identifying the first collision.
+    """
+    rows = [_to_index_row(r) for r in results]
+    if not rows:
+        return 0
+    try:
+        session.add_all(rows)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"Batch contains duplicate index_value triplet: {e.orig}"
+            raise DuplicatePersistError(err) from e
+        raise
+    return len(rows)
