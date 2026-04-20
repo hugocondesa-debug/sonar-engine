@@ -20,6 +20,7 @@ from sonar.db.models import (
     ERPCAPE,
     ERPDCF,
     ERPEY,
+    CreditGdpStock,
     Dsr,
     ERPCanonical,
     ERPGordon,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from sonar.indices.base import IndexResult
+    from sonar.indices.credit.l1_credit_gdp_stock import CreditGdpStockResult
     from sonar.indices.credit.l4_dsr import DsrResult
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
@@ -497,6 +499,41 @@ def persist_dsr_result(session: Session, result: DsrResult) -> None:
                 f"DSR row already persisted: country={result.country_code}, "
                 f"date={result.date}, segment={result.segment}, "
                 f"version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_credit_gdp_stock_row(result: CreditGdpStockResult) -> CreditGdpStock:
+    return CreditGdpStock(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        series_variant=result.series_variant,
+        gdp_vintage_mode=result.gdp_vintage_mode,
+        lookback_years=result.lookback_years,
+        structural_band=result.structural_band,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_connector=result.source_connector,
+    )
+
+
+def persist_credit_gdp_stock_result(session: Session, result: CreditGdpStockResult) -> None:
+    """Persist a single L1 ``credit_to_gdp_stock`` row atomically."""
+    row = _to_credit_gdp_stock_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"L1 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
             )
             raise DuplicatePersistError(err) from e
         raise
