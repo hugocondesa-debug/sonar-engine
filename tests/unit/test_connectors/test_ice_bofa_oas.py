@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -107,3 +108,27 @@ def test_value_bps_conversion() -> None:
         source_series_id=FRED_SERIES_HY_OAS,
     )
     assert obs.value_bps == 425
+
+
+# ---------------------------------------------------------------------------
+# Live canary (CAL-071)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_live_canary_hy_oas_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 30 days BAMLH0A0HYM2; assert plausible [100, 2500] bps band."""
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        pytest.skip("FRED_API_KEY not set")
+    conn = IceBofaOasConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        obs = await conn.fetch_oas("HY", today - timedelta(days=30), today)
+        assert len(obs) >= 10  # ~20 trading days in 30d window
+        for o in obs:
+            assert 100 <= o.value_bps <= 2500, (
+                f"HY OAS {o.observation_date}={o.value_bps}bps out of band"
+            )
+    finally:
+        await conn.aclose()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -66,3 +66,27 @@ async def test_fetch_property_empty_payload(
     httpx_mock.add_response(method="GET", json={"data": {"dataSets": []}})
     obs = await bis_connector.fetch_property_price_index("XX", date(2023, 1, 1), date(2024, 1, 1))
     assert obs == []
+
+
+# ---------------------------------------------------------------------------
+# Live canary (CAL-071)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_live_canary_property_pt_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 2y PT property price index; assert non-empty + positive values."""
+    # BIS is public; no API key. Autouse fixture disables tenacity wait — fine.
+    conn = BisConnector(cache_dir=str(tmp_cache_dir), rate_limit_seconds=0.5)
+    try:
+        today = datetime.now(tz=UTC).date()
+        # BIS property data has significant publication lag (2-3 quarters);
+        # 2y window gives at least 4 quarterly obs.
+        obs = await conn.fetch_property_price_index("PT", today - timedelta(days=730), today)
+        assert len(obs) >= 1
+        for o in obs:
+            # Real property indices: >0 always (pre-2008 base around 50-100,
+            # current ~100-200 range for most countries).
+            assert o.value_pct > 0
+    finally:
+        await conn.aclose()

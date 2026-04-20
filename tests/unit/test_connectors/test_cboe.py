@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -135,3 +136,25 @@ async def test_fetch_uses_cache(httpx_mock: HTTPXMock, cboe_connector: CboeConne
     second = await cboe_connector.fetch_vix(date(2024, 1, 2), date(2024, 1, 2))
     assert first == second
     assert len(httpx_mock.get_requests()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Live canary (CAL-071)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_live_canary_vix_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 14 days VIX via FRED; assert plausible [5, 100] band."""
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        pytest.skip("FRED_API_KEY not set")
+    conn = CboeConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        obs = await conn.fetch_vix(today - timedelta(days=14), today)
+        assert len(obs) >= 3  # ~10 trading days in 14d window
+        for o in obs:
+            assert 5.0 <= o.value <= 100.0, f"VIX {o.observation_date}={o.value} out of band"
+    finally:
+        await conn.aclose()

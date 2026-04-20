@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import os
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -111,3 +112,27 @@ async def test_fetch_skips_sentinel_dots(
     obs = await nfci_connector.fetch_nfci("NFCI", date(2024, 1, 1), date(2024, 1, 10))
     assert len(obs) == 1
     assert obs[0].observation_date == date(2024, 1, 3)
+
+
+# ---------------------------------------------------------------------------
+# Live canary (CAL-071)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_live_canary_nfci_recent(tmp_cache_dir: Path) -> None:
+    """Fetch last 4 weeks NFCI; assert plausible [-2, 5] z-score band."""
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        pytest.skip("FRED_API_KEY not set")
+    conn = ChicagoFedNfciConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        obs = await conn.fetch_nfci("NFCI", today - timedelta(days=28), today)
+        assert len(obs) >= 2  # weekly → ~4 in 28d
+        for o in obs:
+            assert -2.0 <= o.value_zscore <= 5.0, (
+                f"NFCI {o.observation_date}={o.value_zscore} out of band"
+            )
+    finally:
+        await conn.aclose()
