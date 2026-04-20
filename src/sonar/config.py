@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     fmp_api_key: str = Field(
         default="",
         description=(
-            "Financial Modeling Prep API key — Ultimate tier required " "for 30Y+ historical EOD."
+            "Financial Modeling Prep API key — Ultimate tier required for 30Y+ historical EOD."
         ),
     )
     te_api_key: str = Field(

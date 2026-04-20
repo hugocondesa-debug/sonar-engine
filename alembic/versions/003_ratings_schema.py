@@ -49,7 +49,7 @@ def upgrade() -> None:
             name="ck_rar_outlook",
         ),
         sa.CheckConstraint(
-            "watch IS NULL OR watch IN " "('watch_positive','watch_negative','watch_developing')",
+            "watch IS NULL OR watch IN ('watch_positive','watch_negative','watch_developing')",
             name="ck_rar_watch",
         ),
         sa.CheckConstraint("notch_adjusted BETWEEN -1.0 AND 22.0", name="ck_rar_notch_adj"),

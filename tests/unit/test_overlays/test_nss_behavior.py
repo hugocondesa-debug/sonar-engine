@@ -45,9 +45,9 @@ class TestFitUSCanonical:
     def test_rmse_within_tolerance(self, fixture_data: dict[str, Any]) -> None:
         spot = nss.fit_nss(_make_input(fixture_data))
         max_rmse = fixture_data["expected"]["rmse_bps_max"]
-        assert (
-            spot.rmse_bps <= max_rmse
-        ), f"rmse_bps={spot.rmse_bps} exceeds fixture tolerance {max_rmse}"
+        assert spot.rmse_bps <= max_rmse, (
+            f"rmse_bps={spot.rmse_bps} exceeds fixture tolerance {max_rmse}"
+        )
 
     def test_beta_0_approx(self, fixture_data: dict[str, Any]) -> None:
         spot = nss.fit_nss(_make_input(fixture_data))
@@ -211,9 +211,9 @@ class TestDerivations:
     def test_zero_curve_values_realistic(self, us_spot: nss.SpotCurve) -> None:
         z = nss.derive_zero_curve(us_spot)
         for tenor_label, rate in z.zero_rates.items():
-            assert (
-                -0.05 <= rate <= 0.30
-            ), f"Zero rate {tenor_label}={rate} out of decimal sane range"
+            assert -0.05 <= rate <= 0.30, (
+                f"Zero rate {tenor_label}={rate} out of decimal sane range"
+            )
 
     def test_forward_curve_keys(self, us_spot: nss.SpotCurve) -> None:
         z = nss.derive_zero_curve(us_spot)

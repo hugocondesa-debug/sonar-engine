@@ -142,7 +142,7 @@ async def test_cache_determinism(live_fred: FredConnector) -> None:
 
     # Cache hit must be materially faster (generous 10x threshold)
     assert elapsed_2 < elapsed_1 / 10, (
-        f"Cache hit expected <<10x faster. " f"Call 1: {elapsed_1:.3f}s, Call 2: {elapsed_2:.3f}s"
+        f"Cache hit expected <<10x faster. Call 1: {elapsed_1:.3f}s, Call 2: {elapsed_2:.3f}s"
     )
 
 
