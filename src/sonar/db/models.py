@@ -1208,4 +1208,67 @@ class FinancialCycleScore(Base):
     )
 
 
+class MonetaryCycleScore(Base):
+    """Row per spec ``cycles/monetary-msc.md`` §8 — L4 monetary composite.
+
+    Composite of five sub-indices (M1 ES / M2 RD / M3 EP / M4 FC / CS)
+    with canonical weights 0.30/0.15/0.25/0.20/0.10. Communication
+    Signal (CS) is a Phase 2+ connector path; Phase 0-1 rows fire with
+    ``COMM_SIGNAL_MISSING`` flag and re-weighted four inputs. See spec
+    §4 algorithm + §8 storage schema.
+    """
+
+    __tablename__ = "monetary_cycle_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    msc_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_0_100: Mapped[float] = mapped_column(Float, nullable=False)
+    regime_6band: Mapped[str] = mapped_column(String(32), nullable=False)
+    regime_3band: Mapped[str] = mapped_column(String(16), nullable=False)
+    regime_persistence_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    m1_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    m2_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    m3_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    m4_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cs_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    m1_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    m2_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    m3_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    m4_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    cs_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    inputs_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    cs_hawkish_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fed_dissent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dot_plot_drift_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dilemma_overlay_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dilemma_trigger_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("msc_id", name="uq_msc_id"),
+        CheckConstraint("score_0_100 BETWEEN 0 AND 100", name="ck_msc_score"),
+        CheckConstraint(
+            "regime_6band IN ('STRONGLY_ACCOMMODATIVE','ACCOMMODATIVE',"
+            "'NEUTRAL_ACCOMMODATIVE','NEUTRAL_TIGHT','TIGHT','STRONGLY_TIGHT')",
+            name="ck_msc_regime_6band",
+        ),
+        CheckConstraint(
+            "regime_3band IN ('ACCOMMODATIVE','NEUTRAL','TIGHT')",
+            name="ck_msc_regime_3band",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_msc_confidence"),
+        CheckConstraint("inputs_available BETWEEN 3 AND 5", name="ck_msc_inputs_available"),
+        CheckConstraint("dilemma_overlay_active IN (0, 1)", name="ck_msc_dilemma_overlay_active"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_msc_cdm"),
+        Index("idx_msc_cd", "country_code", "date"),
+    )
+
+
 # === Cycle models end ===
