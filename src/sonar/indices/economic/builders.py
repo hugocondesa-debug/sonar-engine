@@ -360,13 +360,46 @@ async def build_e4_inputs(  # noqa: PLR0912, PLR0915
         umich_vals = await _try_fetch_fred(
             "umich", fred.fetch_umich_sentiment_us(start, observation_date)
         )
-        cb_vals = await _try_fetch_fred(
-            "cb_confidence",
-            fred.fetch_conference_board_confidence_us(start, observation_date),
-        )
-        umich_5y_vals = await _try_fetch_fred(
-            "umich_5y", fred.fetch_umich_5y_inflation_us(start, observation_date)
-        )
+        # Conference Board CC: TE primary when available (actual CB
+        # series via HistoricalDataSymbol=CONCCONF); FRED fallback
+        # (CSCICP03USM665S OECD proxy — stale since 2024-01). Sprint 6.3
+        # CAL-093 resolution. Flag TE_FALLBACK_CB_CC when TE succeeds,
+        # distinguishing the higher-quality source in audits.
+        cb_vals: list[float] | None = None
+        if te is not None:
+            cb_vals = await _try_fetch_te(
+                "cb_confidence_te",
+                te.fetch_conference_board_cc_us(start, observation_date),
+            )
+            if cb_vals is not None:
+                flags.append("TE_FALLBACK_CB_CC")
+                if "TE" not in sources:
+                    sources.append("TE")
+        if cb_vals is None:
+            cb_vals = await _try_fetch_fred(
+                "cb_confidence",
+                fred.fetch_conference_board_confidence_us(start, observation_date),
+            )
+        # UMich 5Y inflation expectations: TE primary (actual UMich
+        # survey series via HistoricalDataSymbol=USAM5YIE); FRED
+        # fallback (EXPINF5YR Cleveland-Fed *model*, not the UMich
+        # survey proper). Sprint 6.3 quality uplift (new CAL
+        # alongside CAL-093 re-open). Flag TE_FALLBACK_UMICH_5Y when
+        # TE succeeds.
+        umich_5y_vals: list[float] | None = None
+        if te is not None:
+            umich_5y_vals = await _try_fetch_te(
+                "umich_5y_te",
+                te.fetch_michigan_5y_inflation_us(start, observation_date),
+            )
+            if umich_5y_vals is not None:
+                flags.append("TE_FALLBACK_UMICH_5Y")
+                if "TE" not in sources:
+                    sources.append("TE")
+        if umich_5y_vals is None:
+            umich_5y_vals = await _try_fetch_fred(
+                "umich_5y", fred.fetch_umich_5y_inflation_us(start, observation_date)
+            )
         # ISM Mfg: FRED primary (delisted) → TE fallback.
         ism_mfg_vals = await _try_fetch_fred(
             "ism_mfg", fred.fetch_ism_mfg_pmi(start, observation_date)

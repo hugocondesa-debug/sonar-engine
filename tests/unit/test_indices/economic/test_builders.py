@@ -51,6 +51,13 @@ def mock_te() -> Any:
     m.fetch_zew_economic_sentiment_de.return_value = _te_series(
         "zew economic sentiment index", "DE", n=60, base=5.0
     )
+    # Sprint 6.3 wrappers.
+    m.fetch_conference_board_cc_us.return_value = _te_series(
+        "consumer confidence", "US", n=60, base=99.0
+    )
+    m.fetch_michigan_5y_inflation_us.return_value = _te_series(
+        "michigan 5 year inflation expectations", "US", n=60, base=2.9
+    )
     return m
 
 
@@ -334,3 +341,61 @@ async def test_build_e4_de_without_te_keeps_ifo_zew_flags(
     inputs = await build_e4_inputs("DE", date(2024, 6, 30), fred=mock_fred, eurostat=mock_eurostat)
     for tok in ("IFO_DE_ONLY", "ZEW_DE_ONLY"):
         assert tok in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint 6.3: TE primary for CB CC + UMich 5Y inflation (CAL-093 resolve)
+# ---------------------------------------------------------------------------
+
+
+async def test_build_e4_us_te_primary_for_cb_and_umich_5y(
+    mock_fred: Any, mock_eurostat: Any, mock_te: Any
+) -> None:
+    """When TE is provided, CB CC + UMich 5Y come from TE (higher quality)
+    and the builder emits TE_FALLBACK_{CB_CC, UMICH_5Y} flags.
+    """
+    inputs = await build_e4_inputs(
+        "US", date(2024, 6, 30), fred=mock_fred, eurostat=mock_eurostat, te=mock_te
+    )
+    # TE slots populated.
+    assert inputs.conference_board_confidence_12m_change is not None
+    assert inputs.umich_5y_inflation_exp is not None
+    for tok in ("TE_FALLBACK_CB_CC", "TE_FALLBACK_UMICH_5Y"):
+        assert tok in inputs.upstream_flags
+    assert "TE" in inputs.source_connectors
+    # Confirm TE wrappers were invoked and FRED was not for these slots
+    # (post-swap behaviour).
+    mock_te.fetch_conference_board_cc_us.assert_called_once()
+    mock_te.fetch_michigan_5y_inflation_us.assert_called_once()
+    mock_fred.fetch_conference_board_confidence_us.assert_not_called()
+    mock_fred.fetch_umich_5y_inflation_us.assert_not_called()
+
+
+async def test_build_e4_us_te_unavailable_falls_back_to_fred(
+    mock_fred: Any, mock_eurostat: Any
+) -> None:
+    """TE wrappers raise → FRED fallback populates CB + UMich 5Y slots."""
+    from unittest.mock import AsyncMock  # noqa: PLC0415
+
+    m_te = AsyncMock()
+    m_te.fetch_conference_board_cc_us.side_effect = DataUnavailableError("TE down")
+    m_te.fetch_michigan_5y_inflation_us.side_effect = DataUnavailableError("TE down")
+    # Other TE wrappers still work (otherwise this regresses ISM/NFIB coverage).
+    m_te.fetch_ism_manufacturing_us.return_value = _te_series(
+        "business confidence", "US", n=60, base=52.0
+    )
+    m_te.fetch_ism_services_us.return_value = _te_series(
+        "non manufacturing pmi", "US", n=60, base=54.0
+    )
+    m_te.fetch_nfib_us.return_value = _te_series("nfib business optimism index", "US", n=60)
+
+    inputs = await build_e4_inputs(
+        "US", date(2024, 6, 30), fred=mock_fred, eurostat=mock_eurostat, te=m_te
+    )
+    # FRED fallback covered both slots.
+    assert inputs.conference_board_confidence_12m_change is not None
+    assert inputs.umich_5y_inflation_exp is not None
+    for tok in ("TE_FALLBACK_CB_CC", "TE_FALLBACK_UMICH_5Y"):
+        assert tok not in inputs.upstream_flags
+    mock_fred.fetch_conference_board_confidence_us.assert_called_once()
+    mock_fred.fetch_umich_5y_inflation_us.assert_called_once()
