@@ -47,7 +47,7 @@ dependencies = [
   "beautifulsoup4>=4.12",
   "lxml>=5.1",
   "openpyxl>=3.1",        # Shiller, Damodaran xlsx
-  "pdfplumber>=0.10",     # FactSet PDFs, Moody's
+  "pdfplumber>=0.11",     # FactSet + Yardeni PDFs, Moody's
   "python-dateutil>=2.8",
 
   # Database
