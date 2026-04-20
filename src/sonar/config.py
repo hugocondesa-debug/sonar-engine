@@ -24,6 +24,16 @@ class Settings(BaseSettings):
         ...,
         description="Federal Reserve Economic Data API key (https://fred.stlouisfed.org/docs/api/api_key.html).",
     )
+    fmp_api_key: str = Field(
+        default="",
+        description=(
+            "Financial Modeling Prep API key — Ultimate tier required " "for 30Y+ historical EOD."
+        ),
+    )
+    te_api_key: str = Field(
+        default="",
+        description="Trading Economics API key (used for historical sovereign yields).",
+    )
     database_url: str = Field(
         default="sqlite:///./data/sonar-dev.db",
         description="SQLAlchemy DSN — Phase 1 MVP usa SQLite local gitignored.",
