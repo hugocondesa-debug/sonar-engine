@@ -46,7 +46,7 @@ Ver spec `cycles/credit-cccs.md §2` para rationale QS omitido (NPL data latency
    └── S&P, Moody's, Fitch, DBRS press releases (rating-spread overlay)
 ```
 
-**BIS dominance no CCCS** é estrutural: BIS publica a série canónica `credit-to-GDP` em base SNA harmonizada (non-financial private sector). D1 smoke test confirmou WS_DSR responsive (PT historical disponível). WS_TC key pattern needs refinement (D1-T2 test `Q.PT.P.M.770A` retornou 404 — key format pendente).
+**BIS dominance no CCCS** é estrutural: BIS publica a série canónica `credit-to-GDP` em base SNA harmonizada (non-financial private sector). D1 smoke test confirmou WS_DSR responsive (PT historical disponível). WS_TC key pattern resolved 2026-04-20 (CAL-019 closed): 7-dimension SDMX v2 structure `BIS_TOTAL_CREDIT(2.0)` — see §3.1 below.
 
 **Não usadas no CCCS:**
 - **FMP** — `/api/stable/` 403 em todos endpoints tested. Sem alternative path para credit data.
@@ -131,24 +131,56 @@ GET /data/dataflow/BIS/{FLOW}/{VERSION}/{KEY}?format=jsondata
 | `WS_LBS_D_PUB` | 1.0 | Locational banking statistics (property prices cross) | F1 financial |
 | `WS_LONG_CPP` | 1.0 | Consumer prices long series | (not CCCS) |
 
-**Key structure WS_TC** (5 dimensions):
+**Key structure WS_TC** (7 dimensions — resolved 2026-04-20, CAL-019 closed):
 ```
-{FREQ}.{BORROWERS_CTY}.{BORROWERS_SECTOR}.{LENDERS_SECTOR}.{UNIT_MEASURE}
+{FREQ}.{BORROWERS_CTY}.{TC_BORROWERS}.{TC_LENDERS}.{VALUATION}.{UNIT_TYPE}.{TC_ADJUST}
 ```
-Exemplo: `Q.PT.P.M.770A`:
-- FREQ = Q (quarterly)
-- BORROWERS_CTY = PT
-- BORROWERS_SECTOR = P (private non-financial sector)
-- LENDERS_SECTOR = M (all sectors)
-- UNIT_MEASURE = 770A (% of GDP)
+Exemplo canónico `Q.PT.P.A.M.770.A`:
+- FREQ = Q (quarterly) per `CL_FREQ`
+- BORROWERS_CTY = PT per `CL_AREA` (ISO-2 + 86 other BIS area aggregates)
+- TC_BORROWERS = P (Private non-financial sector) per `CL_TC_BORROWERS` (valid: C/G/H/N/P)
+- TC_LENDERS = A (All sectors) per `CL_TC_LENDERS` (valid: A/B — **not `M` as previously documented**)
+- VALUATION = M (Market value) per `CL_VALUATION` (valid: M/N)
+- UNIT_TYPE = 770 (Percentage of GDP) per `CL_BIS_UNIT` (code `770A` previously documented was invalid — true code is integer `770`)
+- TC_ADJUST = A (Adjusted for breaks) per `CL_ADJUST` (valid: 0/1/A/U)
 
-**Finding D1-T2:** smoke test retornou 404 em `Q.PT.P.M.770A` → key format potentially incorrect. WS_DSR key `Q.PT.P` returnou 200 OK com estrutura populada (LC=BGN, CGM). Debug requerido em Phase 1 L1 implementation — possibly UNIT_MEASURE dimension code incorrect (e.g. `770A` deprecated; use `XDC_R_B1GQ`?). Backlog CAL-019.
+DataStructure reference: `BIS:BIS_TOTAL_CREDIT(2.0)` (SDMX v2; the old v1 docs that referenced 5 dimensions were for a superseded structure).
 
-**Key structure WS_DSR** (3 dimensions):
+**CAL-019 resolution (2026-04-20)**: smoke test per Commit 1 of credit-indices-brief-v3 with new 7-dim key returned **200 OK for 7/7 T1 countries** (US/DE/PT/IT/ES/FR/NL) with plausible credit-to-GDP values 2023-Q4 → 2024-Q2:
+
+| Country | 2023-Q4 | 2024-Q1 | 2024-Q2 |
+|---|---|---|---|
+| PT | 136.1 | 133.9 | 132.9 |
+| US | 147.0 | 146.0 | 145.1 |
+| DE | 139.6 | 139.1 | 138.9 |
+| IT | 98.0 | 96.6 | 95.8 |
+| ES | 130.1 | 129.1 | 128.4 |
+| FR | 216.6 | 214.2 | 214.3 |
+| NL | 285.3 | 279.7 | 276.0 |
+
+Cached structure responses: `tests/fixtures/bis/ws_tc_structure.json` (full dimensions+codelists) + `ws_tc_PT_sample.json` (3-quarter sample). Requires `Accept: application/vnd.sdmx.data+json;version=1.0.0, application/json` header.
+
+**Key structure WS_DSR** (3 dimensions, dataflow version 1.0 — validated 2026-04-20):
 ```
-{FREQ}.{BORROWERS_CTY}.{BORROWERS_SECTOR}
+{FREQ}.{BORROWERS_CTY}.{DSR_BORROWERS}
 ```
-Exemplo: `Q.PT.P` → quarterly PT private non-financial DSR.
+Exemplo canónico `Q.US.P`:
+- FREQ = Q
+- BORROWERS_CTY = US
+- DSR_BORROWERS = P (Private non-financial sector)
+
+DataStructure reference: `BIS:BIS_DSR(1.0)`. US 2024-Q2 DSR = 14.5%. 7/7 T1 validated (requires explicit Accept header; omission returns 406).
+
+**Key structure WS_CREDIT_GAP** (5 dimensions, dataflow version 1.0 — validated 2026-04-20):
+```
+{FREQ}.{BORROWERS_CTY}.{TC_BORROWERS}.{TC_LENDERS}.{CG_DTYPE}
+```
+CG_DTYPE enumeration:
+- A = Credit-to-GDP ratios (actual data)
+- B = Credit-to-GDP trend (BIS one-sided HP)
+- C = Credit-to-GDP gaps (actual-trend)
+
+For L2 gap consumer, canonical key `Q.PT.P.A.C` → PT private non-financial credit gap pp (2024-Q2 = -38 pp, deleveraging). DataStructure reference: `BIS:BIS_CREDIT_GAP(1.0)`.
 
 **Structure endpoint (para descoberta):**
 ```
