@@ -725,6 +725,25 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** F1 property-gap component; re-enables BIS property
   canary.
 
+### CAL-073 — CBOE S&P put/call FRED series (PUTCLSPX) delisted (OPEN)
+
+- **Priority:** MEDIUM (F4 degrades to 4-component OVERLAY_MISS path)
+- **Trigger:** Week 5 Sprint 1 Commit 6 F4 live integration smoke
+  discovered FRED returns ``400 "The series does not exist"`` for
+  ``PUTCLSPX`` (CBOE S&P 500 total put/call ratio). CBOE also delisted
+  the direct XLS download path for daily P/C history (data now behind
+  the CBOE DataShop paywall).
+- **Scope:** Identify alternative public source for daily P/C ratio.
+  Candidates: Yahoo Finance ``^CPC`` (empirical — confirm availability),
+  Nasdaq Data Link P/C ratio feed, or scrape CBOE's web interface
+  (terms-of-service review required). Once chosen, refactor
+  ``cboe.py::fetch_put_call`` to hit the new source; preserve
+  ``FRED_SERIES_PUTCALL`` constant for any remaining historical wiring.
+  Live F4 smoke currently tolerates missing P/C via OVERLAY_MISS flag.
+- **Surfaced from:** Week 5 Sprint 1 Commit 6.
+- **Unblocks:** F4 full 5-component live path; removes OVERLAY_MISS
+  baseline flag from US F4 snapshots.
+
 ### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced)
 
 - **Priority:** MEDIUM

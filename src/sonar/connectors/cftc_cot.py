@@ -35,7 +35,9 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 CFTC_JSON_API = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
-SP500_MARKET_FILTER = "E-MINI S%26P 500%25"  # URL-encoded LIKE pattern
+# Socrata $where LIKE pattern — literal string; httpx handles URL-encoding.
+# `%` is the SQL wildcard; `&` must stay literal (do NOT URL-encode here).
+SP500_MARKET_FILTER = "E-MINI S&P 500%"
 
 # Expected Socrata field names (HALT #3 guard). If field names change we
 # raise DataUnavailableError so the consumer emits the degraded flag.
@@ -92,7 +94,7 @@ class CftcCotConnector:
         ``limit=104`` covers ~2 years of weekly data.
         """
         params = {
-            "$where": f"market_and_exchange_names like '{market_filter.replace('%25', '%')}'",
+            "$where": f"market_and_exchange_names like '{market_filter}'",
             "$order": "report_date_as_yyyy_mm_dd DESC",
             "$limit": str(limit),
         }
