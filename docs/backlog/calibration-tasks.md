@@ -700,6 +700,31 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `pytest -m slow`.
 - **Unblocks:** Production-grade F-cycle connector coverage.
 
+### CAL-072 — BIS property dataflow rename (WS_LONG_PP → WS_SPP) (OPEN)
+
+- **Priority:** HIGH (blocks F1 property-gap input live data)
+- **Trigger:** Week 5 Sprint 1 Commit 5 cassette backfill discovered
+  BIS SDMX v2 no longer serves dataflow `BIS:WS_LONG_PP(1.0)`. The
+  structure index lists `WS_SPP` (Selected Property Prices),
+  `WS_CPP` (Commercial Property Prices), and `WS_DPP` (Detailed
+  Property Prices) instead. Current production code in
+  `src/sonar/connectors/bis.py` references `DATAFLOW_WS_LONG_PP`,
+  which returns HTTP 404. Cassette for `bis_property_pt_2024_01_02.json`
+  was fetched from WS_SPP as a stopgap (SDMX-JSON 1.0 shape is
+  identical so the parser accepts it). Live canary
+  `test_live_canary_property_pt_recent` is xfail-marked until this
+  item resolves.
+- **Scope:** Rename `DATAFLOW_WS_LONG_PP` to `DATAFLOW_WS_SPP`
+  (or equivalent). Verify key pattern `Q.{CTY}.N.628` still resolves
+  under WS_SPP (manual probe via stats.bis.org structure endpoint).
+  Update `source_tag` `BIS_WS_LONG_PP` → `BIS_WS_SPP` if call sites
+  expect updated tags; otherwise retain legacy tag string for
+  backward-compat in overlays/indices. Remove xfail marker once
+  live canary passes.
+- **Surfaced from:** Week 5 Sprint 1 Commit 5 cassette probe.
+- **Unblocks:** F1 property-gap component; re-enables BIS property
+  canary.
+
 ### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced)
 
 - **Priority:** MEDIUM

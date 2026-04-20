@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,9 +18,15 @@ from sonar.connectors.finra_margin_debt import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from pytest_httpx import HTTPXMock
+
+
+CASSETTE_DIR = Path(__file__).parent.parent.parent / "cassettes" / "connectors"
+
+
+def _load_cassette(name: str) -> dict:
+    return json.loads((CASSETTE_DIR / name).read_text())
 
 
 @pytest.fixture
@@ -96,6 +104,22 @@ async def test_fetch_skips_sentinel(
     obs = await finra_connector.fetch_series(date(2023, 9, 30), date(2024, 3, 31))
     assert len(obs) == 1
     assert obs[0].observation_date == date(2023, 12, 31)
+
+
+# ---------------------------------------------------------------------------
+# Cassette replay (CAL-071: captured FRED BOGZ1FL663067003Q 2022-Q1..)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_margin_from_cassette(
+    httpx_mock: HTTPXMock, finra_connector: FinraMarginDebtConnector
+) -> None:
+    payload = _load_cassette("finra_margin_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await finra_connector.fetch_series(date(2022, 1, 1), date(2026, 1, 1))
+    assert len(obs) == len(payload["observations"])
+    for o in obs:
+        assert 100_000 < o.value_m_usd < 2_000_000
 
 
 # ---------------------------------------------------------------------------

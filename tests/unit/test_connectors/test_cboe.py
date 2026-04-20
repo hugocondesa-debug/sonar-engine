@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,9 +21,15 @@ from sonar.connectors.cboe import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from pytest_httpx import HTTPXMock
+
+
+CASSETTE_DIR = Path(__file__).parent.parent.parent / "cassettes" / "connectors"
+
+
+def _load_cassette(name: str) -> dict:
+    return json.loads((CASSETTE_DIR / name).read_text())
 
 
 @pytest.fixture
@@ -136,6 +144,24 @@ async def test_fetch_uses_cache(httpx_mock: HTTPXMock, cboe_connector: CboeConne
     second = await cboe_connector.fetch_vix(date(2024, 1, 2), date(2024, 1, 2))
     assert first == second
     assert len(httpx_mock.get_requests()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cassette replay (CAL-071: captured FRED VIXCLS 2023-12-01..2024-01-05)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_vix_from_cassette(
+    httpx_mock: HTTPXMock, cboe_connector: CboeConnector
+) -> None:
+    payload = _load_cassette("cboe_vix_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await cboe_connector.fetch_vix(date(2023, 12, 1), date(2024, 1, 5))
+    # Parser skips FRED "." sentinel rows, so obs count ≤ raw count.
+    assert 1 <= len(obs) <= len(payload["observations"])
+    for o in obs:
+        assert 5.0 <= o.value <= 100.0  # sanity band
+        assert o.metric == "VIX"
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,13 @@ from sonar.connectors.bis import (
     BisConnector,
 )
 
+CASSETTE_DIR = Path(__file__).parent.parent.parent / "cassettes" / "connectors"
+
+
+def _load_connector_cassette(name: str) -> dict:
+    return json.loads((CASSETTE_DIR / name).read_text())
+
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -69,11 +76,37 @@ async def test_fetch_property_empty_payload(
 
 
 # ---------------------------------------------------------------------------
+# Cassette replay (CAL-071: captured BIS WS_SPP PT Q.PT.N.628 2022-Q1..2024-Q1)
+# NB: the cassette was fetched from WS_SPP (Selected Property Prices, current
+# dataflow) rather than the deprecated WS_LONG_PP. The SDMX-JSON 1.0 response
+# shape is identical — parser is dataflow-agnostic. Production code in bis.py
+# still points at WS_LONG_PP which BIS renamed → tracked as CAL-072.
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_property_pt_from_cassette(
+    httpx_mock: HTTPXMock, bis_connector: BisConnector
+) -> None:
+    payload = _load_connector_cassette("bis_property_pt_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await bis_connector.fetch_property_price_index("PT", date(2022, 1, 1), date(2024, 3, 31))
+    assert len(obs) >= 1
+    assert all(o.country_code == "PT" for o in obs)
+    assert all(o.source == "BIS_WS_LONG_PP" for o in obs)
+    assert all(o.value_pct > 0 for o in obs)
+
+
+# ---------------------------------------------------------------------------
 # Live canary (CAL-071)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(
+    reason="BIS renamed dataflow WS_LONG_PP → WS_SPP; production bis.py still "
+    "references the old ID and will 404. Tracked as CAL-072.",
+    strict=False,
+)
 async def test_live_canary_property_pt_recent(tmp_cache_dir: Path) -> None:
     """Fetch last 2y PT property price index; assert non-empty + positive values."""
     # BIS is public; no API key. Autouse fixture disables tenacity wait — fine.

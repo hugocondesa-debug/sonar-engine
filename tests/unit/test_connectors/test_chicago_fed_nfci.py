@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,9 +19,15 @@ from sonar.connectors.chicago_fed_nfci import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from pytest_httpx import HTTPXMock
+
+
+CASSETTE_DIR = Path(__file__).parent.parent.parent / "cassettes" / "connectors"
+
+
+def _load_cassette(name: str) -> dict:
+    return json.loads((CASSETTE_DIR / name).read_text())
 
 
 @pytest.fixture
@@ -112,6 +120,23 @@ async def test_fetch_skips_sentinel_dots(
     obs = await nfci_connector.fetch_nfci("NFCI", date(2024, 1, 1), date(2024, 1, 10))
     assert len(obs) == 1
     assert obs[0].observation_date == date(2024, 1, 3)
+
+
+# ---------------------------------------------------------------------------
+# Cassette replay (CAL-071: captured FRED NFCI 2023-11-01..2024-01-05)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_nfci_from_cassette(
+    httpx_mock: HTTPXMock, nfci_connector: ChicagoFedNfciConnector
+) -> None:
+    payload = _load_cassette("chicago_nfci_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await nfci_connector.fetch_nfci("NFCI", date(2023, 11, 1), date(2024, 1, 5))
+    assert len(obs) == len(payload["observations"])
+    for o in obs:
+        assert -2.0 <= o.value_zscore <= 5.0
+        assert o.metric == "NFCI"
 
 
 # ---------------------------------------------------------------------------

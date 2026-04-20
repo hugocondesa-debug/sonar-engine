@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,9 +21,15 @@ from sonar.connectors.ice_bofa_oas import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from pathlib import Path
 
     from pytest_httpx import HTTPXMock
+
+
+CASSETTE_DIR = Path(__file__).parent.parent.parent / "cassettes" / "connectors"
+
+
+def _load_cassette(name: str) -> dict:
+    return json.loads((CASSETTE_DIR / name).read_text())
 
 
 @pytest.fixture
@@ -108,6 +116,24 @@ def test_value_bps_conversion() -> None:
         source_series_id=FRED_SERIES_HY_OAS,
     )
     assert obs.value_bps == 425
+
+
+# ---------------------------------------------------------------------------
+# Cassette replay (CAL-071: captured FRED BAMLH0A0HYM2 2023-12-01..2024-01-05)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_hy_from_cassette(
+    httpx_mock: HTTPXMock, oas_connector: IceBofaOasConnector
+) -> None:
+    payload = _load_cassette("ice_bofa_hy_oas_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await oas_connector.fetch_oas("HY", date(2023, 12, 1), date(2024, 1, 5))
+    # Parser skips FRED "." sentinel rows, so obs count ≤ raw count.
+    assert 1 <= len(obs) <= len(payload["observations"])
+    for o in obs:
+        assert 100 <= o.value_bps <= 2500
+        assert o.metric == "HY"
 
 
 # ---------------------------------------------------------------------------
