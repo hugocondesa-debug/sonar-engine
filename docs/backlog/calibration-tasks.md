@@ -966,7 +966,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   required by M1/M2/M4 spec §4 (FCS scope). ANFCI deferred — NFCI
   alone is the M4 direct-path signal.
 
-### CAL-097 — CBO output gap connector (Week 6 Sprint 1b surfaced)
+### CAL-097 — CBO output gap connector (Week 6 Sprint 1b surfaced) — **CLOSED** (Week 6 Sprint 2b)
 
 - **Priority:** MEDIUM
 - **Trigger:** Week 6 Sprint 1b brief §Commit 4 descoped. M2 needs
@@ -975,6 +975,15 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   compute gap = GDP / GDPPOT - 1; if absent, Path B = CBO Excel scrape
   with schema-drift guard. Start with Path A (trivial).
 - **Unblocks:** Live M2 (US output_gap input).
+- **Resolution (Week 6 Sprint 2b):** Path A (FRED GDPPOT) responded 200
+  live during pre-flight. `src/sonar/connectors/cbo.py` shipped as a
+  composition wrapper over `FredConnector` with
+  `fetch_output_gap_us(start, end)` pairing `GDPC1` with `GDPPOT` on
+  quarterly dates and returning `OutputGapObservation(gap=(a-p)/p, ...)`.
+  `fetch_latest_output_gap_us(date, window_days=200)` handles BEA Q4
+  advance-release lag. 6 unit tests + 1 `@pytest.mark.slow` live canary
+  covering the 2Y window. Excel fallback deliberately not implemented —
+  re-open only if GDPPOT is ever delisted.
 
 ### CAL-098 — ECB SDW M1-EA builder integration (Week 6 Sprint 1b surfaced)
 

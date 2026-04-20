@@ -532,6 +532,10 @@ class FredConnector(BaseConnector):
         """CBO real potential GDP (``GDPPOT``) — quarterly, $bn (chained 2017)."""
         return await self.fetch_economic_series("GDPPOT", start, end)
 
+    async def fetch_real_gdp_us(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """Real GDP level (``GDPC1``) — quarterly, $bn (chained 2017)."""
+        return await self.fetch_economic_series("GDPC1", start, end)
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
