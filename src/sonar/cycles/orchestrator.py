@@ -1,4 +1,4 @@
-"""Cycles orchestrator — compute + persist CCCS + FCS + MSC for (country, date).
+"""Cycles orchestrator — compute + persist CCCS + FCS + MSC + ECS for (country, date).
 
 Thin dispatch layer over the per-cycle modules. Gracefully skips any
 cycle whose compute raises :class:`InsufficientCycleInputsError` so a
@@ -32,6 +32,12 @@ from sonar.cycles.credit_cccs import (
     compute_cccs,
     persist_cccs_result,
 )
+from sonar.cycles.economic_ecs import (
+    EcsComputedResult,
+    StagflationInputs,
+    compute_ecs,
+    persist_ecs_result,
+)
 from sonar.cycles.financial_fcs import (
     FcsComputedResult,
     compute_fcs,
@@ -64,6 +70,7 @@ class CyclesOrchestrationResult:
     cccs: CccsComputedResult | None
     fcs: FcsComputedResult | None
     msc: MscComputedResult | None
+    ecs: EcsComputedResult | None
     skips: dict[str, str]
 
 
@@ -73,12 +80,18 @@ def compute_all_cycles(
     observation_date: date,
     *,
     persist: bool = True,
+    ecs_stagflation_inputs: StagflationInputs | None = None,
 ) -> CyclesOrchestrationResult:
-    """Compute CCCS + FCS + MSC; ``persist=False`` leaves results in-memory.
+    """Compute CCCS + FCS + MSC + ECS; ``persist=False`` leaves results in-memory.
 
     Each cycle's :class:`InsufficientCycleInputsError` is caught and
     recorded in the ``skips`` map; the orchestrator continues with the
     remaining cycles. Other exceptions propagate.
+
+    ``ecs_stagflation_inputs`` (optional) carries pre-resolved CPI /
+    Sahm / unemp-delta readings for the ECS stagflation overlay. When
+    ``None``, ECS computes with the overlay forced inactive and the
+    ``STAGFLATION_INPUT_MISSING`` flag fires per spec §6.
     """
     skips: dict[str, str] = {}
 
@@ -109,12 +122,22 @@ def compute_all_cycles(
         skips["MSC"] = str(exc)
         log.info("cycles.msc.skipped", country=country_code, error=str(exc))
 
+    ecs_result: EcsComputedResult | None = None
+    try:
+        ecs_result = compute_ecs(session, country_code, observation_date, ecs_stagflation_inputs)
+        if persist:
+            persist_ecs_result(session, ecs_result)
+    except InsufficientCycleInputsError as exc:
+        skips["ECS"] = str(exc)
+        log.info("cycles.ecs.skipped", country=country_code, error=str(exc))
+
     return CyclesOrchestrationResult(
         country_code=country_code,
         observation_date=observation_date,
         cccs=cccs_result,
         fcs=fcs_result,
         msc=msc_result,
+        ecs=ecs_result,
         skips=skips,
     )
 
@@ -145,6 +168,7 @@ def main(
     cccs_score = outcome.cccs.score_0_100 if outcome.cccs else None
     fcs_score = outcome.fcs.score_0_100 if outcome.fcs else None
     msc_score = outcome.msc.score_0_100 if outcome.msc else None
+    ecs_score = outcome.ecs.score_0_100 if outcome.ecs else None
     log.info(
         "cycles.orchestrator.complete",
         country=country,
@@ -156,6 +180,9 @@ def main(
         msc_score=msc_score,
         msc_regime_6band=outcome.msc.regime_6band if outcome.msc else None,
         msc_regime_3band=outcome.msc.regime_3band if outcome.msc else None,
+        ecs_score=ecs_score,
+        ecs_regime=outcome.ecs.regime if outcome.ecs else None,
+        ecs_stagflation_active=(outcome.ecs.stagflation_overlay_active if outcome.ecs else None),
         skips=outcome.skips,
     )
     sys.exit(EXIT_OK)
