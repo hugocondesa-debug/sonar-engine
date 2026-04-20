@@ -744,32 +744,39 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** F4 full 5-component live path; removes OVERLAY_MISS
   baseline flag from US F4 snapshots.
 
-### CAL-092 — FRED ISM/NFIB delisted series fallback connectors (OPEN)
+### CAL-092 — FRED ISM/NFIB delisted series fallback connectors (CLOSED 2026-04-20)
 
-- **Priority:** MEDIUM
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via Week 6 Sprint 1
+  Commits 1-3 (`a2b86a6`, `d1cd3ac`, `8e59498`).
 - **Trigger:** Week 5 Sprint 2a Commit 3 live probes confirmed FRED no
   longer serves ``NAPM`` (ISM Mfg PMI), ``NAPMII`` (ISM Svc PMI) or any
-  ``NFIB`` series. Helpers now raise :class:`DataUnavailableError` with
-  a canonical message so builders can emit spec flags.
-- **Scope:** Implement direct ISM scraper (``connectors/ism.py`` per
-  CAL-082) and NFIB scraper (new ``connectors/nfib.py``). Route around
-  the delisted FRED IDs in the builders once the scrapers land.
-- **Surfaced from:** Week 5 Sprint 2a Commit 3.
-- **Unblocks:** E1 US ``pmi_composite``, E4 US
-  ``ism_manufacturing`` / ``ism_services`` / ``nfib_small_business``.
+  ``NFIB`` series.
+- **Scope (resolved):** TE Pro serves as the production fallback.
+  `TEConnector.fetch_ism_manufacturing_us` → TE "business confidence"
+  (sourced from ISM); `fetch_ism_services_us` → "non manufacturing
+  pmi"; `fetch_nfib_us` → "nfib business optimism index". Builder
+  `build_e4_inputs` tries FRED first, falls through to TE on
+  DataUnavailableError, flags `TE_FALLBACK_{ISM_MFG,ISM_SVC,NFIB}`
+  when it substitutes. CAL-082 (direct ISM scraper) + CAL-091 (NFIB
+  scraper) become unnecessary unless TE Pro access is dropped.
+- **Follow-up:** N/A — TE coverage verified, live smoke green.
 
-### CAL-093 — Conference Board Consumer Confidence live feed (OPEN)
+### CAL-093 — Conference Board Consumer Confidence live feed (CLOSED 2026-04-20)
 
-- **Priority:** LOW
-- **Trigger:** Sprint 2a Commit 3: ``CONCCONF`` is not a FRED id. We
-  substituted OECD composite consumer-confidence indicator
-  ``CSCICP03USM665S`` which OECD discontinued at 2024-01. Values are
-  usable historically but freeze going forward; E4 builder should emit
-  ``CB_CONFIDENCE_STALE`` once data ages past a threshold.
-- **Scope:** Identify a live public feed (Nasdaq Data Link, scrape
-  conference-board.org, etc.) and switch the ``fetch_conference_
-  board_confidence_us`` helper. Optionally add staleness flag logic.
-- **Surfaced from:** Week 5 Sprint 2a Commit 3.
+- **Priority:** LOW → **CLOSED 2026-04-20** as "not resolvable by TE"
+  during Week 6 Sprint 1 pre-flight probe.
+- **Trigger:** Sprint 2a Commit 3: ``CONCCONF`` is not a FRED id.
+  OECD CLI proxy (``CSCICP03USM665S``) was substituted but freezes
+  at 2024-01.
+- **Resolution:** TE's US "Consumer Confidence" series is sourced
+  from the University of Michigan, NOT Conference Board. Wiring it
+  as a fallback would double-count the UMich slot in E4. Closing
+  this CAL with the known caveat: current behaviour keeps the OECD
+  CLI stale proxy through the `conference_board_confidence_12m_change`
+  slot until a dedicated Conference Board feed exists. Re-open a new
+  CAL if/when a usable CB data-path surfaces (Nasdaq Data Link subscription,
+  direct scrape with ToS review, etc.).
+- **Follow-up:** None this cycle — accept staleness.
 
 ### CAL-094 — Eurostat namq_10_pe gap for PT employment (OPEN)
 
@@ -858,16 +865,23 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   policyuncertainty.com monthly CSV.
 - **Unblocks:** EPU fallback path.
 
-### CAL-086 — ZEW + Ifo DE sentiment scrapers (Week 5 ECS surfaced)
+### CAL-086 — ZEW + Ifo DE sentiment scrapers (CLOSED 2026-04-20)
 
-- **Priority:** LOW
+- **Priority:** LOW → **CLOSED 2026-04-20** via Week 6 Sprint 1
+  Commits 2-3 (`d1cd3ac`, `8e59498`).
 - **Trigger:** E4 DE components `zew_expectations` +
-  `ifo_business_climate`. Without them DE E4 drops to 4/13 components
+  `ifo_business_climate`. Without them DE E4 drops to 3/13 components
   (below threshold → InsufficientDataError).
-- **Scope:** `src/sonar/connectors/zew.py` + `connectors/ifo.py`,
-  monthly scrape of headline indices. Module docstrings document
-  scraping fragility + maintenance contract.
-- **Unblocks:** DE full E4 row production.
+- **Scope (resolved):** TE Pro provides both headlines.
+  `TEConnector.fetch_ifo_business_climate_de` → TE "business confidence"
+  under germany (source: Ifo Institute, value matches Ifo Business
+  Climate headline). `fetch_zew_economic_sentiment_de` → TE
+  "zew economic sentiment index". Builder `build_e4_inputs` wires
+  both when a TEConnector is supplied; flags
+  `TE_FALLBACK_{IFO,ZEW}`. Dedicated
+  `connectors/{zew,ifo}.py` scrapers become unnecessary. Re-open
+  if/when TE ceases to serve these specific series.
+- **Follow-up:** None.
 
 ### CAL-087 — BoJ Tankan connector (Week 5 ECS surfaced)
 
