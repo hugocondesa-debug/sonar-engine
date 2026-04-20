@@ -997,3 +997,111 @@ class BisCreditRaw(Base):
 
 
 # === Ingestion models end ===
+
+
+# === Cycle models begin ===
+# L4 cycle composite bookmark zone (CCCS, FCS from Sprint 2b; ECS, MSC
+# follow). One ORM per cycle — composites carry per-cycle-specific
+# columns (hysteresis, overlay, audit contributions) so keep rich.
+
+
+class CreditCycleScore(Base):
+    """Row per spec ``cycles/credit-cccs.md`` §8 — L4 credit composite."""
+
+    __tablename__ = "credit_cycle_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cccs_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_0_100: Mapped[float] = mapped_column(Float, nullable=False)
+    regime: Mapped[str] = mapped_column(String(16), nullable=False)
+    regime_persistence_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    cs_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lc_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ms_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qs_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cs_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    lc_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    ms_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    l1_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    l2_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    l3_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    l4_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f3_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f4_margin_debt_contribution_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    boom_overlay_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    boom_trigger_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("cccs_id", name="uq_cccs_id"),
+        CheckConstraint("score_0_100 BETWEEN 0 AND 100", name="ck_cccs_score"),
+        CheckConstraint(
+            "regime IN ('REPAIR','RECOVERY','BOOM','SPECULATION','DISTRESS')",
+            name="ck_cccs_regime",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_cccs_confidence"),
+        CheckConstraint(
+            "components_available BETWEEN 3 AND 4", name="ck_cccs_components_available"
+        ),
+        CheckConstraint("boom_overlay_active IN (0, 1)", name="ck_cccs_boom_overlay_active"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_cccs_cdm"),
+        Index("idx_cccs_cd", "country_code", "date"),
+    )
+
+
+class FinancialCycleScore(Base):
+    """Row per spec ``cycles/financial-fcs.md`` §8 — L4 financial composite."""
+
+    __tablename__ = "financial_cycle_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fcs_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_0_100: Mapped[float] = mapped_column(Float, nullable=False)
+    regime: Mapped[str] = mapped_column(String(16), nullable=False)
+    regime_persistence_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    f1_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f2_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f3_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f4_score_0_100: Mapped[float | None] = mapped_column(Float, nullable=True)
+    f1_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    f2_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    f3_weight_effective: Mapped[float] = mapped_column(Float, nullable=False)
+    f4_weight_effective: Mapped[float | None] = mapped_column(Float, nullable=True)
+    indices_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    country_tier: Mapped[int] = mapped_column(Integer, nullable=False)
+    f3_m4_divergence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bubble_warning_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    bubble_warning_components_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("fcs_id", name="uq_fcs_id"),
+        CheckConstraint("score_0_100 BETWEEN 0 AND 100", name="ck_fcs_score"),
+        CheckConstraint(
+            "regime IN ('STRESS','CAUTION','OPTIMISM','EUPHORIA')", name="ck_fcs_regime"
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_fcs_confidence"),
+        CheckConstraint("indices_available BETWEEN 3 AND 4", name="ck_fcs_indices_available"),
+        CheckConstraint("country_tier BETWEEN 1 AND 4", name="ck_fcs_country_tier"),
+        CheckConstraint("bubble_warning_active IN (0, 1)", name="ck_fcs_bubble_warning_active"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_fcs_cdm"),
+        Index("idx_fcs_cd", "country_code", "date"),
+    )
+
+
+# === Cycle models end ===
