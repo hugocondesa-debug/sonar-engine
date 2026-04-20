@@ -261,6 +261,8 @@ module = [
   "scipy.*",
   "typer",
   "typer.*",
+  "openpyxl",
+  "openpyxl.*",
 ]
 ignore_missing_imports = true
 
