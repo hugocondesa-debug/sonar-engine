@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
+import math
+from datetime import date, timedelta
 
 import pytest
 
@@ -211,9 +212,6 @@ class TestSpec:
 
 def _eq(n: int, scale: float = 0.01) -> list[FMPPriceObservation]:
     """Synthesize n equity closes with deterministic log-return drift."""
-    import math
-    from datetime import date, timedelta
-
     out: list[FMPPriceObservation] = []
     price = 1000.0
     start = date(2022, 1, 3)
@@ -234,8 +232,6 @@ def _eq(n: int, scale: float = 0.01) -> list[FMPPriceObservation]:
 
 def _bonds(n: int, yield_scale_bps: int = 50) -> list[Observation]:
     """Synthesize n daily 10Y yield observations with volatile changes."""
-    from datetime import date, timedelta
-
     out: list[Observation] = []
     base = 400  # 4%
     start = date(2022, 1, 3)
@@ -262,8 +258,6 @@ class TestVolRatio:
         assert result.vol_ratio == DAMODARAN_STANDARD_RATIO
 
     def test_zero_bond_vol_falls_back(self) -> None:
-        from datetime import date, timedelta
-
         flat_bonds = [
             Observation(
                 country_code="US",

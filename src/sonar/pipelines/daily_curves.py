@@ -32,6 +32,7 @@ import numpy as np
 import structlog
 import typer
 
+from sonar.config import settings
 from sonar.connectors.fred import FredConnector
 from sonar.db.persistence import DuplicatePersistError, persist_nss_fit_result
 from sonar.db.session import SessionLocal
@@ -145,8 +146,6 @@ def main(
     ),
 ) -> None:
     """Run the daily-curves pipeline for ``--country`` on ``--date``."""
-    from sonar.config import settings
-
     if country != "US":
         typer.echo(f"Week 2 supports US only; got country={country}", err=True)
         sys.exit(EXIT_IO)

@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import httpx
+import pandas as pd
 import structlog
 from tenacity import (
     retry,
@@ -37,8 +39,10 @@ from tenacity import (
 from sonar.connectors.cache import ConnectorCache
 
 if TYPE_CHECKING:
-    from datetime import date as date_type
     from pathlib import Path
+
+# Backwards-compat alias used by dataclass field annotations below.
+date_type = date
 
 log = structlog.get_logger()
 
@@ -122,8 +126,6 @@ def _parse_snapshot(body: bytes, observation_date: date_type) -> ShillerSnapshot
     Tolerant of header-row drift across releases by selecting columns via
     pandas ``DataFrame.columns`` lookup with fallback to positional index.
     """
-    import pandas as pd
-
     df = pd.read_excel(
         io.BytesIO(body),
         sheet_name="Data",
@@ -141,7 +143,7 @@ def _parse_snapshot(body: bytes, observation_date: date_type) -> ShillerSnapshot
         except (TypeError, ValueError):
             continue
         year = int(f)
-        month = int(round((f - year) * 100))
+        month = round((f - year) * 100)
         if month < 1 or month > 12:
             continue
         candidates.append((year * 100 + month, idx, year))
@@ -154,10 +156,8 @@ def _parse_snapshot(body: bytes, observation_date: date_type) -> ShillerSnapshot
     row = df.iloc[idx]
     year, month = _ym // 100, _ym % 100
 
-    from datetime import date as _date
-
     return ShillerSnapshot(
-        observation_date=_date(year, month, 1),
+        observation_date=date(year, month, 1),
         price_nominal=float(row[COL_PRICE]),
         dividend_nominal=float(row[COL_DIVIDEND]),
         earnings_nominal=float(row[COL_EARNINGS]),

@@ -9,6 +9,8 @@ import pytest
 import pytest_asyncio
 from tenacity import wait_none
 
+from sonar.connectors.base import Observation
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from pathlib import Path
@@ -138,8 +140,6 @@ async def test_fetch_yield_curve_rejects_non_ea(
 
 async def test_cache_hit_no_http(httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector) -> None:
     _ = httpx_mock
-    from sonar.connectors.base import Observation
-
     pre_cached = [
         Observation(
             country_code="EA",

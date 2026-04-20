@@ -27,13 +27,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ANCHOR_BANDS_BPS",
-    "ExpInfBEI",
-    "ExpInfCanonical",
-    "ExpInfSurvey",
     "METHODOLOGY_VERSION_BEI",
     "METHODOLOGY_VERSION_CANONICAL",
     "METHODOLOGY_VERSION_SURVEY",
     "STANDARD_TENORS",
+    "ExpInfBEI",
+    "ExpInfCanonical",
+    "ExpInfSurvey",
     "anchor_status",
     "build_canonical",
     "compute_5y5y",
@@ -265,7 +265,7 @@ def build_canonical(
     status: str | None = None
     if bc_target_pct is not None and "5y5y" in expected_tenors:
         deviation = expected_tenors["5y5y"] - bc_target_pct
-        deviation_bps = int(round(deviation * 10_000.0))
+        deviation_bps = round(deviation * 10_000.0)
         status = anchor_status(abs(deviation_bps))
     else:
         flags.append("ANCHOR_UNCOMPUTABLE")
@@ -276,7 +276,7 @@ def build_canonical(
         survey_10y = survey.interpolated_tenors.get("10Y")
         if bei_10y is not None and survey_10y is not None:
             diff = abs(bei_10y - survey_10y)
-            bei_vs_survey = int(round(diff * 10_000.0))
+            bei_vs_survey = round(diff * 10_000.0)
             if bei_vs_survey > 100:
                 flags.append("INFLATION_METHOD_DIVERGENCE")
 

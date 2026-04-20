@@ -24,6 +24,7 @@ from sonar.db.models import (
     RatingsAgencyRaw,
     RatingsConsolidated,
 )
+from sonar.overlays.rating_spread import _compute_confidence
 
 if TYPE_CHECKING:
     from datetime import date
@@ -166,8 +167,6 @@ def persist_rating_agency_row(
     consolidator joins them by ``(country, date, rating_type)`` later.
     Re-persisting the same triplet raises ``DuplicatePersistError``.
     """
-    from sonar.overlays.rating_spread import _compute_confidence  # local import — avoid cycle
-
     confidence = _compute_confidence(flags=[], agencies_count=1)  # per-agency baseline 1.0
     db_row = RatingsAgencyRaw(
         rating_id=rating_id,
@@ -208,8 +207,6 @@ def persist_rating_consolidated(
     methodology_version: str = "RATING_SPREAD_v0.2",
 ) -> None:
     """Persist a consolidated rating row."""
-    from sonar.overlays.rating_spread import _compute_confidence  # noqa: F401 — for symmetry
-
     db_row = RatingsConsolidated(
         rating_id=str(consolidated.rating_id),
         country_code=consolidated.country_code,

@@ -17,6 +17,7 @@ Storage convention per units.md §Spreads: ``default_spread_bps`` is
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
@@ -30,13 +31,13 @@ if TYPE_CHECKING:
 __all__ = [
     "AGENCY_LOOKUP",
     "APRIL_2026_CALIBRATION",
-    "ConsolidatedRating",
-    "InvalidRatingTokenError",
-    "MODIFIER_OUTLOOK",
-    "MODIFIER_WATCH",
     "METHODOLOGY_VERSION_AGENCY",
     "METHODOLOGY_VERSION_CALIBRATION",
     "METHODOLOGY_VERSION_CONSOLIDATED",
+    "MODIFIER_OUTLOOK",
+    "MODIFIER_WATCH",
+    "ConsolidatedRating",
+    "InvalidRatingTokenError",
     "RatingAgencyRaw",
     "consolidate",
     "lookup_default_spread_bps",
@@ -236,7 +237,7 @@ def lookup_default_spread_bps(
     lo_bps = calibration[lo][0]
     hi_bps = calibration[hi][0]
     weight = (notch_int - lo) / (hi - lo)
-    return int(round(lo_bps + weight * (hi_bps - lo_bps)))
+    return round(lo_bps + weight * (hi_bps - lo_bps))
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +289,6 @@ def _median_with_floor_tie(values: list[float]) -> float:
     lo, hi = sorted_vals[mid - 1], sorted_vals[mid]
     avg = (lo + hi) / 2.0
     # Conservative tie-break: floor the average.
-    import math
-
     return math.floor(avg) if not math.isclose(lo, hi) else lo
 
 
@@ -353,7 +352,7 @@ def consolidate(
 
     notches = [r.notch_adjusted for r in rows]
     consolidated = _median_with_floor_tie(notches)
-    notch_int = int(round(consolidated))
+    notch_int = round(consolidated)
     notch_fractional = float(consolidated - notch_int)
 
     flags: list[str] = []

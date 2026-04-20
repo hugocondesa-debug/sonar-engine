@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date as _date
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
@@ -567,8 +568,6 @@ def derive_real_curve(
     order = np.argsort(tenors)
     tenors = tenors[order]
     yields_dec = yields_dec[order]
-
-    from datetime import date as _date
 
     linker_input = NSSInput(
         tenors_years=tenors,

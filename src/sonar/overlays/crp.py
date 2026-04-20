@@ -39,15 +39,15 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BENCHMARK_COUNTRIES_BY_CURRENCY",
-    "CRPCanonical",
-    "CRPRating",
-    "CRPSovSpread",
     "DAMODARAN_STANDARD_RATIO",
     "METHODOLOGY_VERSION_CANONICAL",
     "METHODOLOGY_VERSION_RATING",
     "METHODOLOGY_VERSION_SOV_SPREAD",
     "MIN_VOL_OBSERVATIONS",
     "VOL_RATIO_BOUNDS",
+    "CRPCanonical",
+    "CRPRating",
+    "CRPSovSpread",
     "Method",
     "VolRatioResult",
     "build_canonical",
@@ -290,9 +290,9 @@ def compute_sov_spread(
     if vol_ratio_source == "damodaran_standard":
         flags.append("CRP_VOL_STANDARD")
 
-    default_spread_bps = int(round(raw_spread_decimal * 10_000.0))
+    default_spread_bps = round(raw_spread_decimal * 10_000.0)
     crp_decimal = raw_spread_decimal * vol_ratio
-    crp_bps = int(round(crp_decimal * 10_000.0))
+    crp_bps = round(crp_decimal * 10_000.0)
 
     confidence = _compute_confidence(flags)
     return CRPSovSpread(
@@ -327,13 +327,13 @@ def compute_rating(
     by ``vol_ratio``. Caller resolves the notch lookup; this function only
     multiplies + rounds + flags.
     """
-    notch_int = int(round(consolidated_sonar_notch))
+    notch_int = round(consolidated_sonar_notch)
     flags: list[str] = []
     if vol_ratio_source == "damodaran_standard":
         flags.append("CRP_VOL_STANDARD")
 
     crp_decimal = (default_spread_bps / 10_000.0) * vol_ratio
-    crp_bps = int(round(crp_decimal * 10_000.0))
+    crp_bps = round(crp_decimal * 10_000.0)
     confidence = _compute_confidence(flags)
 
     return CRPRating(

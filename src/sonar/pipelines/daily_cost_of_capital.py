@@ -57,7 +57,7 @@ METHODOLOGY_VERSION: str = "K_E_DAILY_v0.1"
 # 3.5F interim: Damodaran global mature-market ERP (decimal) — replace
 # once 3.5B lands the real ERP compute.
 DAMODARAN_MATURE_ERP_DECIMAL: float = 0.055
-DAMODARAN_MATURE_ERP_BPS: int = int(round(DAMODARAN_MATURE_ERP_DECIMAL * 10_000))
+DAMODARAN_MATURE_ERP_BPS: int = round(DAMODARAN_MATURE_ERP_DECIMAL * 10_000)
 
 # Week 3.5F target countries.
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")

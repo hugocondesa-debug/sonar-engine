@@ -130,7 +130,7 @@ class TEConnector:
                     country_code=country,
                     observation_date=obs_date,
                     tenor_years=10.0,
-                    yield_bps=int(round(close_pct * 100)),
+                    yield_bps=round(close_pct * 100),
                     source="TE",
                     source_series_id=symbol,
                 )
