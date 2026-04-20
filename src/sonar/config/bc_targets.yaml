@@ -1,0 +1,29 @@
+# Central bank inflation targets (stable config).
+#
+# Consumed by M2 Taylor gaps per spec §2 precondition. Maintainer:
+# stable config, only revise on official CB target announcement.
+
+targets:
+  Fed: 0.02      # 2 % PCE core (US)
+  ECB: 0.02      # 2 % HICP medium-term (EA)
+  BoE: 0.02      # 2 % CPI (UK)
+  BoJ: 0.02      # 2 % CPI (JP, post-2013)
+  RBA: 0.025     # 2-3 % midpoint (AU)
+  BoC: 0.02      # 2 % CPI (CA)
+
+country_to_target:
+  US: Fed
+  EA: ECB
+  DE: ECB
+  PT: ECB
+  IT: ECB
+  ES: ECB
+  FR: ECB
+  NL: ECB
+  UK: BoE
+  JP: BoJ
+  AU: RBA
+  CA: BoC
+
+# EM countries without stable target → NO_TARGET flag (spec §4 step 2):
+# CN, IN, BR, TR, AR, MX, ZA, ID — compute skips M2 for those.

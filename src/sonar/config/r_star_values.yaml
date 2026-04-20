@@ -1,0 +1,29 @@
+# Hardcoded HLW r* values (Phase 1 workaround per user key decision).
+#
+# Full HLW connector lives in Phase 2+ (CAL surfaced from this sprint —
+# see docs/planning/retrospectives/week6-sprint-1b-msc-indices-report.md).
+#
+# Ritual: quarterly manual refresh. Source: NY Fed HLW quarterly release
+# at https://www.newyorkfed.org/research/policy/rstar + Holston-Laubach-
+# Williams EA equivalent quarterly publication.
+#
+# Consumers: M1 effective rates + M2 Taylor gaps (both read r_star_pct
+# through src/sonar/config/loaders.py:load_r_star_values).
+#
+# Staleness: spec §2 CCCS precondition caps confidence with
+# CALIBRATION_STALE flag when last_updated > 95 days.
+
+US:
+  r_star_pct: 0.008       # 0.8 % — NY Fed HLW Q4 2024
+  last_updated: "2025-01-15"
+  source: "NY Fed HLW Q4 2024"
+
+EA:
+  r_star_pct: -0.005      # -0.5 % — Holston-Laubach-Williams EA Q4 2024
+  last_updated: "2025-01-15"
+  source: "HLW EA equivalent Q4 2024"
+
+# PT / IT / ES / FR / NL: use EA proxy — consumers emit R_STAR_PROXY flag
+# per spec. No separate entry required; loader falls back to EA.
+
+# UK / JP / CA / AU: pending Phase 2+ manual entry (no HLW at present).
