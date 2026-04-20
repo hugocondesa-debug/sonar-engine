@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy.exc import IntegrityError
 
 from sonar.db.models import (
+    ERPCAPE,
+    ERPDCF,
+    ERPEY,
+    ERPCanonical,
+    ERPGordon,
     IndexValue,
     NSSYieldCurveForwards,
     NSSYieldCurveReal,
@@ -25,6 +30,7 @@ from sonar.db.models import (
     RatingsAgencyRaw,
     RatingsConsolidated,
 )
+from sonar.overlays.erp import G_SUSTAINABLE_CAP
 from sonar.overlays.rating_spread import _compute_confidence
 
 if TYPE_CHECKING:
@@ -34,6 +40,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from sonar.indices.base import IndexResult
+    from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
 
@@ -302,3 +309,144 @@ def persist_many_index_values(session: Session, results: Iterable[IndexResult]) 
             raise DuplicatePersistError(err) from e
         raise
     return len(rows)
+
+
+# =============================================================================
+# ERP persistence — 5-row atomic (DCF + Gordon + EY + CAPE + canonical)
+# =============================================================================
+
+
+def _to_erp_dcf_row(result: ERPFitResult, inputs: ERPInput) -> ERPDCF | None:
+    if result.dcf is None:
+        return None
+    return ERPDCF(
+        erp_id=str(result.erp_id),
+        market_index=result.market_index,
+        country_code=result.country_code,
+        date=result.observation_date,
+        methodology_version=result.dcf.methodology_version,
+        erp_bps=result.dcf.erp_bps,
+        implied_r_pct=result.dcf.erp_decimal + inputs.risk_free_nominal,
+        earnings_growth_pct=inputs.consensus_growth_5y,
+        terminal_growth_pct=inputs.risk_free_nominal,
+        confidence=result.dcf.confidence,
+        flags=_flags_to_csv(result.dcf.flags),
+    )
+
+
+def _to_erp_gordon_row(result: ERPFitResult, inputs: ERPInput) -> ERPGordon | None:
+    if result.gordon is None:
+        return None
+    g_sustainable = min(inputs.retention * inputs.roe, G_SUSTAINABLE_CAP)
+    return ERPGordon(
+        erp_id=str(result.erp_id),
+        market_index=result.market_index,
+        country_code=result.country_code,
+        date=result.observation_date,
+        methodology_version=result.gordon.methodology_version,
+        erp_bps=result.gordon.erp_bps,
+        dividend_yield_pct=inputs.dividend_yield_pct,
+        buyback_yield_pct=inputs.buyback_yield_pct,
+        g_sustainable_pct=g_sustainable,
+        confidence=result.gordon.confidence,
+        flags=_flags_to_csv(result.gordon.flags),
+    )
+
+
+def _to_erp_ey_row(result: ERPFitResult, inputs: ERPInput) -> ERPEY | None:
+    if result.ey is None:
+        return None
+    return ERPEY(
+        erp_id=str(result.erp_id),
+        market_index=result.market_index,
+        country_code=result.country_code,
+        date=result.observation_date,
+        methodology_version=result.ey.methodology_version,
+        erp_bps=result.ey.erp_bps,
+        forward_pe=inputs.index_level / inputs.forward_earnings_est,
+        forward_earnings=inputs.forward_earnings_est,
+        index_level=inputs.index_level,
+        confidence=result.ey.confidence,
+        flags=_flags_to_csv(result.ey.flags),
+    )
+
+
+def _to_erp_cape_row(result: ERPFitResult, inputs: ERPInput) -> ERPCAPE | None:
+    if result.cape is None:
+        return None
+    # Derive the 10Y real-earnings average from CAPE per spec §4 identity:
+    # CAPE = index_level / real_earnings_10y_avg.
+    real_earnings_10y_avg = inputs.index_level / inputs.cape_ratio
+    return ERPCAPE(
+        erp_id=str(result.erp_id),
+        market_index=result.market_index,
+        country_code=result.country_code,
+        date=result.observation_date,
+        methodology_version=result.cape.methodology_version,
+        erp_bps=result.cape.erp_bps,
+        cape_ratio=inputs.cape_ratio,
+        real_risk_free_pct=inputs.risk_free_real,
+        real_earnings_10y_avg=real_earnings_10y_avg,
+        confidence=result.cape.confidence,
+        flags=_flags_to_csv(result.cape.flags),
+    )
+
+
+def _to_erp_canonical_row(result: ERPFitResult) -> ERPCanonical:
+    c = result.canonical
+    return ERPCanonical(
+        erp_id=str(result.erp_id),
+        market_index=result.market_index,
+        country_code=result.country_code,
+        date=result.observation_date,
+        methodology_version=c.methodology_version,
+        erp_median_bps=c.erp_median_bps,
+        erp_range_bps=c.erp_range_bps,
+        methods_available=c.methods_available,
+        erp_dcf_bps=result.dcf.erp_bps if result.dcf else None,
+        erp_gordon_bps=result.gordon.erp_bps if result.gordon else None,
+        erp_ey_bps=result.ey.erp_bps if result.ey else None,
+        erp_cape_bps=result.cape.erp_bps if result.cape else None,
+        forward_eps_divergence_pct=c.forward_eps_divergence_pct,
+        xval_deviation_bps=c.xval_deviation_bps,
+        confidence=c.confidence,
+        flags=_flags_to_csv(c.flags),
+    )
+
+
+def persist_erp_fit_result(
+    session: Session,
+    result: ERPFitResult,
+    inputs: ERPInput,
+) -> None:
+    """Persist the ERP fit atomically across per-method + canonical tables.
+
+    Writes up to 5 rows inside a single transaction (any method that
+    returned ``None`` is skipped; canonical is always written). On
+    UNIQUE violation raises :class:`DuplicatePersistError` and the
+    transaction rolls back. Mirrors :func:`persist_nss_fit_result`.
+    """
+    method_rows = [
+        _to_erp_dcf_row(result, inputs),
+        _to_erp_gordon_row(result, inputs),
+        _to_erp_ey_row(result, inputs),
+        _to_erp_cape_row(result, inputs),
+    ]
+    canonical_row = _to_erp_canonical_row(result)
+
+    try:
+        for row in method_rows:
+            if row is not None:
+                session.add(row)
+        session.flush()
+        session.add(canonical_row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"ERP fit already persisted: market={result.market_index}, "
+                f"date={result.observation_date}, erp_id={result.erp_id}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise

@@ -335,6 +335,20 @@ def _compute_canonical(
     )
 
 
+def _compute_xval_deviation_bps(
+    dcf: ERPMethodResult | None, damodaran_erp_decimal: float | None
+) -> int | None:
+    """Return ``|erp_dcf_bps - damodaran_bps|`` when both sides present.
+
+    Returns ``None`` when either DCF did not converge or Damodaran
+    histimpl has no row for this observation date's year.
+    """
+    if dcf is None or damodaran_erp_decimal is None:
+        return None
+    damodaran_bps = round(damodaran_erp_decimal * 10_000)
+    return abs(dcf.erp_bps - damodaran_bps)
+
+
 def _compute_forward_eps_divergence(
     factset_eps: float,
     yardeni_eps: float | None,
@@ -368,18 +382,20 @@ def _compute_forward_eps_divergence(
 def fit_erp_us(
     inputs: ERPInput,
     *,
-    xval_deviation_bps: int | None = None,
+    damodaran_erp_decimal: float | None = None,
 ) -> ERPFitResult:
     """Orchestrate all 4 methods + canonical for a single (market, date).
 
     Preconditions (per spec §2 §Preconditions):
 
-    * ``risk_free_confidence >= 0.50`` → else :class:`InsufficientDataError`.
-    * At least :data:`MIN_METHODS_FOR_CANONICAL` methods usable → else
+    * ``risk_free_confidence >= 0.50`` else :class:`InsufficientDataError`.
+    * At least :data:`MIN_METHODS_FOR_CANONICAL` methods usable else
       :class:`InsufficientDataError` inside canonical aggregation.
 
-    ``xval_deviation_bps`` is passed by the pipeline after consulting
-    Damodaran histimpl (US only); pass ``None`` for non-US markets.
+    When ``damodaran_erp_decimal`` is provided (US only per spec §4
+    step 8), we compute ``xval_deviation_bps = |erp_dcf_bps -
+    damodaran_bps|`` and emit ``XVAL_DRIFT`` when it exceeds 20 bps.
+    Non-US callers pass ``None``.
     """
     if inputs.risk_free_confidence < 0.50:
         msg = (
@@ -403,6 +419,8 @@ def fit_erp_us(
         factset_fresh_days=inputs.factset_fresh_days,
         yardeni_fresh_days=inputs.yardeni_fresh_days,
     )
+
+    xval_deviation_bps = _compute_xval_deviation_bps(dcf, damodaran_erp_decimal)
 
     canonical = _compute_canonical(
         (dcf, gordon, ey, cape),
