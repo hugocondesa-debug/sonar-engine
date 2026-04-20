@@ -786,19 +786,23 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   namq_10_pe may also gap.
 - **Surfaced from:** Week 5 Sprint 2a Commit 5.
 
-### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced)
+### CAL-080 — Eurostat SDMX connector (Week 5 ECS surfaced) (CLOSED 2026-04-20)
 
-- **Priority:** MEDIUM
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via Sprint 2a
+  Commits 1-2 (`4805a24`, `9b48af1`).
 - **Trigger:** Week 5 ECS compute layer ships (E1/E3/E4 per spec)
   but stays data-empty for EA countries without Eurostat. Was
   originally brief week5 §Commit 3; descoped per user §7 budget trim.
-- **Scope:** `src/sonar/connectors/eurostat.py` over SDMX-JSON 1.0
-  at `https://ec.europa.eu/eurostat/api/dissemination/sdmx/2.1`.
-  Dataflows: `namq_10_gdp`, `sts_inpr_m`, `lfsi_emp_m`, `sts_trtu_m`,
-  `une_rt_m`, `ei_bsco_m`, `teibs020`. Country geo codes for 7 T1
-  EA set (DE/PT/IT/ES/FR/NL + EA aggregate). Polite pacing 2 req/s.
-- **Unblocks:** E1/E3/E4 EA coverage; large chunk of Week 6 ECS
-  composite readiness.
+- **Scope (resolved):** `src/sonar/connectors/eurostat.py` implements
+  the JSON-stat 2.0 path (not SDMX-JSON 1.0 — confirmed empirically)
+  with SchemaChangedError guards + gzip-without-Content-Encoding
+  workaround. Seven indicator helpers ship: GDP + IP + Employment +
+  Retail (YoY) + UR + ESI + ConsConf (levels). Deviations from brief:
+  `lfsi_emp_m` 404s (use `namq_10_pe`); ESI lives in `ei_bssi_m_r2`
+  (not `ei_bsco_m`); `teibs020` trails only 12m → use `ei_bsco_m`
+  BS-CSMCI for ConsConf history. See CAL-094 for PT employment gap.
+- **Unblocks:** E1/E3/E4 EA coverage (DE + IT + ES + FR + NL);
+  Sprint 2b CCCS + FCS + ECS composite readiness.
 
 ### CAL-081 — S&P Global PMI scraper (Week 5 ECS surfaced)
 
@@ -821,16 +825,17 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** US E1 (`pmi_composite`) + E4 (`ism_manufacturing`,
   `ism_services`).
 
-### CAL-083 — FRED connector Economic-series extension (Week 5 ECS surfaced)
+### CAL-083 — FRED connector Economic-series extension (Week 5 ECS surfaced) (CLOSED 2026-04-20)
 
-- **Priority:** LOW
+- **Priority:** LOW → **CLOSED 2026-04-20** via Sprint 2a Commit 3
+  (`122d1b3`).
 - **Trigger:** Week 5 ECS brief §Commit 6; descoped to CAL.
-- **Scope:** `src/sonar/connectors/fred.py` new section
-  `# === Economic indicators ===` with helper resolvers for
-  GDPC1, INDPRO, PAYEMS, RRSFS, W875RX1, UNRATE, JTSJOL,
-  CES0500000003, ICSA, TEMPHELPS, UMCSENT, CSCICP03USM665S,
-  USEPUINDXD, MICHM5YM5, NAPM, NAPMII, NFIBBTI, DRTSCILM, VIXCLS,
-  EMRATIO, LNS11300060, ECIWAG, JTSQUL, IC4WSA. Zero new deps.
+- **Scope (resolved):** `src/sonar/connectors/fred.py` adds the
+  `# === Economic indicators ===` section with 23 helpers (raw-level
+  path + YoY variants) + `FredEconomicObservation` dataclass. Delisted
+  series route to CAL-092: `NAPM`, `NAPMII`, any `NFIB*`. Placeholder
+  swaps: `CONCCONF` → `CSCICP03USM665S` (OECD CLI; OECD discontinued
+  2024-01 → CAL-093); `MICHM5YM5` → `EXPINF5YR` (Cleveland Fed model).
 - **Unblocks:** US coverage for E1/E3/E4 on the default FRED path.
 
 ### CAL-084 — Atlanta Fed wage tracker connector (Week 5 ECS surfaced)
