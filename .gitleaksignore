@@ -2,3 +2,5 @@
 .secrets.baseline:generic-api-key:157
 .secrets.baseline:generic-api-key:164
 .secrets.baseline:generic-api-key:171
+tests/unit/test_connectors/test_eurostat.py:generic-api-key:126
+tests/unit/test_connectors/test_eurostat.py:generic-api-key:268
