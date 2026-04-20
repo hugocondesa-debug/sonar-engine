@@ -240,6 +240,50 @@ async def test_reset_call_count(httpx_mock: HTTPXMock, te_connector: TEConnector
 
 
 # ---------------------------------------------------------------------------
+# CAL-targeted convenience wrappers (c2)
+# ---------------------------------------------------------------------------
+
+
+async def test_wrapper_ism_manufacturing_us(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=_load_cassette("te_ism_mfg_us_2024_01_02.json"))
+    obs = await te_connector.fetch_ism_manufacturing_us(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 50
+    assert obs[0].country == "US"
+    assert obs[0].indicator == "business confidence"
+
+
+async def test_wrapper_ism_services_us(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
+    httpx_mock.add_response(method="GET", json=_load_cassette("te_ism_svc_us_2024_01_02.json"))
+    obs = await te_connector.fetch_ism_services_us(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 50
+    assert obs[0].indicator == "non manufacturing pmi"
+
+
+async def test_wrapper_nfib_us(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
+    httpx_mock.add_response(method="GET", json=_load_cassette("te_nfib_us_2024_01_02.json"))
+    obs = await te_connector.fetch_nfib_us(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 50
+    assert obs[0].indicator == "nfib business optimism index"
+
+
+async def test_wrapper_ifo_de(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
+    httpx_mock.add_response(method="GET", json=_load_cassette("te_ifo_de_2024_01_02.json"))
+    obs = await te_connector.fetch_ifo_business_climate_de(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 50
+    assert obs[0].country == "DE"
+
+
+async def test_wrapper_zew_de(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
+    httpx_mock.add_response(method="GET", json=_load_cassette("te_zew_de_2024_01_02.json"))
+    obs = await te_connector.fetch_zew_economic_sentiment_de(date(2024, 1, 1), date(2024, 6, 30))
+    assert len(obs) >= 20
+    assert obs[0].country == "DE"
+    assert obs[0].indicator == "zew economic sentiment index"
+
+
+# ---------------------------------------------------------------------------
 # Live canary (CAL-092)
 # ---------------------------------------------------------------------------
 

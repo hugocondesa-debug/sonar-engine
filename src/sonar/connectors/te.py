@@ -317,6 +317,36 @@ class TEConnector:
         return out
 
     # -------------------------------------------------------------------
+    # CAL-targeted convenience wrappers (Week 6 Sprint 1 c2)
+    # -------------------------------------------------------------------
+
+    async def fetch_ism_manufacturing_us(
+        self, start: date, end: date
+    ) -> list[TEIndicatorObservation]:
+        """US ISM Manufacturing PMI headline (TE labels as 'Business Confidence')."""
+        return await self.fetch_indicator("US", TE_INDICATOR_ISM_MFG_HEADLINE, start, end)
+
+    async def fetch_ism_services_us(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """US ISM Services PMI headline ('Non Manufacturing PMI' on TE)."""
+        return await self.fetch_indicator("US", TE_INDICATOR_ISM_SVC_HEADLINE, start, end)
+
+    async def fetch_nfib_us(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """US NFIB Small Business Optimism Index."""
+        return await self.fetch_indicator("US", TE_INDICATOR_NFIB, start, end)
+
+    async def fetch_ifo_business_climate_de(
+        self, start: date, end: date
+    ) -> list[TEIndicatorObservation]:
+        """DE Ifo Business Climate headline (TE labels as 'Business Confidence')."""
+        return await self.fetch_indicator("DE", TE_INDICATOR_IFO_HEADLINE, start, end)
+
+    async def fetch_zew_economic_sentiment_de(
+        self, start: date, end: date
+    ) -> list[TEIndicatorObservation]:
+        """DE ZEW Economic Sentiment Index."""
+        return await self.fetch_indicator("DE", TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT, start, end)
+
+    # -------------------------------------------------------------------
     # Telemetry
     # -------------------------------------------------------------------
 
