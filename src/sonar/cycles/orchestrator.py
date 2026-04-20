@@ -1,4 +1,4 @@
-"""Cycles orchestrator — compute + persist CCCS + FCS for (country, date).
+"""Cycles orchestrator — compute + persist CCCS + FCS + MSC for (country, date).
 
 Thin dispatch layer over the per-cycle modules. Gracefully skips any
 cycle whose compute raises :class:`InsufficientCycleInputsError` so a
@@ -37,6 +37,11 @@ from sonar.cycles.financial_fcs import (
     compute_fcs,
     persist_fcs_result,
 )
+from sonar.cycles.monetary_msc import (
+    MscComputedResult,
+    compute_msc,
+    persist_msc_result,
+)
 from sonar.db.session import SessionLocal
 
 if TYPE_CHECKING:
@@ -58,6 +63,7 @@ class CyclesOrchestrationResult:
     observation_date: date
     cccs: CccsComputedResult | None
     fcs: FcsComputedResult | None
+    msc: MscComputedResult | None
     skips: dict[str, str]
 
 
@@ -68,7 +74,7 @@ def compute_all_cycles(
     *,
     persist: bool = True,
 ) -> CyclesOrchestrationResult:
-    """Compute CCCS + FCS; ``persist=False`` leaves results in-memory.
+    """Compute CCCS + FCS + MSC; ``persist=False`` leaves results in-memory.
 
     Each cycle's :class:`InsufficientCycleInputsError` is caught and
     recorded in the ``skips`` map; the orchestrator continues with the
@@ -94,11 +100,21 @@ def compute_all_cycles(
         skips["FCS"] = str(exc)
         log.info("cycles.fcs.skipped", country=country_code, error=str(exc))
 
+    msc_result: MscComputedResult | None = None
+    try:
+        msc_result = compute_msc(session, country_code, observation_date)
+        if persist:
+            persist_msc_result(session, msc_result)
+    except InsufficientCycleInputsError as exc:
+        skips["MSC"] = str(exc)
+        log.info("cycles.msc.skipped", country=country_code, error=str(exc))
+
     return CyclesOrchestrationResult(
         country_code=country_code,
         observation_date=observation_date,
         cccs=cccs_result,
         fcs=fcs_result,
+        msc=msc_result,
         skips=skips,
     )
 
@@ -128,6 +144,7 @@ def main(
 
     cccs_score = outcome.cccs.score_0_100 if outcome.cccs else None
     fcs_score = outcome.fcs.score_0_100 if outcome.fcs else None
+    msc_score = outcome.msc.score_0_100 if outcome.msc else None
     log.info(
         "cycles.orchestrator.complete",
         country=country,
@@ -136,6 +153,9 @@ def main(
         cccs_regime=outcome.cccs.regime if outcome.cccs else None,
         fcs_score=fcs_score,
         fcs_regime=outcome.fcs.regime if outcome.fcs else None,
+        msc_score=msc_score,
+        msc_regime_6band=outcome.msc.regime_6band if outcome.msc else None,
+        msc_regime_3band=outcome.msc.regime_3band if outcome.msc else None,
         skips=outcome.skips,
     )
     sys.exit(EXIT_OK)
