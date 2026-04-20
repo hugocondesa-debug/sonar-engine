@@ -726,6 +726,138 @@ class Dsr(Base):
     )
 
 
+# F-cycle L3 indices tables per docs/specs/indices/financial/<F>-*.md §8.
+# Migration 010. 4 indices: F1 Valuations, F2 Momentum, F3 Risk Appetite,
+# F4 Positioning.
+
+
+class FinancialValuations(Base):
+    __tablename__ = "f1_valuations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    cape_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    erp_median_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    buffett_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    forward_pe: Mapped[float | None] = mapped_column(Float, nullable=True)
+    property_gap_pp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_overlay: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_f1_score_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_f1_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_f1_cdm"),
+        Index("idx_f1_cd", "country_code", "date"),
+    )
+
+
+class FinancialMomentum(Base):
+    __tablename__ = "f2_momentum"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    mom_3m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mom_6m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mom_12m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    breadth_above_ma200_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cross_asset_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    primary_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_f2_score_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_f2_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_f2_cdm"),
+        Index("idx_f2_cd", "country_code", "date"),
+    )
+
+
+class FinancialRiskAppetite(Base):
+    __tablename__ = "f3_risk_appetite"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    vix_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    move_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    credit_spread_hy_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_spread_ig_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fci_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crypto_vol_level: Mapped[float | None] = mapped_column(Float, nullable=True)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_f3_score_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_f3_confidence"),
+        CheckConstraint("components_available BETWEEN 3 AND 5", name="ck_f3_components_available"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_f3_cdm"),
+        Index("idx_f3_cd", "country_code", "date"),
+    )
+
+
+class FinancialPositioning(Base):
+    __tablename__ = "f4_positioning"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    score_normalized: Mapped[float] = mapped_column(Float, nullable=False)
+    score_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    components_json: Mapped[str] = mapped_column(Text, nullable=False)
+    aaii_bull_minus_bear_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    put_call_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cot_noncomm_net_sp500: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    margin_debt_gdp_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ipo_activity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    components_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    lookback_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("score_normalized BETWEEN 0 AND 100", name="ck_f4_score_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_f4_confidence"),
+        CheckConstraint("components_available BETWEEN 2 AND 5", name="ck_f4_components_available"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_f4_cdm"),
+        Index("idx_f4_cd", "country_code", "date"),
+    )
+
+
 # === Indices models end ===
 
 

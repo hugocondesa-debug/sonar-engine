@@ -29,6 +29,10 @@ from sonar.db.models import (
     Dsr,
     ERPCanonical,
     ERPGordon,
+    FinancialMomentum,
+    FinancialPositioning,
+    FinancialRiskAppetite,
+    FinancialValuations,
     IndexValue,
     NSSYieldCurveForwards,
     NSSYieldCurveReal,
@@ -53,7 +57,11 @@ if TYPE_CHECKING:
     from sonar.indices.credit.l2_credit_gdp_gap import CreditGdpGapResult
     from sonar.indices.credit.l3_credit_impulse import CreditImpulseResult
     from sonar.indices.credit.l4_dsr import DsrResult
-    from sonar.indices.orchestrator import CreditIndicesResults
+    from sonar.indices.financial.f1_valuations import F1Result
+    from sonar.indices.financial.f2_momentum import F2Result
+    from sonar.indices.financial.f3_risk_appetite import F3Result
+    from sonar.indices.financial.f4_positioning import F4Result
+    from sonar.indices.orchestrator import CreditIndicesResults, FinancialIndicesResults
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
@@ -760,3 +768,170 @@ def persist_bis_raw_observations(
         session.rollback()
         raise
     return counts
+
+
+def _to_f1_row(result: F1Result) -> FinancialValuations:
+    return FinancialValuations(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        cape_ratio=result.cape_ratio,
+        erp_median_bps=result.erp_median_bps,
+        buffett_ratio=result.buffett_ratio,
+        forward_pe=result.forward_pe,
+        property_gap_pp=result.property_gap_pp,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        source_overlay=result.source_overlay,
+    )
+
+
+def persist_f1_valuations_result(session: Session, result: F1Result) -> None:
+    row = _to_f1_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"F1 row already persisted: {result.country_code} {result.date}"
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_f2_row(result: F2Result) -> FinancialMomentum:
+    return FinancialMomentum(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        mom_3m_pct=result.mom_3m_pct,
+        mom_6m_pct=result.mom_6m_pct,
+        mom_12m_pct=result.mom_12m_pct,
+        breadth_above_ma200_pct=result.breadth_above_ma200_pct,
+        cross_asset_score=result.cross_asset_score,
+        primary_index=result.primary_index,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+    )
+
+
+def persist_f2_momentum_result(session: Session, result: F2Result) -> None:
+    row = _to_f2_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"F2 row already persisted: {result.country_code} {result.date}"
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_f3_row(result: F3Result) -> FinancialRiskAppetite:
+    return FinancialRiskAppetite(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        vix_level=result.vix_level,
+        move_level=result.move_level,
+        credit_spread_hy_bps=result.credit_spread_hy_bps,
+        credit_spread_ig_bps=result.credit_spread_ig_bps,
+        fci_level=result.fci_level,
+        crypto_vol_level=result.crypto_vol_level,
+        components_available=result.components_available,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+    )
+
+
+def persist_f3_risk_appetite_result(session: Session, result: F3Result) -> None:
+    row = _to_f3_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"F3 row already persisted: {result.country_code} {result.date}"
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def _to_f4_row(result: F4Result) -> FinancialPositioning:
+    return FinancialPositioning(
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        score_normalized=result.score_normalized,
+        score_raw=result.score_raw,
+        components_json=result.components_json,
+        aaii_bull_minus_bear_pct=result.aaii_bull_minus_bear_pct,
+        put_call_ratio=result.put_call_ratio,
+        cot_noncomm_net_sp500=result.cot_noncomm_net_sp500,
+        margin_debt_gdp_pct=result.margin_debt_gdp_pct,
+        ipo_activity_score=result.ipo_activity_score,
+        components_available=result.components_available,
+        lookback_years=result.lookback_years,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+    )
+
+
+def persist_f4_positioning_result(session: Session, result: F4Result) -> None:
+    row = _to_f4_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"F4 row already persisted: {result.country_code} {result.date}"
+            raise DuplicatePersistError(err) from e
+        raise
+
+
+def persist_many_financial_results(
+    session: Session, results: FinancialIndicesResults
+) -> dict[str, int]:
+    """Persist available F1-F4 rows inside a single transaction."""
+    written: dict[str, int] = {"f1": 0, "f2": 0, "f3": 0, "f4": 0}
+    rows: list[
+        FinancialValuations | FinancialMomentum | FinancialRiskAppetite | FinancialPositioning
+    ] = []
+    if results.f1 is not None:
+        rows.append(_to_f1_row(results.f1))
+        written["f1"] = 1
+    if results.f2 is not None:
+        rows.append(_to_f2_row(results.f2))
+        written["f2"] = 1
+    if results.f3 is not None:
+        rows.append(_to_f3_row(results.f3))
+        written["f3"] = 1
+    if results.f4 is not None:
+        rows.append(_to_f4_row(results.f4))
+        written["f4"] = 1
+    if not rows:
+        return written
+    try:
+        session.add_all(rows)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = f"Batch financial persist contains duplicate: {e.orig}"
+            raise DuplicatePersistError(err) from e
+        raise
+    return written
