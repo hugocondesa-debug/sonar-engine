@@ -376,6 +376,127 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   persists, queries back, and asserts k_e plausibility bands per
   country.
 
+### CAL-051 — L3 orchestrator live-data wiring (L3 sub-sprint surfaced)
+
+- **Priority:** MEDIUM
+- **Trigger:** `src/sonar/indices/orchestrator.py` (l3-indices c5/6,
+  SHA `1109426`) runs only on synthetic input bundles. CLI
+  `python -m sonar.indices.orchestrator --country X --date Y`
+  regenerates the E2/M3 Inputs via `np.random.default_rng` per
+  invocation instead of reading live `yield_curves_spot`,
+  `yield_curves_forwards`, and `expected_inflation_canonical` rows
+  from the DB. Tests prove the orchestration contract, not the
+  data path.
+- **Scope:** read `NSSYieldCurveSpot` + `NSSYieldCurveForwards` rows
+  for `(country, date)` to derive `spot_2y_bps`, `spot_10y_bps`, and
+  `forward_2y1y_bps`; walk back 5Y of rows to assemble
+  `slope_history_bps` and `forward_spread_history_bps`; read
+  `ExpInfCanonical` for `breakeven_5y5y_bps`, `anchor_deviation_bps`
+  (implied `bc_target_bps` via config), `bei_10y_bps`, `survey_10y_bps`,
+  plus matching 5Y histories. Replace `_synthetic_inputs` with a
+  `_inputs_from_db(session, country, date)` helper; CLI gains a
+  `--use-db` flag (default) with `--synthetic` fallback for CI.
+- **Unblocks:** pipelines layer daily orchestration of L3 indices;
+  prerequisite for L4 cycle classifiers that consume persisted
+  `index_values` rows rather than in-memory `IndexResult` objects.
+
+### CAL-052 — Credit indices taxonomy reconciliation (L3 sub-sprint HALT #4)
+
+- **Priority:** HIGH
+- **Trigger:** L3 indices implementation brief (commit `c1d6684`)
+  §Commits 5-7 references specs named `L1-credit-to-gdp-gap @
+  L1_v0.1`, `L2-debt-service-ratio @ L2_v0.1`, `L3-sovereign-spread
+  @ L3_v0.1`, `L4-cds-divergence @ L4_v0.1`. Actual repo state in
+  `docs/specs/indices/credit/` is `L1-credit-to-gdp-stock` (methodology
+  `L1_CREDIT_GDP_STOCK_v0.1`), `L2-credit-to-gdp-gap`, `L3-credit-impulse`,
+  `L4-dsr` — fundamentally different taxonomy. Brief-L3 and brief-L4
+  specs (sovereign spread / CDS basis) do not exist anywhere in
+  `docs/specs/`. HALT trigger #4 fired during l3-indices sub-sprint;
+  see `docs/planning/retrospectives/l3-indices-implementation-report.md`
+  §HALT triggers. Brief-L1 corresponds conceptually to repo `L2-gap`;
+  brief-L2 to repo `L4-dsr`.
+- **Scope:** Hugo/chat decision on (a) whether brief's "Credit Cycle
+  subset" (sovereign spread + CDS-bond basis) are *new* indices
+  outside the CCCS L1-L4 set, or a re-scoping of CCCS that supersedes
+  the current README chart; (b) if new: author specs
+  `docs/specs/indices/credit/sovereign-spread.md` and
+  `cds-bond-basis.md` + register their flags (`CDS_DATA_UNAVAILABLE`
+  at minimum) in `conventions/flags.md` §2.2 Credit; (c) if
+  re-scoping: deprecate repo `L1-stock` / `L3-impulse` via ADR and
+  bump `credit-cccs.md` methodology to reference new sub-indices.
+- **Unblocks:** brief commits 5-7 (4 credit indices); unblocks CCCS
+  composite cycle once sub-indices are finalised.
+
+### CAL-053 — BIS WS_TC + WS_DSR connector (L3 sub-sprint HALT #3)
+
+- **Priority:** HIGH
+- **Trigger:** `src/sonar/connectors/` has no `bis.py` as of
+  2026-04-20. L3 indices brief commits 5-6 require BIS
+  quarterly credit-to-GDP (WS_TC) and DSR (WS_DSR) series for
+  7 T1 countries (US/DE/PT/IT/ES/FR/NL). Brief authorized an
+  inline wrapper as fallback, but combining inline wrapper with
+  CAL-052 taxonomy divergence risks double-divergence from repo
+  canon. HALT trigger #3 fired. Data-sources doc
+  `docs/data_sources/credit.md` §3.1 already catalogs the endpoint
+  shape and notes outstanding WS_TC key-format debug (see CAL-019).
+- **Scope:** `src/sonar/connectors/bis.py` — SDMX v2 client with
+  dataflows `WS_TC` (credit-to-GDP), `WS_DSR` (debt service ratio),
+  `WS_CREDIT_GAP` (BIS one-sided HP gap). Respect rate limits,
+  cache by `(flow, key, startPeriod, endPeriod)` in `.cache/bis/`,
+  emit SDMX-JSON 1.0 parsed series. Validate WS_TC key structure
+  (`Q.{CTY}.P.M.{UNIT}`) — 2026-04 smoke test showed `770A`
+  dimension returning 404, investigate via metadata fetch. Fixtures
+  cassettes for 7 T1 countries quarter-end 2024-Q4.
+- **Unblocks:** repo L1/L2/L4 CCCS sub-indices (stock, gap, DSR);
+  resolves the data dependency for CAL-019 (WS_TC key format) and
+  any `credit-cccs` composite implementation.
+
+### CAL-054 — E2 Leading full composite (8-component v0.2) upgrade
+
+- **Priority:** MEDIUM
+- **Trigger:** L3 sub-sprint shipped `E2_LEADING_SLOPE_v0.1`
+  (commit `11c465a`) — a 3-component subset (slope 70% /
+  forward-spread 20% / recession proxy 10%) — because the full
+  `E2_LEADING_v0.2` spec requires connectors not yet in production:
+  LEI (blocked on CAL-023), OECD CLI direct SDMX-JSON, PMI
+  manufacturing new orders (ISM + SPGlobal), building permits
+  (FRED `PERMIT` + Eurostat), non-defense capex orders (FRED
+  `ANDEV`), HY OAS (FRED `BAMLH0A0HYM2`). Subset is documented as
+  a bridge, not a destination.
+- **Scope:** extend `src/sonar/indices/economic/e2_leading.py` with
+  the remaining 5 sub-components per spec `E2-leading.md` §4
+  (weights 0.10 HY OAS, 0.15 PMI new orders, 0.15 PMI composite
+  change, 0.10 building permits, 0.05 capex, 0.10 LEI, 0.10 OECD
+  CLI); re-weight logic per spec §6 for partial-component paths;
+  bump methodology to `E2_LEADING_v0.2`; retire
+  `E2_LEADING_SLOPE_v0.1` once downstream ECS consumer is migrated.
+- **Unblocks:** ECS cycle composite (`cycles/economic-ecs`) —
+  requires full v0.2 weight distribution per spec Cap 15.6.
+
+### CAL-055 — M3 Market Expectations full composite (EP 4-component) upgrade
+
+- **Priority:** MEDIUM
+- **Trigger:** L3 sub-sprint shipped
+  `M3_MARKET_EXPECTATIONS_ANCHOR_v0.1` (commit `4bb9ae8`) — a
+  3-component anchor subset (nominal 5y5y 40% / anchor deviation
+  40% / BEI-survey divergence 20%) — because the full
+  `M3_MARKET_EXPECTATIONS_v0.1` spec requires connectors not yet in
+  production: Miranda-Agrippino policy-surprise dataset (Tier 2),
+  OIS curves for `forward_1y1y` / `forward_2y1y` beyond
+  sovereign-derived. Subset covers the credibility-anchor half of
+  the EP sub-index; the rate-path half (1y1y / 2y1y vs policy) is
+  deferred.
+- **Scope:** extend `src/sonar/indices/monetary/m3_market_expectations.py`
+  with the full 4-component EP per spec `M3-market-expectations.md`
+  §4 (weights 0.40 1y1y vs policy, 0.25 2y1y vs policy, 0.20 5y5y
+  anchor, 0.15 policy surprise); add `connectors/policy_surprise.py`
+  (Miranda-Agrippino CSV ingestion); bump methodology to
+  `M3_MARKET_EXPECTATIONS_v0.1`; retire the `_ANCHOR_v0.1` subset
+  once MSC downstream consumer is migrated.
+- **Unblocks:** MSC cycle composite (`cycles/monetary-msc`) EP
+  sub-index at full spec weight; Dilemma trigger A logic that needs
+  `anchor_status` + policy-surprise amplitude jointly.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos os 20 têm horizonte explícito no spec.
