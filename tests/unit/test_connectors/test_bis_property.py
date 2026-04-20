@@ -1,4 +1,4 @@
-"""Unit tests for the bis.py WS_LONG_PP property-price extension."""
+"""Unit tests for the bis.py WS_SPP property-price extension."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest_asyncio
 from tenacity import wait_none
 
 from sonar.connectors.bis import (
-    DATAFLOW_WS_LONG_PP,
+    DATAFLOW_WS_SPP,
     BisConnector,
 )
 
@@ -51,7 +51,7 @@ async def bis_connector(tmp_cache_dir: Path) -> AsyncIterator[BisConnector]:
 
 
 def test_dataflow_constant() -> None:
-    assert DATAFLOW_WS_LONG_PP == ("WS_LONG_PP", "1.0")
+    assert DATAFLOW_WS_SPP == ("WS_SPP", "1.0")
 
 
 async def test_fetch_property_price_index_happy(
@@ -63,7 +63,7 @@ async def test_fetch_property_price_index_happy(
     obs = await bis_connector.fetch_property_price_index("PT", date(2023, 10, 1), date(2024, 6, 30))
     assert len(obs) == 3
     assert all(o.country_code == "PT" for o in obs)
-    assert all(o.source == "BIS_WS_LONG_PP" for o in obs)
+    assert all(o.source == "BIS_WS_SPP" for o in obs)
     assert all(o.source_series_key == "Q.PT.N.628" for o in obs)
 
 
@@ -76,11 +76,11 @@ async def test_fetch_property_empty_payload(
 
 
 # ---------------------------------------------------------------------------
-# Cassette replay (CAL-071: captured BIS WS_SPP PT Q.PT.N.628 2022-Q1..2024-Q1)
-# NB: the cassette was fetched from WS_SPP (Selected Property Prices, current
-# dataflow) rather than the deprecated WS_LONG_PP. The SDMX-JSON 1.0 response
-# shape is identical — parser is dataflow-agnostic. Production code in bis.py
-# still points at WS_LONG_PP which BIS renamed → tracked as CAL-072.
+# Cassette replay (WS_SPP PT Q.PT.N.628 2022-Q1..2024-Q1). Initial cassette
+# was captured during Week 5 Sprint 1 when production code still pointed at
+# the deprecated WS_LONG_PP dataflow. Week 6 Sprint 3 (CAL-072) fixed the
+# production code to use WS_SPP so the existing cassette's response shape
+# now matches production calls directly.
 # ---------------------------------------------------------------------------
 
 
@@ -92,24 +92,20 @@ async def test_fetch_property_pt_from_cassette(
     obs = await bis_connector.fetch_property_price_index("PT", date(2022, 1, 1), date(2024, 3, 31))
     assert len(obs) >= 1
     assert all(o.country_code == "PT" for o in obs)
-    assert all(o.source == "BIS_WS_LONG_PP" for o in obs)
+    assert all(o.source == "BIS_WS_SPP" for o in obs)
     assert all(o.value_pct > 0 for o in obs)
 
 
 # ---------------------------------------------------------------------------
-# Live canary (CAL-071)
+# Live canary — previously xfail'd because WS_LONG_PP was delisted.
+# Week 6 Sprint 3 production rename to WS_SPP → xfail removed; canary runs
+# and is expected to pass.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    reason="BIS renamed dataflow WS_LONG_PP → WS_SPP; production bis.py still "
-    "references the old ID and will 404. Tracked as CAL-072.",
-    strict=False,
-)
 async def test_live_canary_property_pt_recent(tmp_cache_dir: Path) -> None:
     """Fetch last 2y PT property price index; assert non-empty + positive values."""
-    # BIS is public; no API key. Autouse fixture disables tenacity wait — fine.
     conn = BisConnector(cache_dir=str(tmp_cache_dir), rate_limit_seconds=0.5)
     try:
         today = datetime.now(tz=UTC).date()

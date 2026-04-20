@@ -58,7 +58,9 @@ DATAFLOW_WS_DSR = ("WS_DSR", "1.0")
 DATAFLOW_WS_CREDIT_GAP = ("WS_CREDIT_GAP", "1.0")
 DATAFLOW_WS_TC = ("WS_TC", "2.0")
 # F-cycle F1 property-gap input per docs/specs/indices/financial/F1-valuations.md §2.
-DATAFLOW_WS_LONG_PP = ("WS_LONG_PP", "1.0")
+# BIS renamed the dataflow WS_LONG_PP → WS_SPP (Selected Property Prices) —
+# discovered Week 5 Sprint 1 cassette probe; resolved Week 6 Sprint 3 (CAL-072).
+DATAFLOW_WS_SPP = ("WS_SPP", "1.0")
 
 CgDtype = Literal["A", "B", "C"]  # A=actual, B=trend, C=gap
 
@@ -236,22 +238,25 @@ class BisConnector:
     async def fetch_property_price_index(
         self, country: str, start_date: date, end_date: date
     ) -> list[BisObservation]:
-        """BIS long-run real residential property price index (F1 input).
+        """BIS Selected Property Prices — nominal residential index (F1 input).
 
-        Dataflow ``BIS:WS_LONG_PP(1.0)``. Key structure follows the BIS
-        long property price family; ``Q.{CTY}.N.628`` for nominal
-        residential property. Parsing mirrors the credit datasets; the
-        ``value_pct`` field stores the index level (not a percentage of
-        GDP). Schema drift would surface as a 404 or empty payload —
-        caller in F1 emits ``PROPERTY_GAP_UNAVAILABLE`` per spec §6
-        HALT-trigger #4.
+        Dataflow ``BIS:WS_SPP(1.0)``. Key structure ``Q.{CTY}.N.628`` for
+        nominal residential property, 2010 = 100 index. Parsing mirrors
+        the credit datasets; the ``value_pct`` field stores the index
+        level (not a percentage of GDP). Schema drift would surface as
+        a 404 or empty payload — caller in F1 emits
+        ``PROPERTY_GAP_UNAVAILABLE`` per spec §6 HALT-trigger #4.
+
+        Historical note: BIS renamed this dataflow from ``WS_LONG_PP``
+        to ``WS_SPP`` during 2026. The SDMX-JSON 1.0 response shape is
+        identical between the two — only the dataflow id changed.
         """
         key = f"Q.{country}.N.628"
         return await self._fetch_observations(
-            DATAFLOW_WS_LONG_PP,
+            DATAFLOW_WS_SPP,
             key=key,
             country=country,
-            source_tag="BIS_WS_LONG_PP",
+            source_tag="BIS_WS_SPP",
             start_date=start_date,
             end_date=end_date,
         )
@@ -335,7 +340,7 @@ __all__ = [
     "BASE_URL",
     "DATAFLOW_WS_CREDIT_GAP",
     "DATAFLOW_WS_DSR",
-    "DATAFLOW_WS_LONG_PP",
+    "DATAFLOW_WS_SPP",
     "DATAFLOW_WS_TC",
     "BisConnector",
     "BisObservation",
