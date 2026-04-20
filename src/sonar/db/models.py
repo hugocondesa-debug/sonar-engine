@@ -527,4 +527,42 @@ class ERPCanonical(Base):
 # === Indices models begin ===
 # Reserved for parallel L3 indices brief. Do not append ERP models below this
 # bookmark; do not modify beyond appending new Indices ORM classes inside.
+# Spec docs/specs/indices/. Migration 008 — single polymorphic table per
+# SESSION_CONTEXT §Distinção crítica (one row per index_code+country+date+method).
+
+
+class IndexValue(Base):
+    __tablename__ = "index_values"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    index_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    raw_value: Mapped[float] = mapped_column(Float, nullable=False)
+    zscore_clamped: Mapped[float] = mapped_column(Float, nullable=False)
+    value_0_100: Mapped[float] = mapped_column(Float, nullable=False)
+    sub_indicators_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_overlays_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("value_0_100 BETWEEN 0 AND 100", name="ck_iv_value_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_iv_confidence"),
+        UniqueConstraint(
+            "index_code",
+            "country_code",
+            "date",
+            "methodology_version",
+            name="uq_iv_codecdm",
+        ),
+        Index("idx_iv_code_cd", "index_code", "country_code", "date"),
+        Index("idx_iv_cd", "country_code", "date"),
+    )
+
+
 # === Indices models end ===
