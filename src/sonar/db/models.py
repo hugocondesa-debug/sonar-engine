@@ -727,3 +727,47 @@ class Dsr(Base):
 
 
 # === Indices models end ===
+
+
+# === Ingestion models begin ===
+# L0 data-ingestion bookmark zone for raw external-provider observations
+# cached between a connector fetch and downstream index / overlay compute.
+# Keeps raw data traceable (per-response hash) and re-computable without
+# re-hitting providers.  Do NOT append non-ingestion models below this
+# bookmark.
+
+
+class BisCreditRaw(Base):
+    """Raw quarterly observations from BIS credit-side dataflows.
+
+    One row per ``(country_code, date, dataflow)`` triplet. ``value_raw``
+    units depend on ``dataflow`` and are captured verbatim in
+    ``unit_descriptor`` for audit. Downstream credit indices consume
+    these observations via ``DbBackedInputsBuilder`` (see
+    ``sonar.pipelines.daily_credit_indices``).
+    """
+
+    __tablename__ = "bis_credit_raw"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    dataflow: Mapped[str] = mapped_column(String(16), nullable=False)
+    value_raw: Mapped[float] = mapped_column(Float, nullable=False)
+    unit_descriptor: Mapped[str] = mapped_column(String(32), nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+    fetch_response_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "dataflow IN ('WS_TC','WS_DSR','WS_CREDIT_GAP')",
+            name="ck_bcr_dataflow",
+        ),
+        UniqueConstraint("country_code", "date", "dataflow", name="uq_bcr_cdd"),
+        Index("idx_bcr_cd", "country_code", "date"),
+    )
+
+
+# === Ingestion models end ===
