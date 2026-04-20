@@ -22,6 +22,7 @@ persistence boundary.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
@@ -29,8 +30,12 @@ from uuid import uuid4
 from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date as date_type
     from uuid import UUID
+
+    from sonar.connectors.base import Observation
+    from sonar.connectors.fmp import FMPPriceObservation
 
 __all__ = [
     "BENCHMARK_COUNTRIES_BY_CURRENCY",
@@ -41,10 +46,14 @@ __all__ = [
     "METHODOLOGY_VERSION_CANONICAL",
     "METHODOLOGY_VERSION_RATING",
     "METHODOLOGY_VERSION_SOV_SPREAD",
+    "MIN_VOL_OBSERVATIONS",
+    "VOL_RATIO_BOUNDS",
     "Method",
+    "VolRatioResult",
     "build_canonical",
     "compute_rating",
     "compute_sov_spread",
+    "compute_vol_ratio",
     "is_benchmark",
 ]
 
@@ -70,6 +79,118 @@ BENCHMARK_COUNTRIES_BY_CURRENCY: dict[str, str] = {
 Method = Literal["CDS", "SOV_SPREAD", "RATING", "BENCHMARK"]
 HIERARCHY: tuple[Method, ...] = ("CDS", "SOV_SPREAD", "RATING")
 MIN_CONFIDENCE_METHOD: float = 0.50
+
+# Spec §2 + §4 vol_ratio bounds: country-specific ratio must fall inside
+# this range, else fall back to Damodaran 1.5.
+VOL_RATIO_BOUNDS: tuple[float, float] = (1.2, 2.5)
+MIN_VOL_OBSERVATIONS: int = 750  # ~3Y daily
+TRADING_DAYS_PER_YEAR: float = 252.0
+
+
+@dataclass(frozen=True, slots=True)
+class VolRatioResult:
+    """Output of ``compute_vol_ratio``."""
+
+    vol_ratio: float
+    source: str  # "country_specific" | "damodaran_standard"
+    equity_obs: int
+    bond_obs: int
+    sigma_equity: float | None
+    sigma_bond: float | None
+
+
+def _daily_returns(closes: Sequence[float]) -> list[float]:
+    """log-returns (preferred for volatility math)."""
+    out: list[float] = []
+    prev = closes[0] if closes else 0.0
+    for c in closes[1:]:
+        if prev <= 0 or c <= 0:
+            prev = c
+            continue
+        out.append(math.log(c / prev))
+        prev = c
+    return out
+
+
+def _std_dev(series: Sequence[float]) -> float:
+    n = len(series)
+    if n < 2:
+        return 0.0
+    mean = sum(series) / n
+    var = sum((x - mean) ** 2 for x in series) / (n - 1)
+    return math.sqrt(var)
+
+
+def compute_vol_ratio(
+    equity_prices: Sequence[FMPPriceObservation],
+    bond_yields: Sequence[Observation],
+) -> VolRatioResult:
+    """sigma_equity / sigma_bond over the intersection of the two series.
+
+    Equity volatility from FMP closes -> log daily returns -> std *
+    sqrt(252). Bond volatility from TE yield daily changes (absolute
+    diffs in yield_bps, not returns — yield changes are the standard
+    bond-vol proxy per spec §4).
+
+    Falls back to ``damodaran_standard_ratio = 1.5`` when:
+    - Either series has fewer than MIN_VOL_OBSERVATIONS = 750 rows
+    - Computed ratio is outside ``VOL_RATIO_BOUNDS = (1.2, 2.5)``
+    - Either sigma is non-positive (degenerate input)
+
+    Returns the ``VolRatioResult`` — caller consults ``.source`` to
+    decide whether to emit ``CRP_VOL_STANDARD`` flag.
+    """
+    eq_closes = [float(o.close) for o in equity_prices]
+    eq_returns = _daily_returns(eq_closes)
+    eq_obs = len(eq_returns)
+
+    # Bond returns proxy: daily yield changes in decimal (yield_bps / 10000)
+    bond_decimal = [o.yield_bps / 10_000.0 for o in bond_yields]
+    bond_changes = [bond_decimal[i] - bond_decimal[i - 1] for i in range(1, len(bond_decimal))]
+    bond_obs = len(bond_changes)
+
+    if eq_obs < MIN_VOL_OBSERVATIONS or bond_obs < MIN_VOL_OBSERVATIONS:
+        return VolRatioResult(
+            vol_ratio=DAMODARAN_STANDARD_RATIO,
+            source="damodaran_standard",
+            equity_obs=eq_obs,
+            bond_obs=bond_obs,
+            sigma_equity=None,
+            sigma_bond=None,
+        )
+
+    sigma_eq = _std_dev(eq_returns) * math.sqrt(TRADING_DAYS_PER_YEAR)
+    sigma_bond = _std_dev(bond_changes) * math.sqrt(TRADING_DAYS_PER_YEAR)
+    if sigma_bond <= 0.0 or sigma_eq <= 0.0:
+        return VolRatioResult(
+            vol_ratio=DAMODARAN_STANDARD_RATIO,
+            source="damodaran_standard",
+            equity_obs=eq_obs,
+            bond_obs=bond_obs,
+            sigma_equity=sigma_eq,
+            sigma_bond=sigma_bond,
+        )
+
+    ratio = sigma_eq / sigma_bond
+    lo, hi = VOL_RATIO_BOUNDS
+    if ratio < lo or ratio > hi:
+        return VolRatioResult(
+            vol_ratio=DAMODARAN_STANDARD_RATIO,
+            source="damodaran_standard",
+            equity_obs=eq_obs,
+            bond_obs=bond_obs,
+            sigma_equity=sigma_eq,
+            sigma_bond=sigma_bond,
+        )
+
+    return VolRatioResult(
+        vol_ratio=ratio,
+        source="country_specific",
+        equity_obs=eq_obs,
+        bond_obs=bond_obs,
+        sigma_equity=sigma_eq,
+        sigma_bond=sigma_bond,
+    )
 
 
 def is_benchmark(country_code: str, currency: str = "EUR") -> bool:
