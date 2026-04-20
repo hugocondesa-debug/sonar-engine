@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "fixture_id": "us_2024_01_02",
+    "regime": "Fed target 2%, 5y5y BEI ~2.54%: drifting anchor ~+54 bps",
+    "source": "FRED T5YIFR 2024-01-02 + DGS10 + Cleveland Fed 10Y expectations",
+    "methodology_version": "M3_MARKET_EXPECTATIONS_ANCHOR_v0.1"
+  },
+  "input": {
+    "country_code": "US",
+    "observation_date": "2024-01-02",
+    "nominal_5y5y_bps": 385,
+    "breakeven_5y5y_bps": 254,
+    "bc_target_bps": 200,
+    "bei_10y_bps": 227,
+    "survey_10y_bps": 248,
+    "expinf_confidence": 0.85,
+    "expinf_flags": [],
+    "history_regime": "synthetic: nominal 5y5y mean 350 bps, anchor dev abs mean 30 bps"
+  },
+  "expected": {
+    "anchor_deviation_abs_bps": 54,
+    "value_0_100_range": [20, 55]
+  }
+}

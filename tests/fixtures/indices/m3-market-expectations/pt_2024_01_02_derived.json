@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "fixture_id": "pt_2024_01_02_derived",
+    "regime": "PT derived path (inherits EA with PT-EA differential); target 2%",
+    "source": "ExpInf DERIVED for PT from EA primary + static differential",
+    "methodology_version": "M3_MARKET_EXPECTATIONS_ANCHOR_v0.1"
+  },
+  "input": {
+    "country_code": "PT",
+    "observation_date": "2024-01-02",
+    "nominal_5y5y_bps": 330,
+    "breakeven_5y5y_bps": 215,
+    "bc_target_bps": 200,
+    "bei_10y_bps": null,
+    "survey_10y_bps": null,
+    "expinf_confidence": 0.70,
+    "expinf_flags": ["DIFFERENTIAL_TENOR_PROXY", "LINKER_UNAVAILABLE"],
+    "history_regime": "synthetic: PT 5y5y mean 280 bps, anchor dev abs mean 20 bps"
+  },
+  "expected": {
+    "anchor_deviation_abs_bps": 15,
+    "value_0_100_range": [30, 70],
+    "flags_contains": ["DIFFERENTIAL_TENOR_PROXY", "LINKER_UNAVAILABLE"]
+  }
+}
