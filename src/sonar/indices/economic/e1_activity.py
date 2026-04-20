@@ -23,8 +23,12 @@ for z-score windows upstream.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from sonar.indices._helpers.z_score_rolling import rolling_zscore
+from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -34,6 +38,7 @@ METHODOLOGY_VERSION: str = "E1_ACTIVITY_v0.1"
 DEFAULT_LOOKBACK_YEARS: int = 10
 TIER4_LOOKBACK_YEARS: int = 7
 MIN_COMPONENTS_FOR_COMPUTE: int = 4
+TOTAL_COMPONENTS: int = 6
 
 COMPONENT_WEIGHTS: dict[str, float] = {
     "gdp_yoy": 0.25,
@@ -91,13 +96,109 @@ class E1ActivityResult:
     source_connectors: str
 
 
+def _pack_components(inputs: E1ActivityInputs) -> list[tuple[str, float | None, Sequence[float]]]:
+    """Return (name, current, history) triples in weight-ordered form."""
+    return [
+        ("gdp_yoy", inputs.gdp_yoy, inputs.gdp_yoy_history),
+        ("employment_yoy", inputs.employment_yoy, inputs.employment_yoy_history),
+        (
+            "industrial_production_yoy",
+            inputs.industrial_production_yoy,
+            inputs.industrial_production_yoy_history,
+        ),
+        ("pmi_composite", inputs.pmi_composite, inputs.pmi_composite_history),
+        (
+            "personal_income_ex_transfers_yoy",
+            inputs.personal_income_ex_transfers_yoy,
+            inputs.personal_income_ex_transfers_yoy_history,
+        ),
+        (
+            "retail_sales_real_yoy",
+            inputs.retail_sales_real_yoy,
+            inputs.retail_sales_real_yoy_history,
+        ),
+    ]
+
+
 def compute_e1_activity(inputs: E1ActivityInputs) -> E1ActivityResult:
     """Compute the E1 Activity index per spec §4.
 
-    Raises:
-        InsufficientDataError: when < 4/6 components available.
+    Pipeline:
+        1. Assemble (available, missing) component sets.
+        2. Raise :class:`InsufficientDataError` below
+           :data:`MIN_COMPONENTS_FOR_COMPUTE`.
+        3. Per-component z-score via rolling_zscore on history.
+        4. Re-normalize weights over the available set.
+        5. ``score_raw = sum(w'_i * z_i)``, clip, map to ``[0, 100]``.
+        6. Emit flags (partial components, insufficient history).
+        7. Compute confidence: base 1.0, minus 0.10 per missing
+           component, minus 0.10 per INSUFFICIENT_HISTORY flag.
 
-    Implementation lands in the full compute commit (sprint §4 Commit 7).
+    History hard minimum per component: ``lookback_years * 12 * 0.8``
+    observations (per spec §2 preconditions).
     """
-    msg = "E1 compute implementation pending sprint Commit 7"
-    raise NotImplementedError(msg)
+    triples = _pack_components(inputs)
+    hist_floor = int(inputs.lookback_years * 12 * 0.8)
+
+    flags: list[str] = list(inputs.upstream_flags)
+    insufficient_history_components: list[str] = []
+    components_json: dict[str, dict[str, float]] = {}
+
+    available: list[tuple[str, float, float]] = []  # (name, z_clamped, weight_nominal)
+    for name, current, history in triples:
+        if current is None:
+            continue
+        z_clamped, _mu, _sigma, n_obs = rolling_zscore(history, current=current)
+        weight = COMPONENT_WEIGHTS[name]
+        components_json[name] = {
+            "raw": float(current),
+            "z": z_clamped,
+            "weight": weight,
+            "contribution": 0.0,  # filled after re-normalization
+        }
+        if n_obs < hist_floor:
+            insufficient_history_components.append(name)
+        available.append((name, z_clamped, weight))
+
+    if len(available) < MIN_COMPONENTS_FOR_COMPUTE:
+        msg = (
+            f"E1 requires >= {MIN_COMPONENTS_FOR_COMPUTE} components; "
+            f"got {len(available)} for {inputs.country_code} {inputs.observation_date}"
+        )
+        raise InsufficientDataError(msg)
+
+    weight_sum = sum(w for _, _, w in available)
+    score_raw = 0.0
+    for name, z, w in available:
+        w_effective = w / weight_sum
+        contribution = w_effective * z
+        score_raw += contribution
+        components_json[name]["contribution"] = contribution
+
+    score_normalized = max(0.0, min(100.0, 50.0 + 16.67 * score_raw))
+
+    missing_count = TOTAL_COMPONENTS - len(available)
+    if missing_count > 0:
+        flags.append("E1_PARTIAL_COMPONENTS")
+    if insufficient_history_components:
+        flags.append("INSUFFICIENT_HISTORY")
+    flags = sorted(set(flags))
+
+    confidence = 1.0 - 0.10 * missing_count - 0.10 * len(insufficient_history_components)
+    confidence = max(0.0, min(1.0, confidence))
+
+    return E1ActivityResult(
+        country_code=inputs.country_code,
+        date=inputs.observation_date,
+        methodology_version=METHODOLOGY_VERSION,
+        score_normalized=score_normalized,
+        score_raw=score_raw,
+        components_json=json.dumps(components_json, sort_keys=True),
+        components_available=len(available),
+        lookback_years=inputs.lookback_years,
+        confidence=confidence,
+        flags=tuple(flags),
+        source_connectors=",".join(sorted(inputs.source_connectors))
+        if inputs.source_connectors
+        else "",
+    )
