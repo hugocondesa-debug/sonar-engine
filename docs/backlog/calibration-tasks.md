@@ -700,49 +700,39 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `pytest -m slow`.
 - **Unblocks:** Production-grade F-cycle connector coverage.
 
-### CAL-072 — BIS property dataflow rename (WS_LONG_PP → WS_SPP) (OPEN)
+### CAL-072 — BIS property dataflow rename (WS_LONG_PP → WS_SPP) (CLOSED 2026-04-20)
 
-- **Priority:** HIGH (blocks F1 property-gap input live data)
+- **Priority:** HIGH → **CLOSED 2026-04-20** via Week 6 Sprint 3 C1
+  (`667f581`).
 - **Trigger:** Week 5 Sprint 1 Commit 5 cassette backfill discovered
-  BIS SDMX v2 no longer serves dataflow `BIS:WS_LONG_PP(1.0)`. The
-  structure index lists `WS_SPP` (Selected Property Prices),
-  `WS_CPP` (Commercial Property Prices), and `WS_DPP` (Detailed
-  Property Prices) instead. Current production code in
-  `src/sonar/connectors/bis.py` references `DATAFLOW_WS_LONG_PP`,
-  which returns HTTP 404. Cassette for `bis_property_pt_2024_01_02.json`
-  was fetched from WS_SPP as a stopgap (SDMX-JSON 1.0 shape is
-  identical so the parser accepts it). Live canary
-  `test_live_canary_property_pt_recent` is xfail-marked until this
-  item resolves.
-- **Scope:** Rename `DATAFLOW_WS_LONG_PP` to `DATAFLOW_WS_SPP`
-  (or equivalent). Verify key pattern `Q.{CTY}.N.628` still resolves
-  under WS_SPP (manual probe via stats.bis.org structure endpoint).
-  Update `source_tag` `BIS_WS_LONG_PP` → `BIS_WS_SPP` if call sites
-  expect updated tags; otherwise retain legacy tag string for
-  backward-compat in overlays/indices. Remove xfail marker once
-  live canary passes.
-- **Surfaced from:** Week 5 Sprint 1 Commit 5 cassette probe.
-- **Unblocks:** F1 property-gap component; re-enables BIS property
-  canary.
+  BIS SDMX v2 no longer serves dataflow `BIS:WS_LONG_PP(1.0)`. Live
+  canary was xfail'd while production `bis.py` still referenced the
+  old id and 404'd.
+- **Scope (resolved):** Renamed `DATAFLOW_WS_LONG_PP` → `DATAFLOW_WS_SPP`
+  in `src/sonar/connectors/bis.py`. Key pattern `Q.{CTY}.N.628` still
+  resolves. Source tag updated `BIS_WS_LONG_PP` → `BIS_WS_SPP`. Test
+  assertions updated. xfail decorator removed from live canary; canary
+  passes live (fetches PT 2y property-price index with positive values).
+  Existing cassette needed no re-record (Sprint 1 captured WS_SPP
+  payload directly as stopgap — identical SDMX-JSON 1.0 shape).
 
-### CAL-073 — CBOE S&P put/call FRED series (PUTCLSPX) delisted (OPEN)
+### CAL-073 — CBOE S&P put/call FRED series (PUTCLSPX) delisted (CLOSED 2026-04-20)
 
-- **Priority:** MEDIUM (F4 degrades to 4-component OVERLAY_MISS path)
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via Week 6 Sprint 3
+  Commits 5 + 6 (`9fe7d78`, `62942c2`).
 - **Trigger:** Week 5 Sprint 1 Commit 6 F4 live integration smoke
-  discovered FRED returns ``400 "The series does not exist"`` for
-  ``PUTCLSPX`` (CBOE S&P 500 total put/call ratio). CBOE also delisted
-  the direct XLS download path for daily P/C history (data now behind
-  the CBOE DataShop paywall).
-- **Scope:** Identify alternative public source for daily P/C ratio.
-  Candidates: Yahoo Finance ``^CPC`` (empirical — confirm availability),
-  Nasdaq Data Link P/C ratio feed, or scrape CBOE's web interface
-  (terms-of-service review required). Once chosen, refactor
-  ``cboe.py::fetch_put_call`` to hit the new source; preserve
-  ``FRED_SERIES_PUTCALL`` constant for any remaining historical wiring.
-  Live F4 smoke currently tolerates missing P/C via OVERLAY_MISS flag.
-- **Surfaced from:** Week 5 Sprint 1 Commit 6.
-- **Unblocks:** F4 full 5-component live path; removes OVERLAY_MISS
-  baseline flag from US F4 snapshots.
+  discovered FRED `PUTCLSPX` delisted (400 "does not exist"). CBOE
+  also paywalled the XLS download.
+- **Scope (resolved):** New `src/sonar/connectors/yahoo_finance.py`
+  generic chart-API connector (future-proof for more Yahoo symbols)
+  with `fetch_put_call_ratio_us` wrapper around Yahoo ticker `^CPC`
+  (CBOE Equity Put/Call Ratio, daily close). Existing
+  `move_index.py` intentionally left untouched (HALT #5 discipline).
+  F4 live-smoke integration test rewired to consume Yahoo; post-
+  sprint US F4 = 5/5 components when Yahoo rate-limit cooperates;
+  test skips cleanly on 429 (Yahoo applies aggressive anti-bot
+  throttling on bare-endpoint probes — tenacity retry covers it
+  under normal load).
 
 ### CAL-092 — FRED ISM/NFIB delisted series fallback connectors (CLOSED 2026-04-20)
 
@@ -761,22 +751,34 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   scraper) become unnecessary unless TE Pro access is dropped.
 - **Follow-up:** N/A — TE coverage verified, live smoke green.
 
-### CAL-093 — Conference Board Consumer Confidence live feed (CLOSED 2026-04-20)
+### CAL-093 — Conference Board Consumer Confidence live feed (CLOSED 2026-04-20, re-opened + re-closed correctly)
 
-- **Priority:** LOW → **CLOSED 2026-04-20** as "not resolvable by TE"
-  during Week 6 Sprint 1 pre-flight probe.
+- **Priority:** LOW → **re-CLOSED 2026-04-20** via Week 6 Sprint 3
+  Commits 2-4 (`4b6e037`, `bd76354`).
 - **Trigger:** Sprint 2a Commit 3: ``CONCCONF`` is not a FRED id.
   OECD CLI proxy (``CSCICP03USM665S``) was substituted but freezes
   at 2024-01.
-- **Resolution:** TE's US "Consumer Confidence" series is sourced
-  from the University of Michigan, NOT Conference Board. Wiring it
-  as a fallback would double-count the UMich slot in E4. Closing
-  this CAL with the known caveat: current behaviour keeps the OECD
-  CLI stale proxy through the `conference_board_confidence_12m_change`
-  slot until a dedicated Conference Board feed exists. Re-open a new
-  CAL if/when a usable CB data-path surfaces (Nasdaq Data Link subscription,
-  direct scrape with ToS review, etc.).
-- **Follow-up:** None this cycle — accept staleness.
+- **Original (incorrect) closure — superseded:** Week 6 Sprint 1
+  closed this CAL as "not resolvable by TE" on the premise that TE's
+  US "Consumer Confidence" was UMich-sourced. **This premise was
+  wrong.** Empirical probe (Sprint 3 2026-04-20) confirmed TE returns
+  ``HistoricalDataSymbol=CONCCONF`` for the ``consumer confidence``
+  indicator on the ``united states`` endpoint — i.e. actual
+  Conference Board CCI. The Sprint 1 inference relied on the
+  ``Source="University of Michigan"`` field on the catalogue
+  endpoint, which is misleading; the historical endpoint carries the
+  definitive symbol.
+- **Operational lesson:** always probe the
+  ``HistoricalDataSymbol`` on TE's historical endpoint to verify
+  source identity before concluding. The catalogue endpoint's
+  ``Source`` field is unreliable for disambiguation.
+- **Resolution:** ``TEConnector.fetch_conference_board_cc_us``
+  ships with a ``CONCCONF`` source-identity guard (raises
+  ``DataUnavailableError("source drift")`` if TE ever swaps the
+  feed). E4 builder takes TE as primary for the CB slot (FRED
+  fallback); emits ``TE_FALLBACK_CB_CC`` flag when TE is used.
+  Sprint 3 live smoke confirms the uplift: CB slot no longer stale.
+- **Follow-up:** None.
 
 ### CAL-094 — Eurostat namq_10_pe gap for PT employment (OPEN)
 
@@ -1055,6 +1057,25 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   observation → dated-value converter). 17 unit tests cover helpers +
   happy paths + dispatch guards. Integration smoke (4 slow canaries)
   lands in C5 of this sprint.
+
+### CAL-102 — UMich 5Y inflation expectations FRED delisted, TE fallback wired (CLOSED 2026-04-20)
+
+- **Priority:** LOW → **CLOSED 2026-04-20** via Week 6 Sprint 3
+  Commits 2-4 (`4b6e037`, `bd76354`).
+- **Trigger:** Sprint 2a live validation flagged FRED ``MICHM5YM5``
+  (UMich 5-10Y inflation expectations) as delisted. Sprint 2a used
+  FRED ``EXPINF5YR`` (Cleveland-Fed model-based 5Y expected
+  inflation) as a substitute, but that is a distinct series — model
+  output, not the survey.
+- **Resolution:** ``TEConnector.fetch_michigan_5y_inflation_us``
+  reaches the actual UMich survey series via TE indicator
+  ``michigan 5 year inflation expectations`` →
+  ``HistoricalDataSymbol=USAM5YIE``. Source-identity guard matches
+  the same pattern as CAL-093. E4 builder takes TE as primary for
+  the UMich 5Y slot (FRED Cleveland-Fed fallback remains); emits
+  ``TE_FALLBACK_UMICH_5Y`` flag. Sprint 3 live smoke confirms the
+  uplift: UMich 5Y slot now carries the actual survey reading.
+- **Follow-up:** None.
 
 ## Não-categorizado por horizonte
 
