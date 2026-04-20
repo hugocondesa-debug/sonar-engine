@@ -632,6 +632,74 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** production `daily_cost_of_capital` runs with live
   ERP (rather than depending on manual `fit_erp_us` invocations).
 
+### CAL-068 — MOVE index live data source (F-cycle retro CAL-061 renumbered) (CLOSED 2026-04-20)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via
+  week5-sprint-1-brief Commit 1.
+- **ID note:** The F-cycle retrospective
+  (`docs/planning/retrospectives/f-cycle-implementation-report.md`)
+  declared this item as "CAL-061" but the ID slot was already held by
+  CAL-058's surfaced `daily_bis_ingestion` coverage lift. This entry
+  re-numbers to CAL-068 for backlog uniqueness; the f-cycle retro
+  prose mention survives as historical reference.
+- **Trigger:** `src/sonar/connectors/move_index.py` shipped in f-cycle
+  commit `b1a46e5` as a documented placeholder raising
+  `DataUnavailableError`. F3 Risk Appetite relied on
+  `MOVE_UNAVAILABLE` flag + weight redistribution as a degraded path.
+- **Scope (resolved):** Yahoo Finance chart API for `^MOVE` ticker
+  (public, no auth). fetch_move(start, end) → list[MoveObservation]
+  with level in bps. Schema-drift guard raises
+  `DataUnavailableError` on missing `chart.result[0].timestamp` or
+  misaligned arrays. Cassette replay tests + `@pytest.mark.slow` live
+  canary verifying sanity band [5, 200].
+- **Unblocks:** F3 Risk Appetite full component stack (US + global
+  proxy path); `MOVE_UNAVAILABLE` flag path no longer the default.
+
+### CAL-069 — AAII sentiment live data source (F-cycle retro CAL-062 renumbered) (CLOSED 2026-04-20)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via
+  week5-sprint-1-brief Commit 2.
+- **ID note:** F-cycle retro labelled "CAL-062"; renumbered to CAL-069
+  for backlog uniqueness.
+- **Trigger:** AAII sentiment placeholder raising
+  `DataUnavailableError` blocked F4 Positioning full component stack.
+- **Scope (resolved):** AAII public xlsx endpoint
+  `https://www.aaii.com/files/surveys/sentiment.xlsx` parsed via
+  openpyxl with schema-drift guard (assert columns Date/Bullish/
+  Neutral/Bearish present). `SchemaChangedError` raised on column
+  drift → subclass of `DataUnavailableError` for backward compat
+  with F4 `AAII_PROXY` fallback.
+- **Unblocks:** F4 Positioning US full 5-component path.
+
+### CAL-070 — CFTC COT live data source (F-cycle retro CAL-063 renumbered) (CLOSED 2026-04-20)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via
+  week5-sprint-1-brief Commit 3.
+- **ID note:** F-cycle retro labelled "CAL-063"; renumbered to CAL-070.
+- **Trigger:** CFTC COT placeholder raising `DataUnavailableError`.
+- **Scope (resolved):** Socrata JSON API
+  `https://publicreporting.cftc.gov/resource/6dca-aqww.json` filtered
+  for `E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE`, returning
+  weekly non-commercial long/short positions. fetch_cot_sp500_net
+  returns list[CotObservation].
+- **Unblocks:** F4 Positioning COT component live.
+
+### CAL-071 — F-cycle connector canary backfill (F-cycle retro CAL-067 renumbered) (CLOSED 2026-04-20)
+
+- **Priority:** MEDIUM → **CLOSED 2026-04-20** via
+  week5-sprint-1-brief Commit 4.
+- **ID note:** F-cycle retro labelled "CAL-067"; renumbered to CAL-071.
+- **Trigger:** 8 F-cycle connectors shipped without
+  `@pytest.mark.slow` live canary tests. Schema drift / endpoint
+  decay would go undetected until integration runs.
+- **Scope (resolved):** One live canary per F-cycle connector (CBOE
+  VIX, ICE BofA HY OAS, Chicago Fed NFCI, FINRA margin, BIS property,
+  MOVE, AAII, CFTC COT). Each fetches a recent observation window +
+  asserts sanity band + non-empty response. Slow-marked so they skip
+  from default `pytest tests/unit/` invocation; runnable via
+  `pytest -m slow`.
+- **Unblocks:** Production-grade F-cycle connector coverage.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos têm horizonte explícito no spec.
