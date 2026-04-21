@@ -134,8 +134,8 @@ all = ["sonar[dev,api,dashboard,notifications,docs]"]
 # Entry points
 # ---------------------------------------------------------------------------
 [project.scripts]
-sonar = "sonar.outputs.cli.main:app"
-sonar-cli = "sonar.outputs.cli.main:app" # alias
+sonar = "sonar.cli.main:app"
+sonar-cli = "sonar.cli.main:app" # alias
 
 [project.urls]
 Homepage = "https://github.com/hugocondesa-debug/sonar"
