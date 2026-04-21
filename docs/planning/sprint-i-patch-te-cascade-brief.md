@@ -121,14 +121,14 @@ async def fetch_uk_bank_rate(
     end: date,
 ) -> list[TEIndicatorObservation]:
     """Fetch UK Bank Rate (BoE policy rate) from TE.
-    
-    TE sources from Bank of England directly — avoids FRED OECD 
-    mirror monthly lag. Validates HistoricalDataSymbol matches 
+
+    TE sources from Bank of England directly — avoids FRED OECD
+    mirror monthly lag. Validates HistoricalDataSymbol matches
     expected per Sprint 3 Quick Wins source-drift discipline.
-    
-    Raises DataUnavailableError("source drift") if 
+
+    Raises DataUnavailableError("source drift") if
     HistoricalDataSymbol != UK_BANK_RATE_EXPECTED_SYMBOL.
-    
+
     Returns observations in chronological order.
     """
     obs = await self.fetch_indicator(
@@ -152,7 +152,7 @@ Tests (tests/unit/test_connectors/test_te.py append):
 - Unit: happy path mocked response → UK observations
 - Unit: HistoricalDataSymbol mismatch → DataUnavailableError
 - Unit: empty response → returns empty list
-- @pytest.mark.slow live canary: fetch Bank Rate 2024-12-01 to 2024-12-31 → 
+- @pytest.mark.slow live canary: fetch Bank Rate 2024-12-01 to 2024-12-31 →
   assert ≥ 1 obs, value ∈ [4%, 6%] (sanity range for Dec 2024)
 
 Cassette: tests/fixtures/cassettes/te/uk_bank_rate_2024_12.json
@@ -170,7 +170,7 @@ Verify existing fetch_sovereign_yield_historical(country='UK') works:
 - Returns daily gilt yield observations
 
 Commit body decision:
-- If existing sufficient → this commit is verification only + cassette 
+- If existing sufficient → this commit is verification only + cassette
   addition
 - If gap → add fetch_uk_10y_gilt wrapper mirroring US equivalent
 
@@ -179,7 +179,7 @@ Probe:
 
 Tests:
 - Unit: existing pattern verified or new wrapper tested
-- @pytest.mark.slow live canary: fetch UK 10Y Dec 2024 → assert range 
+- @pytest.mark.slow live canary: fetch UK 10Y Dec 2024 → assert range
   3.5%-5% sanity
 
 Cassette: tests/fixtures/cassettes/te/uk_10y_gilt_2024_12.json (if wrapper added)
@@ -207,7 +207,7 @@ New cascade (priority-ordered):
 3. FRED OECD mirror (last-resort with explicit staleness):
    - Call fred.fetch_series(FRED_UK_BANK_RATE_SERIES)
    - Emit BOTH flags: UK_BANK_RATE_FRED_FALLBACK_STALE + CALIBRATION_STALE
-   - Log structured warning: "UK Bank Rate served from FRED OECD 
+   - Log structured warning: "UK Bank Rate served from FRED OECD
      monthly mirror; TE + BoE both unreachable"
 
 Order of attempt (fail-open):
@@ -250,7 +250,7 @@ Signature update:
 Tests:
 - Unit: TE primary path (TE returns data) → UK_BANK_RATE_TE_PRIMARY flag
 - Unit: TE fails, BoE succeeds → UK_BANK_RATE_BOE_NATIVE flag
-- Unit: TE + BoE fail, FRED succeeds → UK_BANK_RATE_FRED_FALLBACK_STALE + 
+- Unit: TE + BoE fail, FRED succeeds → UK_BANK_RATE_FRED_FALLBACK_STALE +
   CALIBRATION_STALE flags
 - Unit: all fail → ValueError
 - Unit: TE disabled, BoE disabled, FRED primary → FRED path works backward-compat
@@ -267,7 +267,7 @@ feat(pipelines): daily_monetary_indices UK TE cascade integration
 
 Update src/sonar/pipelines/daily_monetary_indices.py:
 
-Ensure TE connector instantiated + passed to build_m1_uk_inputs 
+Ensure TE connector instantiated + passed to build_m1_uk_inputs
 for UK country. Verify connector lifecycle (aclose) includes TE.
 
 No changes to exit codes or CLI flags.
@@ -277,7 +277,7 @@ Integration test: tests/integration/test_daily_monetary_uk_te_cascade.py
 @pytest.mark.slow
 def test_daily_monetary_uk_te_primary():
     """Full pipeline UK 2024-12-31 with TE enabled.
-    
+
     Expected:
     - M1 UK row persists
     - UK_BANK_RATE_TE_PRIMARY flag present
@@ -287,10 +287,10 @@ def test_daily_monetary_uk_te_primary():
 @pytest.mark.slow
 def test_daily_monetary_uk_fred_fallback_when_te_down():
     """Simulate TE unreachable; pipeline falls to FRED OECD mirror.
-    
+
     Expected:
     - M1 UK row persists (signal delivered)
-    - UK_BANK_RATE_TE_UNAVAILABLE + UK_BANK_RATE_FRED_FALLBACK_STALE 
+    - UK_BANK_RATE_TE_UNAVAILABLE + UK_BANK_RATE_FRED_FALLBACK_STALE
       + CALIBRATION_STALE flags
     - Exit code 0 (not crash; degraded but operational)"""
 
@@ -308,32 +308,32 @@ File: docs/planning/retrospectives/week8-sprint-i-patch-te-cascade-report.md
 
 Structure:
 - Summary (duration, commits, scope)
-- Context: Sprint I shipped FRED OECD mirror as UK M1 fallback; 
+- Context: Sprint I shipped FRED OECD mirror as UK M1 fallback;
   user identified staleness issue (monthly lag vs daily BoE decisions)
-- Decision: TE primary (daily BoE-sourced) vs VPN proxy workaround 
-  vs keep FRED; chose TE per existing infrastructure + zero 
+- Decision: TE primary (daily BoE-sourced) vs VPN proxy workaround
+  vs keep FRED; chose TE per existing infrastructure + zero
   operational overhead
 - Commits table with SHAs
 - TE HistoricalDataSymbol validated: [actual symbol]
-- Cascade design: TE primary → BoE secondary → FRED last-resort 
+- Cascade design: TE primary → BoE secondary → FRED last-resort
   (staleness flagged)
-- Live smoke outcomes: TE primary path working; FRED fallback 
+- Live smoke outcomes: TE primary path working; FRED fallback
   path validated
 - Sprint I retrospective AMENDMENT appended to sprint-i-boe-connector-report.md
 - Lessons for brief format v3:
   - Connector briefs must state data freshness requirements explicitly
-  - "Aggregator-primary (TE) with native-override" Pattern 4 should 
+  - "Aggregator-primary (TE) with native-override" Pattern 4 should
     be default for country expansion; monthly mirrors are last-resort
-  - Signal quality evaluation required during cascade design, not 
+  - Signal quality evaluation required during cascade design, not
     just "does connector return data"
-- No CAL closures (this closes the Sprint I quality gap, 
+- No CAL closures (this closes the Sprint I quality gap,
   operationally)
-- No new CALs (unless pattern review reveals other FRED OECD 
+- No new CALs (unless pattern review reveals other FRED OECD
   mirror cases — surface if found)
 
 Brief format v3 update proposed (for SESSION_CONTEXT):
-- New requirement: connector briefs include "signal freshness 
-  requirement" section + cascade priority rationale tied to 
+- New requirement: connector briefs include "signal freshness
+  requirement" section + cascade priority rationale tied to
   index cadence (daily vs monthly vs quarterly)
 ```
 

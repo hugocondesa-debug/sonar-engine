@@ -110,13 +110,13 @@ Sprint I-patch runs concurrently in tmux `sonar`. Both push to main.
 ```
 feat(regimes): ORM-to-Snapshot helpers for L5 input assembly
 
-Pre-flight: read MetaRegimeClassifier signature + Snapshot dataclasses + 
-orchestrator result structure + daily_cycles current state + cycle ORM 
+Pre-flight: read MetaRegimeClassifier signature + Snapshot dataclasses +
+orchestrator result structure + daily_cycles current state + cycle ORM
 schemas. Document decisions:
 - MetaRegimeClassifier.classify takes L5RegimeInputs (not ORM directly)
 - Snapshot dataclasses expose only fields classifier uses (4-5 per cycle)
 - daily_cycles persists cycle ORM rows THEN reads them THEN snapshots
-- Alternative: build snapshots directly from CyclesOrchestrationResult 
+- Alternative: build snapshots directly from CyclesOrchestrationResult
   (avoids re-reading from DB)
 
 Design decision (Commit 1 body):
@@ -161,7 +161,7 @@ def build_l5_inputs_from_cycles_result(
     result: CyclesOrchestrationResult,
 ) -> L5RegimeInputs:
     """Assemble L5RegimeInputs from orchestrator result.
-    
+
     Uses in-memory cycle results to avoid DB re-read latency.
     Returns L5RegimeInputs with None for any missing cycle.
     """
@@ -218,13 +218,13 @@ def compute_country_date(country, date, session):
     # Existing L4 orchestration
     result = compute_all_cycles(country, date, session)
     persist_many_cycle_results(session, result)
-    
+
     # NEW: L5 classification
     try:
         l5_inputs = build_l5_inputs_from_cycles_result(country, date, result)
         classifier = MetaRegimeClassifier()
         l5_result = classifier.classify(l5_inputs)
-        logger.info("l5_regime_classified", meta_regime=l5_result.meta_regime, 
+        logger.info("l5_regime_classified", meta_regime=l5_result.meta_regime,
                     confidence=l5_result.confidence, reason=l5_result.classification_reason)
         try:
             persist_l5_meta_regime_result(session, l5_result)
@@ -234,7 +234,7 @@ def compute_country_date(country, date, session):
     except InsufficientL4DataError as e:
         logger.warning("l5_insufficient_l4", country=country, date=date, reason=str(e))
         # Pipeline continues; L4 still persisted
-    
+
     return result
 ```
 
@@ -326,7 +326,7 @@ tests/integration/test_l5_vertical_slice.py:
 @pytest.mark.slow
 def test_l5_full_vertical_slice_us():
     """Full vertical: seed L4 → daily_cycles → L5 persisted → sonar status displays.
-    
+
     Steps:
     1. Seed L3 sub-indices rows for US 2024-12-31 (E1-E4 + L1-L4 + F1-F4 + M1-M4)
     2. Invoke daily_cycles.compute_country_date(US, 2024-12-31)
@@ -341,7 +341,7 @@ def test_l5_full_vertical_slice_us():
 @pytest.mark.slow
 def test_l5_insufficient_cycles_pipeline_survives():
     """Only 2/4 L4 cycles available; daily_cycles logs + continues.
-    
+
     Steps:
     1. Seed only 2 L3 sub-index sets (e.g. E + F only)
     2. Invoke daily_cycles (should compute 2 cycles, raise for others)
@@ -353,7 +353,7 @@ def test_l5_insufficient_cycles_pipeline_survives():
 @pytest.mark.slow
 def test_l5_duplicate_rerun_idempotent():
     """Re-run same (country, date) — L5 duplicate handled gracefully.
-    
+
     Steps:
     1. First run: L5 persists
     2. Second run same country+date: L5 DuplicatePersistError → logged + skipped
@@ -381,7 +381,7 @@ tests/integration/test_l5_classification_branches.py:
 ])
 def test_classification_branch(fixture_name, expected_regime):
     """Parametrized: each canonical fixture classifies to expected regime.
-    
+
     Steps:
     1. Load fixture values (scores + regimes + overlays per 4 L4 cycles)
     2. Build L5RegimeInputs from fixture
@@ -389,7 +389,7 @@ def test_classification_branch(fixture_name, expected_regime):
     4. Assert meta_regime == expected_regime
     5. Assert classification_reason matches decision tree branch"""
 
-Fixtures source from Sprint H test_meta_regime_classifier fixture builders 
+Fixtures source from Sprint H test_meta_regime_classifier fixture builders
 (Python not JSON per Sprint H deviation #2).
 
 Coverage classifier paths exercised end-to-end.
@@ -404,7 +404,7 @@ Create src/sonar/scripts/backfill_l5.py:
 
 """L5 retrospective classification for existing cycle dates.
 
-For each (country, date) triplet where at least 3/4 L4 cycles exist 
+For each (country, date) triplet where at least 3/4 L4 cycles exist
 AND no L5 row present, compute L5 meta-regime + persist.
 
 Usage:
