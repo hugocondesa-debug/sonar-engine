@@ -104,6 +104,21 @@ class TestRStarLoader:
         assert "RBNZ" in str(nz["source"])
         assert nz.get("proxy") is True
 
+    def test_ch_direct_with_proxy_flag(self) -> None:
+        """CH has its own entry marked ``proxy: true`` — Swiss r* is
+        structurally low (CHF safe-haven compression). Value anchored
+        to SNB WP 2024-09 posterior median (0.25 % real)."""
+        r_star, is_proxy = resolve_r_star("CH")
+        assert r_star == pytest.approx(0.0025)
+        assert is_proxy is True
+
+    def test_ch_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        ch = values["CH"]
+        assert "source" in ch
+        assert "SNB" in str(ch["source"])
+        assert ch.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -146,9 +161,20 @@ class TestBcTargetsLoader:
         assert resolve_inflation_target("NZ") == pytest.approx(0.02)
         assert load_country_to_target()["NZ"] == "RBNZ"
 
-    def test_targets_dict_seven_central_banks(self) -> None:
+    def test_ch_resolves_to_snb_band_midpoint(self) -> None:
+        """CH monetary inputs resolve to the SNB 0-2 % band midpoint (1 %).
+
+        SNB defines price stability as CPI inflation below 2 % — the
+        0-2 % band. The midpoint representation matches how AU's 2-3 %
+        band surfaces at 2.5 % above. Downstream M1 CH emits
+        ``CH_INFLATION_TARGET_BAND`` to flag the midpoint convention.
+        """
+        assert resolve_inflation_target("CH") == pytest.approx(0.01)
+        assert load_country_to_target()["CH"] == "SNB"
+
+    def test_targets_dict_eight_central_banks(self) -> None:
         targets = load_bc_targets()
-        assert {"Fed", "ECB", "BoE", "BoJ", "RBA", "BoC", "RBNZ"} <= set(targets.keys())
+        assert {"Fed", "ECB", "BoE", "BoJ", "RBA", "BoC", "RBNZ", "SNB"} <= set(targets.keys())
 
 
 class TestStaleness:

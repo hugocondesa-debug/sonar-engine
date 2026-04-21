@@ -99,3 +99,27 @@ NZ:
   last_updated: "2025-02-18"
   source: "RBNZ Bulletin / Discussion Papers 2023-2024 — neutral-rate range synthesis (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+CH:
+  # Swiss National Bank does not publish an HLW-equivalent natural rate.
+  # The Swiss r* is structurally low — the CHF's safe-haven premium
+  # compresses the domestic natural rate relative to other G10 economies,
+  # and SNB research consistently places it in a [-0.25, 0.75] % real
+  # range. Value anchored to SNB Working Paper 2024-09 ("The natural
+  # rate of interest in Switzerland: estimates and implications") which
+  # reported a posterior median ≈ 0.25 % real after the post-COVID
+  # reset; this matches the broader SNB literature (Kaufmann & Lein
+  # 2023; SNB Quarterly Bulletin Q3 2024 neutral-rate discussion) that
+  # treats 0.25 % as the Phase 1 consensus anchor.
+  #
+  # Important context: the 2015-2022 negative-rate corridor (policy
+  # rate at -0.75 %) put the ex-post real policy rate persistently
+  # below r*, which is consistent with SNB's explicit CHF-appreciation
+  # containment mandate during that window rather than a signal about
+  # the structural r* itself. Downstream emits R_STAR_PROXY on every CH
+  # M1/M2 call per spec §4 until an academic HLW-CH series or an SNB
+  # publication with a point estimate lands.
+  r_star_pct: 0.0025      # 0.25 % — SNB WP 2024-09 posterior median (SONAR Phase 1 proxy)
+  last_updated: "2024-09-30"
+  source: "SNB Working Paper 2024-09 — Swiss natural-rate posterior median (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4
