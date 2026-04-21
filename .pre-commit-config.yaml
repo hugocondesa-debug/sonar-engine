@@ -59,6 +59,8 @@ repos:
           - numpy>=1.26
           - scipy>=1.13
           - statsmodels>=0.14
+          - typer>=0.12
+          - rich>=13.7
         args: [--config-file=pyproject.toml]
         exclude: ^(tests/|scripts/|notebooks/|docs/)
 
