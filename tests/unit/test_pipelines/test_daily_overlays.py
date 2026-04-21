@@ -262,6 +262,44 @@ def test_expected_inflation_helper_produces_index_result(session: Session) -> No
     assert outcome.results.expected_inflation.raw_value == pytest.approx(0.024, abs=1e-6)
 
 
+# ---------------------------------------------------------------------------
+# CAL-113 (Sprint M) — BEI / SURVEY split in EXPINF sub_indicators
+# ---------------------------------------------------------------------------
+
+
+def test_expected_inflation_emits_bei_survey_split(session: Session) -> None:
+    """sub_indicators carry separate bei_tenors + survey_tenors + method_per_tenor
+    alongside the unified canonical dict."""
+    _seed_nss_spot(session, "US", ANCHOR)
+    builder = StaticInputsBuilder({"US": _us_expinf_bundle()})
+    outcome = run_one(session, "US", ANCHOR, inputs_builder=builder)
+    assert outcome.results.expected_inflation is not None
+    sub = outcome.results.expected_inflation.sub_indicators
+    # Canonical unified dict stays for back-compat.
+    assert "expected_inflation_tenors" in sub
+    # New split keys.
+    assert "bei_tenors" in sub
+    assert "survey_tenors" in sub
+    assert "method_per_tenor" in sub
+    # Bundle seeds BEI across all tenors → bei_tenors populated, survey empty.
+    bei_tenors = sub["bei_tenors"]
+    survey_tenors = sub["survey_tenors"]
+    assert bei_tenors, "expected non-empty BEI tenors when BEI is the dominant method"
+    assert all(sub["method_per_tenor"][k] == "BEI" for k in bei_tenors)
+    # No SURVEY row built in the fixture → survey_tenors empty.
+    assert survey_tenors == {}
+
+
+def test_expected_inflation_method_per_tenor_matches_source(session: Session) -> None:
+    """method_per_tenor mirrors canonical source_method_per_tenor for back-compat."""
+    _seed_nss_spot(session, "US", ANCHOR)
+    builder = StaticInputsBuilder({"US": _us_expinf_bundle()})
+    outcome = run_one(session, "US", ANCHOR, inputs_builder=builder)
+    assert outcome.results.expected_inflation is not None
+    sub = outcome.results.expected_inflation.sub_indicators
+    assert sub["method_per_tenor"] == sub["source_method_per_tenor"]
+
+
 def test_all_four_overlays_compute_together(session: Session) -> None:
     _seed_nss_spot(session, "US", ANCHOR)
     erp = _us_erp_bundle().erp

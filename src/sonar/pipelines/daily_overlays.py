@@ -455,6 +455,15 @@ async def _compute_expected_inflation(
     tenors = canonical.expected_inflation_tenors
     # raw_value = 10Y tenor if available, else any available tenor, else 0.
     raw_value = tenors.get("10Y") or next(iter(tenors.values()), 0.0)
+    # CAL-113 (Sprint M) — emit per-method tenor splits alongside the
+    # unified dict so M3 DB-backed builder can populate bei_10y_bps +
+    # survey_10y_bps distinctly. Canonical ``expected_inflation_tenors``
+    # is preserved for back-compat with pre-Sprint-M consumers.
+    method_per_tenor = {k: str(v) for k, v in canonical.source_method_per_tenor.items()}
+    bei_tenors = {k: float(tenors[k]) for k, method in method_per_tenor.items() if method == "BEI"}
+    survey_tenors = {
+        k: float(tenors[k]) for k, method in method_per_tenor.items() if method == "SURVEY"
+    }
     return (
         IndexResult(
             index_code="EXPINF_CANONICAL",
@@ -468,9 +477,10 @@ async def _compute_expected_inflation(
             flags=canonical.flags,
             sub_indicators={
                 "expected_inflation_tenors": {k: float(v) for k, v in tenors.items()},
-                "source_method_per_tenor": {
-                    k: str(v) for k, v in canonical.source_method_per_tenor.items()
-                },
+                "bei_tenors": bei_tenors,
+                "survey_tenors": survey_tenors,
+                "method_per_tenor": method_per_tenor,
+                "source_method_per_tenor": method_per_tenor,
                 "methods_available": canonical.methods_available,
                 "anchor_status": canonical.anchor_status,
             },
