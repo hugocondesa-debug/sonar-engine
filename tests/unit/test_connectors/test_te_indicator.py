@@ -61,11 +61,12 @@ def _load_cassette(name: str) -> list[dict]:
 
 
 def test_country_name_map_covers_t1() -> None:
-    for c in ("US", "DE", "GB", "JP", "IT", "ES", "FR", "NL", "PT"):
+    for c in ("US", "DE", "GB", "JP", "CA", "IT", "ES", "FR", "NL", "PT"):
         assert c in TE_COUNTRY_NAME_MAP
     assert TE_COUNTRY_NAME_MAP["US"] == "united states"
     assert TE_COUNTRY_NAME_MAP["DE"] == "germany"
     assert TE_COUNTRY_NAME_MAP["GB"] == "united kingdom"
+    assert TE_COUNTRY_NAME_MAP["CA"] == "canada"
 
 
 def test_country_name_map_uk_alias_preserved() -> None:
@@ -685,5 +686,124 @@ async def test_live_canary_gb_bank_rate(tmp_cache_dir: Path) -> None:
         recent = [o for o in obs if o.observation_date >= start]
         for o in recent:
             assert 0.0 <= o.value <= 20.0
+    finally:
+        await conn.aclose()
+
+
+async def test_wrapper_ca_bank_rate_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``interest rate`` for CA returns ``CCLR`` (BoC overnight target)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Canada",
+                "Category": "Interest Rate",
+                "DateTime": "2024-06-05T00:00:00",
+                "Value": 4.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "CCLR",
+                "LastUpdate": "2024-06-05T13:45:00",
+            },
+            {
+                "Country": "Canada",
+                "Category": "Interest Rate",
+                "DateTime": "2024-12-11T00:00:00",
+                "Value": 3.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "CCLR",
+                "LastUpdate": "2024-12-11T13:45:00",
+            },
+            {
+                "Country": "Canada",
+                "Category": "Interest Rate",
+                "DateTime": "2026-03-18T00:00:00",
+                "Value": 2.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "CCLR",
+                "LastUpdate": "2026-03-18T13:45:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_ca_bank_rate(date(2024, 1, 1), date(2026, 4, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "CA"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "CCLR"
+    # BoC target for overnight rate stays in [0.25, 10] pct post-1990.
+    for o in obs:
+        assert 0.0 <= o.value <= 15.0
+
+
+async def test_wrapper_ca_bank_rate_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-CCLR symbol, raise — catches mis-attribution."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Canada",
+                "Category": "Interest Rate",
+                "DateTime": "2024-12-11T00:00:00",
+                "Value": 3.25,
+                "HistoricalDataSymbol": "CAINTR",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="CA-bank-rate source drift"):
+        await te_connector.fetch_ca_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ca_bank_rate_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → ``fetch_indicator`` raises; cascade callers treat as
+    TE-unavailable and fall through to BoC native."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_ca_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ca_bank_rate_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 2000+ CCLR daily observations."""
+    payload = _load_cassette("te_ca_bank_rate_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_ca_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) >= 2000
+    assert obs[0].historical_data_symbol == "CCLR"
+    assert obs[0].country == "CA"
+    # Recent window: 2024+ BoC overnight sits in [2.25, 5.00]%.
+    recent = obs[-24:]
+    for o in recent:
+        assert 0.0 <= o.value <= 10.0
+
+
+@pytest.mark.slow
+async def test_live_canary_ca_bank_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE CA Bank Rate — confirms ``CCLR`` symbol + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. The endpoint back-fills the
+    full history regardless of the window, so filter client-side to
+    the recent 2Y before asserting the band.
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_ca_bank_rate(start, today)
+        assert len(obs) >= 3
+        assert obs[0].historical_data_symbol == "CCLR"
+        assert obs[0].country == "CA"
+        recent = [o for o in obs if o.observation_date >= start]
+        for o in recent:
+            # BoC overnight stayed within [0.25, 5.00]% across 2023-26.
+            assert 0.0 <= o.value <= 10.0
     finally:
         await conn.aclose()

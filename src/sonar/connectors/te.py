@@ -62,6 +62,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "GB": "united kingdom",
     "UK": "united kingdom",  # deprecated alias — ADR-0007
     "JP": "japan",
+    "CA": "canada",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -95,6 +96,7 @@ TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
 # ADR-0007 (UK → GB canonical rename). Removed Week 10 Day 1.
 TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
 TE_EXPECTED_SYMBOL_JP_BANK_RATE = "BOJDTR"
+TE_EXPECTED_SYMBOL_CA_BANK_RATE = "CCLR"
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,6 +465,44 @@ class TEConnector:
             err = (
                 "TE JP-bank-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_JP_BANK_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_ca_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """CA Bank Rate — BoC policy-rate (overnight target), TE-sourced.
+
+        TE ``interest rate`` indicator for ``canada`` returns the BoC
+        target for the overnight rate directly (HistoricalDataSymbol
+        ``CCLR`` — Canadian Central Lending Rate feed). Daily cadence
+        back-filled to 1990-02-07 (~2320 observations at Sprint S probe,
+        2026-04-21); TE surfaces each rate-change announcement plus the
+        constant intervening quotes so a single query returns the full
+        decision history regardless of ``d1``/``d2``.
+
+        Chosen as the **primary** source for CA M1 policy-rate inputs
+        (Sprint S) per the Sprint I-patch cascade pattern — TE is daily
+        and BoC-sourced, and the BoC Valet native connector (Sprint S
+        C2) sits in the secondary slot as a first-class robust fallback
+        because the Valet JSON REST API is public and reachable. FRED
+        OECD mirror ``IRSTCI01CAM156N`` is relegated to last-resort
+        with staleness flags.
+
+        Guards source identity via the ``CCLR`` symbol check mirroring
+        the Conference Board / Michigan-5Y / GB / JP wrappers; on drift
+        raises :class:`DataUnavailableError` so the CA cascade can fall
+        back cleanly.
+        """
+        obs = await self.fetch_indicator("CA", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_CA_BANK_RATE)
+        ):
+            err = (
+                "TE CA-bank-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CA_BANK_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
