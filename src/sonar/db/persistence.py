@@ -1252,3 +1252,72 @@ def persist_many_financial_results(
             raise DuplicatePersistError(err) from e
         raise
     return written
+
+
+# ---------------------------------------------------------------------------
+# Overlay batch — week7 sprint C C6 (daily_overlays orchestration)
+# ---------------------------------------------------------------------------
+
+
+def persist_many_overlay_results(
+    session: Session,
+    *,
+    erp: ERPFitResult | None = None,
+    erp_inputs: ERPInput | None = None,
+    rating: ConsolidatedRating | None = None,
+    rating_calibration_date: date | None = None,
+    rating_methodology_version: str = "RATING_SPREAD_v0.2",
+    crp_index: IndexResult | None = None,
+    expected_inflation_index: IndexResult | None = None,
+) -> dict[str, int]:
+    """Persist any subset of the 4 daily overlays in sequence.
+
+    Uses the existing per-overlay helpers rather than a single
+    ``session.add_all`` — ERP alone writes 5 rows across sibling tables
+    and rating writes through a dedicated helper. CRP + expected-
+    inflation ride on the generic :class:`IndexValue` table (no
+    dedicated overlay tables exist yet; adding them needs a migration
+    out of scope for this sprint).
+
+    Any :class:`DuplicatePersistError` bubbles up with an ``overlay=...``
+    prefix so callers can distinguish which overlay collided.
+    """
+    written: dict[str, int] = {"erp": 0, "crp": 0, "rating": 0, "expected_inflation": 0}
+
+    if erp is not None:
+        if erp_inputs is None:
+            msg = "persist_many_overlay_results requires erp_inputs alongside erp"
+            raise ValueError(msg)
+        try:
+            persist_erp_fit_result(session, erp, erp_inputs)
+        except DuplicatePersistError as e:
+            raise DuplicatePersistError(f"overlay=erp {e}") from e
+        written["erp"] = 1
+
+    if rating is not None:
+        try:
+            persist_rating_consolidated(
+                session,
+                rating,
+                calibration_date=rating_calibration_date,
+                methodology_version=rating_methodology_version,
+            )
+        except DuplicatePersistError as e:
+            raise DuplicatePersistError(f"overlay=rating {e}") from e
+        written["rating"] = 1
+
+    if crp_index is not None:
+        try:
+            persist_index_value(session, crp_index)
+        except DuplicatePersistError as e:
+            raise DuplicatePersistError(f"overlay=crp {e}") from e
+        written["crp"] = 1
+
+    if expected_inflation_index is not None:
+        try:
+            persist_index_value(session, expected_inflation_index)
+        except DuplicatePersistError as e:
+            raise DuplicatePersistError(f"overlay=expected_inflation {e}") from e
+        written["expected_inflation"] = 1
+
+    return written

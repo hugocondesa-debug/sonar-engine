@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from sonar.db.models import Base, NSSYieldCurveSpot
+from sonar.db.models import Base, ERPCanonical, NSSYieldCurveSpot
+from sonar.db.persistence import DuplicatePersistError
 from sonar.overlays.exceptions import InsufficientDataError
 from sonar.pipelines.daily_overlays import (
     EXIT_CONVERGENCE,
@@ -284,6 +285,27 @@ def test_all_four_overlays_compute_together(session: Session) -> None:
     assert outcome.results.rating is not None
     assert outcome.results.expected_inflation is not None
     assert outcome.results.skips == {}
+    # All 4 overlays persist via persist_many_overlay_results.
+    assert outcome.persisted == {"erp": 1, "crp": 1, "rating": 1, "expected_inflation": 1}
+
+
+def test_duplicate_erp_raises(session: Session) -> None:
+    """Re-running the same (country, date) triggers DuplicatePersistError."""
+    _seed_nss_spot(session, "US", ANCHOR)
+    builder = StaticInputsBuilder({"US": _us_erp_bundle()})
+    first = run_one(session, "US", ANCHOR, inputs_builder=builder)
+    assert first.persisted["erp"] == 1
+    with pytest.raises(DuplicatePersistError, match="overlay=erp"):
+        run_one(session, "US", ANCHOR, inputs_builder=builder)
+
+
+def test_persist_false_leaves_db_untouched(session: Session) -> None:
+    _seed_nss_spot(session, "US", ANCHOR)
+    builder = StaticInputsBuilder({"US": _us_erp_bundle()})
+    outcome = run_one(session, "US", ANCHOR, inputs_builder=builder, persist=False)
+    assert outcome.results.erp is not None
+    assert outcome.persisted == {"erp": 0, "crp": 0, "rating": 0, "expected_inflation": 0}
+    assert session.query(ERPCanonical).count() == 0
 
 
 def test_static_builder_unknown_country_returns_empty() -> None:

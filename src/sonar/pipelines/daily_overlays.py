@@ -40,7 +40,7 @@ import structlog
 import typer
 
 from sonar.db.models import NSSYieldCurveSpot
-from sonar.db.persistence import DuplicatePersistError
+from sonar.db.persistence import DuplicatePersistError, persist_many_overlay_results
 from sonar.db.session import SessionLocal
 from sonar.overlays.exceptions import (
     ConvergenceError,
@@ -521,6 +521,39 @@ class DailyOverlaysOutcome:
     persisted: dict[str, int]
 
 
+def _crp_canonical_to_index(
+    canonical: CRPCanonical, *, country_code: str, observation_date: date
+) -> IndexResult:
+    """Convert a :class:`CRPCanonical` into an :class:`IndexResult`.
+
+    CRP has no dedicated table yet (adding one needs a migration);
+    ride the generic ``index_values`` row with ``index_code="CRP"``
+    so ``persist_index_value`` handles it. ``raw_value`` is the
+    canonical CRP in decimal; ``value_0_100`` stays 50.0 as a neutral
+    placeholder until a rolling z-score baseline is wired.
+    """
+    from sonar.indices.base import IndexResult  # noqa: PLC0415
+
+    return IndexResult(
+        index_code="CRP",
+        country_code=country_code,
+        date=observation_date,
+        methodology_version="CRP_v1.0",
+        raw_value=canonical.crp_canonical_bps / 10_000.0,
+        zscore_clamped=0.0,
+        value_0_100=50.0,
+        confidence=canonical.confidence,
+        flags=canonical.flags,
+        sub_indicators={
+            "method_selected": canonical.method_selected,
+            "crp_canonical_bps": canonical.crp_canonical_bps,
+            "default_spread_bps": canonical.default_spread_bps,
+            "vol_ratio": canonical.vol_ratio,
+            "vol_ratio_source": canonical.vol_ratio_source,
+        },
+    )
+
+
 def run_one(
     session: Session,
     country_code: str,
@@ -528,6 +561,7 @@ def run_one(
     *,
     inputs_builder: InputsBuilder | None = None,
     require_nss: bool = True,
+    persist: bool = True,
 ) -> DailyOverlaysOutcome:
     """Single ``(country, date)`` pipeline run: precondition → compute → persist.
 
@@ -535,6 +569,11 @@ def run_one(
     when no ``yield_curves_spot`` row exists for the triplet. Callers
     that want to exercise the overlays without a curve (unit tests
     with synthetic bundles) can set it to ``False``.
+
+    ``persist=True`` (default) writes each computed overlay through
+    :func:`sonar.db.persistence.persist_many_overlay_results`.
+    Unit-test paths that use ``default_inputs_builder`` (empty bundle)
+    get ``persisted={...: 0}`` for free.
     """
     if require_nss and not nss_spot_exists(session, country_code, observation_date):
         msg = (
@@ -547,19 +586,29 @@ def run_one(
     bundle = builder(session, country_code, observation_date)
     results = asyncio.run(compute_all_overlays(bundle))
 
-    # Commit 6 swaps this for persist_many_overlay_results; C1 default
-    # path persists nothing so unit tests stay deterministic.
     persisted: dict[str, int] = {"erp": 0, "crp": 0, "rating": 0, "expected_inflation": 0}
+    if persist:
+        crp_index: IndexResult | None = (
+            _crp_canonical_to_index(
+                results.crp, country_code=country_code, observation_date=observation_date
+            )
+            if results.crp is not None
+            else None
+        )
+        persisted = persist_many_overlay_results(
+            session,
+            erp=results.erp,
+            erp_inputs=bundle.erp,
+            rating=results.rating,
+            crp_index=crp_index,
+            expected_inflation_index=results.expected_inflation,
+        )
+
     log.info(
-        "daily_overlays.computed",
+        "daily_overlays.persisted",
         country=country_code,
         date=observation_date.isoformat(),
-        computed={
-            "erp": results.erp is not None,
-            "crp": results.crp is not None,
-            "rating": results.rating is not None,
-            "expected_inflation": results.expected_inflation is not None,
-        },
+        persisted=persisted,
         skips=results.skips,
     )
     return DailyOverlaysOutcome(
