@@ -1575,6 +1575,149 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   BoE, BoJ, BoC, RBA).
 - **Status:** OPEN.
 
+### CAL-AU — AU country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint T — M1 level)
+
+- **Priority:** MEDIUM — M2 T1 Core milestone progression (9 → 10
+  countries monetary M1 live; extends the Sprint I / L / S family to
+  Australia). Mirrors CAL-118 (UK) / CAL-119 (JP) / CAL-129 (CA).
+- **Trigger:** M2 T1 Core milestone listed AU as the next country after
+  CA. Sprint T ships AU as the fourth country in the Sprint I-patch
+  cascade family.
+- **Scope:**
+  - `src/sonar/connectors/rba.py` new RBA statistical-tables connector
+    (Sprint T C2) — first native connector in the cascade family to
+    consume **public static CSVs** rather than a JSON REST API (BoC
+    Valet) or a gated portal (BoE IADB / BoJ TSD). Serves F1
+    (Cash Rate Target `FIRMMCRTD`) and F2 (AGB 10Y `FCMYGBAG10D`);
+    Akamai edge cleared with a descriptive `SONAR/2.0` user-agent.
+  - `src/sonar/connectors/te.py` `fetch_au_cash_rate` wrapper with
+    `RBATCTR` source-drift guard (Sprint T C1).
+  - `src/sonar/indices/monetary/builders.py` `build_m1_au_inputs` TE →
+    RBA F1 → FRED cascade (Sprint T C4); `build_m2_au_inputs` +
+    `build_m4_au_inputs` wire-ready scaffolds (Sprint T C4).
+  - AU entries in `r_star_values.yaml` (Sprint T C3); AU already
+    present in `country_tiers.yaml` + `bc_targets.yaml`.
+  - `daily_monetary_indices.py` AU country support (Sprint T C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with
+    `IRSTCI01AUM156N` + `IRLTLT01AUM156N` (Sprint T C5).
+- **Resolution (Week 9 Sprint T, M1 level):** AU M1 live via TE
+  primary cascade; persisted row emits `AU_CASH_RATE_TE_PRIMARY` +
+  `R_STAR_PROXY` + `EXPECTED_INFLATION_CB_TARGET` +
+  `AU_BS_GDP_PROXY_ZERO` flags. RBA F1 CSV native path **live** (not a
+  wire-ready scaffold like BoE / BoJ) — when TE fails, cascade lands
+  `AU_CASH_RATE_RBA_NATIVE` without staleness (parallel to the CA
+  BoC-Valet slot Sprint S shipped). FRED OECD mirror
+  (`IRSTCI01AUM156N`) demoted to last-resort with
+  `AU_CASH_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE` flags.
+- **Remaining:** M2/M4/M3 AU paths via CAL-AU-GAP / CAL-AU-M4-FCI /
+  CAL-AU-M3.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
+  CAL-AU-GAP / CAL-AU-M4-FCI / CAL-AU-M3 / CAL-AU-BS-GDP / CAL-AU-CPI /
+  CAL-AU-INFL-FORECAST landing.
+
+### CAL-AU-GAP — AU M2 output-gap source (Week 9 Sprint T surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 AU Taylor-gap compute.
+- **Trigger:** Sprint T C4 shipped `build_m2_au_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; RBA publishes a quarterly
+  output-gap discussion in SMP technical notes but no scriptable
+  endpoint exists at Sprint T scope.
+- **Scope:**
+  - Probe OECD EO AU for cadence + coverage (canonical fallback across
+    the cascade family).
+  - Probe RBA SMP table + ABS RBANZ for any scriptable series;
+    otherwise consume the OECD EO path.
+  - Wire AU output-gap connector and populate
+    `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_au_inputs` once the resolver lands.
+- **Unblocks:** M2 AU persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-AU-M4-FCI — AU M4 FCI 5-component bundle (Week 9 Sprint T surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 AU custom-FCI compute.
+- **Trigger:** Sprint T C4 shipped `build_m4_au_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; only 10Y AGB (RBA F2
+  `FCMYGBAG10D`) and policy rate (via M1 cascade) are mappable at
+  Sprint T scope, below the `MIN_CUSTOM_COMPONENTS == 5` floor.
+- **Scope:** connectors/wrappers for the missing components:
+  - AU credit spread (BBB corp vs AGB; candidate: FRED `BAMLHYAU` or
+    RBA F3 corporate-yield series).
+  - AU vol index (no ASX VIX-analog on FRED; Yahoo `^AXVI` candidate
+    or proxy from `^VIX`).
+  - AU AUD NEER (RBA F11 nominal-TWI index).
+  - AU mortgage rate (RBA F5 lender-rates table).
+- **Unblocks:** M4 AU persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-AU-M3 — AU M3 market-expectations overlays (Week 9 Sprint T surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
+  analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA).
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
+  rows per country; Sprint T did not ship AU NSS or AU EXPINF
+  overlays (Phase 2+ scope).
+- **Scope:**
+  - AU NSS overlay persistence (RBA F2 yield-curve series family +
+    FRED `IRLTLT01AUM156N` long-end; NSS fit via existing overlay
+    module).
+  - AU EXPINF overlay persistence (RBA Indexed-Bond 10Y `FCMYGBAGID`
+    breakeven analog OR RBA 2.5 % CPI-target midpoint as CB-target
+    fallback, mirroring UK / JP / CA).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` AU path.
+- **Unblocks:** M3 AU persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-AU-BS-GDP — AU balance-sheet / GDP ratio wiring (Week 9 Sprint T surfaced)
+
+- **Priority:** LOW — closes the `AU_BS_GDP_PROXY_ZERO` flag on M1 AU.
+- **Trigger:** Sprint T C4 zero-seeded AU balance-sheet ratios because
+  RBA weekly balance-sheet aggregates (table A1 candidate) + ABS
+  nominal GDP are not wired at Sprint T scope.
+- **Scope:** RBA A1 weekly balance-sheet series (total assets) combined
+  with ABS nominal GDP via FRED `AUSGDPNAD2GDQ` or equivalent.
+- **Unblocks:** M1 AU BS/GDP signal history populated (currently seeded
+  as zeros → balance_sheet_signal contribution to M1 score is null).
+- **Status:** OPEN.
+
+### CAL-AU-CPI — AU CPI YoY wrapper (Week 9 Sprint T surfaced)
+
+- **Priority:** MEDIUM — required input for M2 AU Taylor gap.
+- **Trigger:** Sprint T C4 `build_m2_au_inputs` scaffold lists AU CPI
+  YoY as one of three missing inputs; TE generic
+  `fetch_indicator("AU", "inflation rate", ...)` should cover but not
+  probed at Sprint T scope. ABS publishes quarterly CPI.
+- **Scope:**
+  - Probe TE generic indicator for AU CPI YoY cadence + coverage.
+  - Wire `fetch_au_cpi_yoy` wrapper on `TEConnector` with
+    source-drift guard (analogous to `fetch_au_cash_rate`).
+  - Consume in `build_m2_au_inputs` output.
+- **Unblocks:** M2 AU inflation input; combined with CAL-AU-GAP +
+  CAL-AU-INFL-FORECAST closes M2 AU.
+- **Status:** OPEN.
+
+### CAL-AU-INFL-FORECAST — AU inflation-forecast wrapper (Week 9 Sprint T surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 AU compute; RBA 2.5 %
+  CPI-target midpoint serves as CB-target proxy until this lands.
+- **Trigger:** RBA publishes quarterly SMP forecast tables (HTML-only)
+  but unwired at Sprint T scope. M2 AU currently treats the 2.5 %
+  target midpoint as the inflation-forecast proxy via
+  `EXPECTED_INFLATION_CB_TARGET`.
+- **Scope:**
+  - Probe RBA SMP for scriptable forecast series.
+  - Wire `fetch_au_inflation_forecast` (connector TBD — likely a
+    HTML-scrape adapter on top of `RBAConnector`).
+  - Consume in `build_m2_au_inputs` with new flag
+    `AU_INFLATION_FORECAST_RBA_SMP` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 AU second-cycle inflation input; combined with
+  CAL-AU-GAP + CAL-AU-CPI closes M2 AU.
+- **Status:** OPEN.
+
+### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
+
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
   history still recent); not critical path.
 - **Trigger:** Sprint K (Week 8 Day 2) deferred Commit 6 per brief
