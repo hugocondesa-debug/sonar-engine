@@ -13,6 +13,7 @@ from sonar.indices.monetary.builders import (
     FRED_CA_BANK_RATE_SERIES,
     FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
+    FRED_NZ_OCR_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
     _latest_on_or_before,
@@ -23,15 +24,18 @@ from sonar.indices.monetary.builders import (
     build_m1_ea_inputs,
     build_m1_gb_inputs,
     build_m1_jp_inputs,
+    build_m1_nz_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
     build_m2_au_inputs,
     build_m2_ca_inputs,
     build_m2_jp_inputs,
+    build_m2_nz_inputs,
     build_m2_us_inputs,
     build_m4_au_inputs,
     build_m4_ca_inputs,
     build_m4_jp_inputs,
+    build_m4_nz_inputs,
     build_m4_us_inputs,
 )
 from sonar.overlays.exceptions import DataUnavailableError, InsufficientDataError
@@ -151,6 +155,9 @@ class _FakeFredConnector:
         elif series_id == FRED_AU_CASH_RATE_SERIES:
             country_code = "AU"
             yield_bps_val = 400  # 4.00 %
+        elif series_id == FRED_NZ_OCR_SERIES:
+            country_code = "NZ"
+            yield_bps_val = 375  # 3.75 %
         else:
             return []
         out: list[Observation] = []
@@ -405,6 +412,67 @@ class _FakeRBAUnavailable:
     async def fetch_cash_rate(self, start: date, end: date) -> list[Observation]:
         _ = start, end
         msg = "RBA F1 unreachable (test-fake)"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTENzSuccess:
+    """TE primary path for NZ — returns daily RBNZ OCR observations in pct."""
+
+    def __init__(self, *, pct: float = 3.75) -> None:
+        self.pct = pct
+
+    async def fetch_nz_ocr(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="NZOCRS"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTENzUnavailable:
+    """TE primary fails for NZ with DataUnavailableError — cascade fails over."""
+
+    async def fetch_nz_ocr(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='NZ' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeRBNZSuccess:
+    """RBNZ B2 native — hb2-daily OCR column (hypothetical once edge unblocks)."""
+
+    def __init__(self, *, yield_bps: int = 360) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_ocr(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="NZ",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,  # 3.60 % differs from TE to prove cascade
+                    source="RBNZ",
+                    source_series_id="hb2-daily:OCR",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeRBNZUnavailable:
+    """Simulates the current live RBNZ perimeter-403 state (2026-04-21)."""
+
+    async def fetch_ocr(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "RBNZ host returned HTML perimeter page (test-fake, CAL-NZ-RBNZ-TABLES)"
         raise DataUnavailableError(msg)
 
 
@@ -1270,6 +1338,196 @@ class TestBuildM4Au:
 
 
 # ---------------------------------------------------------------------------
+# M1 NZ (Sprint U-NZ — TE primary → RBNZ scaffold → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Nz:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily RBNZ-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        rbnz = _FakeRBNZSuccess()  # present but skipped (TE wins priority)
+        te = _FakeTENzSuccess(pct=3.75)
+        inputs = await build_m1_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rbnz=rbnz,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "NZ"
+        assert inputs.policy_rate_pct == pytest.approx(0.0375)  # TE 3.75 %
+        assert "NZ_OCR_TE_PRIMARY" in inputs.upstream_flags
+        assert "NZ_OCR_RBNZ_NATIVE" not in inputs.upstream_flags
+        assert "NZ_OCR_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "NZ_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0175)
+        # RBNZ 1-3 % band midpoint 2 %.
+        assert inputs.expected_inflation_5y_pct == pytest.approx(0.02)
+
+    @pytest.mark.asyncio
+    async def test_rbnz_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → RBNZ B2 native takes over (robust path)."""
+        fred = _FakeFredConnector()
+        rbnz = _FakeRBNZSuccess(yield_bps=360)
+        te = _FakeTENzUnavailable()
+        inputs = await build_m1_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rbnz=rbnz,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.036)  # RBNZ 3.60 %
+        assert "NZ_OCR_RBNZ_NATIVE" in inputs.upstream_flags
+        assert "NZ_OCR_TE_UNAVAILABLE" in inputs.upstream_flags
+        assert "NZ_OCR_TE_PRIMARY" not in inputs.upstream_flags
+        assert "NZ_OCR_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("rbnz",)
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + RBNZ both fail → FRED emits staleness flags (current live state)."""
+        fred = _FakeFredConnector()
+        rbnz = _FakeRBNZUnavailable()  # simulates perimeter 403
+        te = _FakeTENzUnavailable()
+        inputs = await build_m1_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rbnz=rbnz,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0375)  # FRED 3.75 %
+        assert "NZ_OCR_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "NZ_OCR_TE_UNAVAILABLE" in inputs.upstream_flags
+        assert "NZ_OCR_RBNZ_UNAVAILABLE" in inputs.upstream_flags
+        assert "NZ_OCR_TE_PRIMARY" not in inputs.upstream_flags
+        assert "NZ_OCR_RBNZ_NATIVE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_rbnz_absent(self) -> None:
+        """te=None + rbnz=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "NZ"
+        assert inputs.source_connector == ("fred",)
+        assert "NZ_OCR_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + RBNZ unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, RBNZ, and FRED"):
+            await build_m1_nz_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTENzUnavailable(),  # type: ignore[arg-type]
+                rbnz=_FakeRBNZUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_nz_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """NZ BS/GDP ratio is placeholder — always emits NZ_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTENzSuccess(pct=3.75)
+        inputs = await build_m1_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "NZ_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 NZ (Sprint U-NZ — scaffold raises until NZ gap + CPI connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Nz:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 NZ scaffold is wire-ready but raises until NZ gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTENzSuccess(pct=3.75)
+        with pytest.raises(InsufficientDataError, match="CAL-NZ"):
+            await build_m2_nz_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_nz_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 NZ (Sprint U-NZ — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Nz:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 NZ scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTENzSuccess(pct=3.75)
+        rbnz = _FakeRBNZSuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-NZ-M4-FCI"):
+            await build_m4_nz_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                rbnz=rbnz,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_nz_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -1376,10 +1634,9 @@ class TestMonetaryInputsBuilderFacade:
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        # NZ remains unwired at Sprint T close — AU joined the supported
-        # set in this sprint (see :func:`build_m1_au_inputs`).
-        with pytest.raises(NotImplementedError, match="NZ"):
-            await builder.build_m1_inputs("NZ", date(2024, 12, 31))
+        # NZ wired Sprint U-NZ; CH remains unsupported until Sprint V-CH.
+        with pytest.raises(NotImplementedError, match="CH"):
+            await builder.build_m1_inputs("CH", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_build_m1_ca_via_facade_te_primary(self) -> None:
@@ -1488,6 +1745,75 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(InsufficientDataError, match="CAL-AU-M4-FCI"):
             await builder.build_m4_inputs("AU", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_nz_via_facade_te_primary(self) -> None:
+        """NZ M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENzSuccess(pct=3.75),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NZ", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NZ"
+        assert "NZ_OCR_TE_PRIMARY" in inputs.upstream_flags
+        assert "NZ_OCR_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_nz_via_facade_rbnz_secondary(self) -> None:
+        """NZ M1 dispatch — TE absent, RBNZ handle present → native path (post-unblock)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            rbnz=_FakeRBNZSuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NZ", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NZ"
+        assert "NZ_OCR_RBNZ_NATIVE" in inputs.upstream_flags
+        assert inputs.source_connector == ("rbnz",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_nz_via_facade_fred_fallback(self) -> None:
+        """NZ M1 dispatch — TE unavailable + RBNZ 403 → FRED stale (current live state)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENzUnavailable(),  # type: ignore[arg-type]
+            rbnz=_FakeRBNZUnavailable(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NZ", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NZ"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "NZ_OCR_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "NZ_OCR_RBNZ_UNAVAILABLE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_nz_dispatches_to_nz_builder(self) -> None:
+        """NZ M2 dispatch routes to the NZ scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENzSuccess(pct=3.75),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-NZ"):
+            await builder.build_m2_inputs("NZ", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_nz_dispatches_to_nz_builder(self) -> None:
+        """NZ M4 dispatch routes to the NZ scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENzSuccess(pct=3.75),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-NZ-M4-FCI"):
+            await builder.build_m4_inputs("NZ", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
