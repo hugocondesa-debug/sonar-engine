@@ -94,8 +94,40 @@ SDW + BIS). UK + JP = M2 T1 Core (Week 8+). Retrospectives em
 
 Próximos (M2 T1 Core / Phase 2+ transição): UK + JP connectors, per-country
 ERP (EA + UK + JP), agency scrape forward (CAL-115), L5 regime
-classifier spec, Postgres migration, systemd timer/cron ops.
+classifier spec, Postgres migration. (systemd timer ops shipped Week
+8 Sprint N — ver §10 Systemd ops.)
 
-## 10. Regra-resumo
+## 10. Systemd ops
+
+Production scheduling para os 9 daily pipelines via systemd (Sprint N,
+Week 8). Unit files em `deploy/systemd/`; install/uninstall scripts
+em `scripts/`. Ver `docs/ops/systemd-deployment.md` para arquitectura
++ schedule + troubleshooting completo.
+
+Quickstart (operator):
+
+```bash
+# pre-flight: tighten .env perms (currently 0664 — group-readable)
+chmod 0600 /home/macro/projects/sonar-engine/.env
+
+# install (preview first)
+cd /home/macro/projects/sonar-engine
+./scripts/install-timers.sh --dry-run
+./scripts/install-timers.sh --execute
+
+# verify
+sudo systemctl list-timers 'sonar-*'
+journalctl -u sonar-daily-curves.service --since today
+```
+
+Schedule (UTC): 05:00 bis → 06:00 curves → 06:30 overlays → 07:00 four
+indices (parallel) → 08:00 cycles → 08:30 cost-of-capital. DAG via
+`After=` (não cascade-fail; partial success OK).
+
+**NÃO enabled em produção sem autorização explícita do Hugo.** Sprint N
+deixa o sistema wire-ready; o flip do switch é decisão operacional
+post-merge.
+
+## 11. Regra-resumo
 
 Quando em dúvida: **specs são canónicos, Hugo é juiz, nunca inventar, nunca commitar sem aprovação**.
