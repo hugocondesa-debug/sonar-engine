@@ -1,0 +1,11 @@
+[Unit]
+Description=SONAR Daily Credit Indices Timer (07:00 UTC)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+Unit=sonar-daily-credit-indices.service
+
+[Install]
+WantedBy=timers.target

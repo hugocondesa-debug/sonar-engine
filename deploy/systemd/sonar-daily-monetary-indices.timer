@@ -1,0 +1,11 @@
+[Unit]
+Description=SONAR Daily Monetary Indices Timer (07:00 UTC)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+Unit=sonar-daily-monetary-indices.service
+
+[Install]
+WantedBy=timers.target

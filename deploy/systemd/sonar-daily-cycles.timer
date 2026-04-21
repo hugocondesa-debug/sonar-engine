@@ -1,0 +1,11 @@
+[Unit]
+Description=SONAR Daily Cycles Timer (08:00 UTC)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+Unit=sonar-daily-cycles.service
+
+[Install]
+WantedBy=timers.target

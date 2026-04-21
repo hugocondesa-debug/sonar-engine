@@ -1,0 +1,24 @@
+[Unit]
+Description=SONAR Daily Cycles (CCCS + FCS + MSC + ECS + L5 meta-regime)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+After=network-online.target sonar-daily-economic-indices.service sonar-daily-monetary-indices.service sonar-daily-credit-indices.service sonar-daily-financial-indices.service
+Wants=network-online.target
+# L4 cycles read all four index families; L5 reads the L4 cycle rows.
+StartLimitBurst=2
+StartLimitIntervalSec=3600
+
+[Service]
+Type=oneshot
+User=macro
+Group=macro
+WorkingDirectory=/home/macro/projects/sonar-engine
+EnvironmentFile=/home/macro/projects/sonar-engine/.env
+ExecStart=/bin/bash -lc '/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_cycles --all-t1 --date $(date -u -I -d yesterday)'
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=600
+
+[Install]
+WantedBy=multi-user.target

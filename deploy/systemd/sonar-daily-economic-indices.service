@@ -1,0 +1,24 @@
+[Unit]
+Description=SONAR Daily Economic Indices (E1/E2/E3/E4)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+After=network-online.target sonar-daily-curves.service sonar-daily-overlays.service
+Wants=network-online.target
+# E2 is DB-backed: needs both NSS forwards (curves) and EXPINF (overlays).
+StartLimitBurst=2
+StartLimitIntervalSec=3600
+
+[Service]
+Type=oneshot
+User=macro
+Group=macro
+WorkingDirectory=/home/macro/projects/sonar-engine
+EnvironmentFile=/home/macro/projects/sonar-engine/.env
+ExecStart=/bin/bash -lc '/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_economic_indices --all-t1 --date $(date -u -I -d yesterday)'
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=600
+
+[Install]
+WantedBy=multi-user.target
