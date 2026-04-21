@@ -1077,6 +1077,52 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   uplift: UMich 5Y slot now carries the actual survey reading.
 - **Follow-up:** None.
 
+### CAL-113 — BEI/SURVEY split in EXPINF sub_indicators (CLOSED 2026-04-21 via Sprint M)
+
+- **Priority:** LOW — affects M3 diagnostic paths only; composite unchanged.
+- **Trigger:** Sprint E retrospective (CAL-108 M3 DB-backed builder)
+  §Deviations. EXPINF persistence in Sprint C unified all method
+  outputs into a single ``expected_inflation_tenors`` dict, so
+  ``build_m3_inputs_from_db`` could populate ``bei_10y_bps`` but
+  ``survey_10y_bps`` was forced to ``None`` — M3 spec §2 expects
+  both distinct fields.
+- **Scope:**
+  - `daily_overlays._compute_expected_inflation` emits a BEI/SURVEY
+    split via three new ``sub_indicators`` keys: ``bei_tenors`` +
+    ``survey_tenors`` + ``method_per_tenor``. The canonical unified
+    ``expected_inflation_tenors`` dict stays for back-compat with any
+    downstream consumer.
+  - `build_m3_inputs_from_db` reads the split keys when present;
+    falls back to unified tenors for pre-Sprint-M rows.
+  - Backward compatibility preserved: old rows without the split
+    keys populate ``bei_10y_bps`` and ``survey_10y_bps`` to
+    ``None`` (prior behaviour).
+- **Dependency:** Sprint C EXPINF persistence pattern + Sprint E M3
+  DB-backed reader.
+- **Status:** CLOSED 2026-04-21 via Sprint M Commits 3 + 4.
+
+### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
+
+- **Priority:** LOW — fewer than 30 production dates affected (Phase 1
+  history still recent); not critical path.
+- **Trigger:** Sprint K (Week 8 Day 2) deferred Commit 6 per brief
+  §4 backfill allowance. L5 wiring shipped operational; backfill
+  closes the loop for any historical cycle date without a sibling
+  ``l5_meta_regimes`` row.
+- **Scope:**
+  - `src/sonar/scripts/backfill_l5.py` new module with Typer CLI.
+  - Iterates ``(country, date)`` tuples where at least one of the
+    four L4 cycle tables has a row AND no matching L5 row exists.
+  - Classifies via :class:`MetaRegimeClassifier`; persists via
+    ``persist_l5_meta_regime_result``.
+  - Idempotent: second run is a no-op. Dry-run default; explicit
+    ``--execute`` required to write.
+  - CLI flags: ``--country``, ``--all-t1``, ``--from-date``,
+    ``--dry-run/--execute``.
+- **Dependency:** Sprint H L5 classifier + persist helper (closed)
+  and Sprint K daily_cycles wiring (closed).
+- **Status:** CLOSED 2026-04-21 via Sprint M Commit 2.
+
 ## Não-categorizado por horizonte
 
 Zero items. Todos têm horizonte explícito no spec.
