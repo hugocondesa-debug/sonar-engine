@@ -11,6 +11,7 @@ from sonar.regimes.exceptions import (
     InvalidMetaRegimeError,
     L5RegimeError,
 )
+from sonar.regimes.meta_regime_classifier import MetaRegimeClassifier
 from sonar.regimes.types import (
     L5RegimeInputs,
     L5RegimeResult,
@@ -24,5 +25,6 @@ __all__ = [
     "L5RegimeInputs",
     "L5RegimeResult",
     "MetaRegime",
+    "MetaRegimeClassifier",
     "RegimeClassifier",
 ]
