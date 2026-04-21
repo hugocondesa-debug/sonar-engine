@@ -63,6 +63,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "UK": "united kingdom",  # deprecated alias — ADR-0007
     "JP": "japan",
     "CA": "canada",
+    "AU": "australia",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -97,6 +98,7 @@ TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
 TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
 TE_EXPECTED_SYMBOL_JP_BANK_RATE = "BOJDTR"
 TE_EXPECTED_SYMBOL_CA_BANK_RATE = "CCLR"
+TE_EXPECTED_SYMBOL_AU_CASH_RATE = "RBATCTR"
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,6 +505,46 @@ class TEConnector:
             err = (
                 "TE CA-bank-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_CA_BANK_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_au_cash_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """AU Cash Rate — RBA policy-rate (cash-rate target), TE-sourced.
+
+        TE ``interest rate`` indicator for ``australia`` returns the RBA
+        target cash rate directly (HistoricalDataSymbol ``RBATCTR`` —
+        Reserve Bank of Australia Target Cash Rate feed). Daily cadence
+        back-filled to 1990-01-22 (~330 observations at Sprint T probe,
+        2026-04-21); TE surfaces each rate-change announcement plus the
+        constant intervening quotes so a single query returns the full
+        decision history regardless of ``d1``/``d2``.
+
+        Chosen as the **primary** source for AU M1 policy-rate inputs
+        (Sprint T) per the Sprint I-patch cascade pattern — TE is daily
+        and RBA-sourced, and the RBA F1 statistical-table CSV (Sprint T
+        C2) sits in the secondary slot as a first-class robust fallback
+        because ``f1-data.csv`` is a public static CSV with a descriptive
+        user-agent (the Akamai edge rejects generic ``Mozilla/5.0`` but
+        accepts a project-identifying UA — empirical probe 2026-04-21).
+        FRED OECD mirror ``IRSTCI01AUM156N`` is relegated to last-resort
+        with staleness flags.
+
+        Guards source identity via the ``RBATCTR`` symbol check mirroring
+        the Conference Board / Michigan-5Y / GB / JP / CA wrappers; on
+        drift raises :class:`DataUnavailableError` so the AU cascade can
+        fall back cleanly.
+        """
+        obs = await self.fetch_indicator("AU", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_AU_CASH_RATE)
+        ):
+            err = (
+                "TE AU-cash-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_AU_CASH_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
