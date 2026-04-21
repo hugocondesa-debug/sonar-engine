@@ -19,6 +19,7 @@ from sonar.pipelines.daily_cost_of_capital import (
     DAMODARAN_MATURE_ERP_DECIMAL,
     T1_7_COUNTRIES,
     _lookup_erp_canonical,
+    _normalize_country_code,
     _resolve_erp_bps,
     compose_k_e,
 )
@@ -124,6 +125,31 @@ class TestConstants:
     def test_country_currency_mapping_complete(self) -> None:
         for c in T1_7_COUNTRIES:
             assert c in COUNTRY_TO_CURRENCY
+
+    def test_gb_canonical_mapping_present(self) -> None:
+        """ADR-0007: GB is the canonical ISO alpha-2 key for GBP."""
+        assert COUNTRY_TO_CURRENCY["GB"] == "GBP"
+        assert "UK" not in COUNTRY_TO_CURRENCY
+
+
+class TestNormalizeCountryCode:
+    def test_gb_canonical_is_passthrough(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert _normalize_country_code("GB") == "GB"
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" not in captured.out
+
+    def test_us_canonical_is_passthrough(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert _normalize_country_code("US") == "US"
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" not in captured.out
+
+    def test_uk_alias_resolves_to_gb_with_warning(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """ADR-0007: "UK" legacy alias resolves to "GB" + emits structlog warning."""
+        assert _normalize_country_code("UK") == "GB"
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" in captured.out
+        assert "alias=UK" in captured.out
+        assert "canonical=GB" in captured.out
 
 
 @pytest.fixture

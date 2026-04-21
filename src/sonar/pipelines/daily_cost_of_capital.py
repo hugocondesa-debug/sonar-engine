@@ -72,6 +72,9 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 
 # Country → (currency, ERP proxy market_index). US and EA periphery share
 # SPX as the ERP input today — per-country ERP overlays land Week 4+.
+# Keys are ISO 3166-1 alpha-2 canonical (ADR-0007); legacy "UK" input is
+# normalised to "GB" via :func:`_normalize_country_code` at CLI + run_one
+# entry. Removal Week 10 Day 1.
 COUNTRY_TO_CURRENCY: dict[str, str] = {
     "US": "USD",
     "DE": "EUR",
@@ -80,9 +83,34 @@ COUNTRY_TO_CURRENCY: dict[str, str] = {
     "ES": "EUR",
     "FR": "EUR",
     "NL": "EUR",
-    "UK": "GBP",
+    "GB": "GBP",
     "JP": "JPY",
 }
+
+# ADR-0007 deprecated country aliases — preserved during CAL-128-FOLLOWUP
+# transition window. Removal scheduled Week 10 Day 1
+# (deprecation_target="CAL-128-alias-removal-week10").
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
+
+
+def _normalize_country_code(country_code: str) -> str:
+    """Normalise deprecated ISO aliases to canonical codes (ADR-0007).
+
+    Emits a structlog deprecation warning when an alias is resolved. Canonical
+    codes are returned unchanged. Removal scheduled Week 10 Day 1.
+    """
+    canonical = _DEPRECATED_COUNTRY_ALIASES.get(country_code)
+    if canonical is None:
+        return country_code
+    log.warning(
+        "cost_of_capital.deprecated_country_alias",
+        alias=country_code,
+        canonical=canonical,
+        adr="ADR-0007",
+        deprecation_target="CAL-128-alias-removal-week10",
+    )
+    return canonical
+
 
 # All 7 T1 countries currently proxy the SPX canonical ERP. Swap per
 # country as each market's own ERP overlay comes online.
@@ -300,7 +328,12 @@ def run_one(
 ) -> KEResult:
     """Single (country, date) compute + persist. Idempotent when duplicate
     raises — caller decides continue-on-dup semantics at batch level.
+
+    Deprecated ISO aliases (e.g. "UK") are normalised to canonical ("GB")
+    at entry and emit a structlog deprecation warning. Removal Week 10
+    Day 1 per ADR-0007.
     """
+    country_code = _normalize_country_code(country_code)
     rf_local = _fetch_nss_10y(session, country_code, observation_date)
     rf_benchmark = _fetch_nss_10y(session, benchmark_code, observation_date)
     crp = _build_crp_for_country(
@@ -357,7 +390,12 @@ def main(
     session = SessionLocal()
     exit_code = EXIT_OK
     try:
-        for c in targets:
+        for raw in targets:
+            # ADR-0007: normalise legacy ISO aliases (e.g. "UK" → "GB") at
+            # CLI entry so currency / benchmark resolution + persisted row
+            # all carry canonical codes. Structlog deprecation warning fires
+            # once per invocation; removal Week 10 Day 1.
+            c = _normalize_country_code(raw)
             benchmark = BENCHMARK_COUNTRIES_BY_CURRENCY[COUNTRY_TO_CURRENCY.get(c, "EUR")]
             try:
                 run_one(session, c, obs_date, benchmark)
