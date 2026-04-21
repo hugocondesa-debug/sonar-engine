@@ -1207,6 +1207,139 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Status:** OPEN — follow-up filed 2026-04-21 during Sprint O resumed
   session.
 
+### CAL-119 — JP country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 8 Sprint L — M1 level)
+
+- **Priority:** MEDIUM — M2 T1 Core milestone blocker (alongside UK /
+  CAL-118).
+- **Trigger:** M1/US scorecard flagged UK + JP as the two deferred
+  Tier-1 countries (`docs/milestones/m1-us.md` §Coverage).
+- **Scope:**
+  - `src/sonar/connectors/boj.py` new BoJ Time Series Database
+    connector scaffold (Sprint L C2).
+  - `src/sonar/connectors/te.py` `fetch_jp_bank_rate` wrapper with
+    `BOJDTR` source-drift guard (Sprint L C1).
+  - `src/sonar/indices/monetary/builders.py` `build_m1_jp_inputs`
+    TE → BoJ → FRED cascade (Sprint L C4); `build_m2_jp_inputs` +
+    `build_m4_jp_inputs` wire-ready scaffolds (Sprint L C5).
+  - JP entries in `country_tiers.yaml` + `r_star_values.yaml` +
+    `bc_targets.yaml` (Sprint L C3).
+  - `daily_monetary_indices.py` JP country support (Sprint L C6).
+- **Resolution (Week 8 Sprint L, M1 level):** JP M1 live via TE primary
+  cascade; persisted row emits `JP_BANK_RATE_TE_PRIMARY` + `R_STAR_PROXY`
+  + `EXPECTED_INFLATION_CB_TARGET` + `JP_BS_GDP_PROXY_ZERO` flags.
+  BoJ TSD native path preserved wire-ready (browser-gated portal).
+  FRED OECD mirror demoted to last-resort with `JP_BANK_RATE_FRED_FALLBACK_STALE`
+  + `CALIBRATION_STALE` flags.
+- **Remaining:** M2/M4/M3 JP paths via CAL-120 / CAL-121 / CAL-122.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending CAL-120
+  through CAL-123 landing.
+
+### CAL-120 — JP M2 output-gap source (Week 8 Sprint L surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 JP Taylor-gap compute.
+- **Trigger:** Sprint L C5 shipped `build_m2_jp_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; JP has no CBO equivalent
+  and OECD EO / BoJ Tankan are outside L0 coverage at Sprint L scope.
+- **Scope:**
+  - Probe TE generic `fetch_indicator("JP", "gdp gap", ...)` for
+    coverage; if empty, probe OECD Economic Outlook direct API
+    (quarterly cadence acceptable).
+  - Wire JP output gap connector (FRED JPRGDP pattern or OECD EO
+    direct) and populate `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_jp_inputs` once the resolver lands.
+- **Unblocks:** M2 JP persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-121 — JP M4 FCI 5-component bundle (Week 8 Sprint L surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 JP custom-FCI compute.
+- **Trigger:** Sprint L C5 shipped `build_m4_jp_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; only 10Y JGB yield is
+  mappable via existing TE `GJGB10:IND` at Sprint L scope, below the
+  `MIN_CUSTOM_COMPONENTS == 5` floor from M4 spec §4.
+- **Scope:** connectors/wrappers for the four missing components:
+  - JP credit spread (BBB corp vs JGB; TE probe `credit spread`
+    indicator or BoJ J-REIT proxy).
+  - JP vol index (Nikkei VI via TE `NKYVOLX:IND` or OSE direct).
+  - JPY NEER (BIS narrow/broad; wrapper not yet shipped).
+  - JP mortgage rate (FRED `INTDSRJPM193N` candidate; probe pending).
+- **Unblocks:** M4 JP persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-122 — JP M3 market-expectations overlays (Week 8 Sprint L surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
+  analogous to CAL-105 for UK.
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF rows
+  per country; Sprint L did not ship JP NSS or JP EXPINF overlays
+  (Phase 2+ scope).
+- **Scope:**
+  - JP NSS overlay persistence (FRED `IRLTLT01JPM156N` + intermediate
+    tenors via TE `GJGB2:IND` / `GJGB5:IND`; NSS fit via existing
+    overlay module).
+  - JP EXPINF overlay persistence (5Y/10Y breakeven-analog from BoJ
+    Tankan survey series, if available; else BoJ 2% CPI target as
+    CB-target fallback, mirroring UK).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` JP path.
+- **Unblocks:** M3 JP persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-123 — JP balance-sheet / GDP ratio wiring (Week 8 Sprint L surfaced)
+
+- **Priority:** LOW — closes the `JP_BS_GDP_PROXY_ZERO` flag on M1 JP.
+- **Trigger:** Sprint L C4 zero-seeded JP balance-sheet ratios because
+  BoJ Monetary Base (`BS01'MABJMTA` via TSD) + Cabinet Office nominal
+  GDP are not FRED-mirrored at Sprint L scope.
+- **Scope:** direct BoJ TSD fetch for Monetary Base (if CAL-124 bypass
+  lands) OR FRED JP M2 series (`MABMM301JPM189S`) as proxy; combined
+  with Cabinet Office JP nominal GDP via FRED `JPNRGDPEXP` or similar.
+- **Unblocks:** M1 JP BS/GDP signal history populated (currently seeded
+  as zeros → balance_sheet_signal contribution to M1 score is null).
+- **Status:** OPEN.
+
+### CAL-124 — BoJ TSD browser-gate bypass (Week 8 Sprint L surfaced)
+
+- **Priority:** DORMANT — opens only if BoJ portal exposes a scriptable
+  endpoint or operator policy allows a proxy.
+- **Trigger:** Sprint L C2 probe confirmed the BoJ TSD "FAME" portal is
+  browser-gated (JavaScript-rendered landing + session-cookie CSV
+  export), analogous to BoE IADB's Akamai gate.
+- **Scope:** evaluate ProtonVPN / similar proxy OR official BoJ API
+  application if one becomes available.
+- **Unblocks:** `BoJConnector.fetch_bank_rate` native path → JP cascade
+  secondary slot becomes live (currently always fails over to FRED).
+- **Status:** OPEN (dormant).
+
+### CAL-125 — JP 10Y JGB yield direct FRED path (Week 8 Sprint L surfaced)
+
+- **Priority:** LOW — secondary-slot redundancy.
+- **Trigger:** Sprint L C4 shipped `FRED_JP_JGB_10Y_SERIES =
+  "IRLTLT01JPM156N"` constant but the current M1/M2/M4 JP path fetches
+  10Y JGB yield via TE `GJGB10:IND` through existing
+  `fetch_sovereign_yield_historical`. FRED path is a monthly-cadence
+  fallback for when TE 10Y is unavailable.
+- **Scope:** wire the FRED 10Y path into the JP cascade analog (only
+  when M4 JP lands under CAL-121) with `JP_10Y_FRED_FALLBACK_STALE`
+  flag.
+- **Unblocks:** full cascade symmetry between M1 and M4 JP paths.
+- **Status:** OPEN.
+
+### CAL-126 — JP CPI YoY wrapper (Week 8 Sprint L surfaced)
+
+- **Priority:** MEDIUM — required input for M2 JP Taylor gap.
+- **Trigger:** Sprint L C5 `build_m2_jp_inputs` scaffold lists JP CPI
+  YoY as one of three missing inputs; generic TE `fetch_indicator("JP",
+  "inflation rate", ...)` should cover but not probed at Sprint L scope.
+- **Scope:**
+  - Probe TE generic indicator for JP CPI YoY cadence + coverage.
+  - Wire `fetch_jp_cpi_yoy` wrapper on `TEConnector` with source-drift
+    guard (analogous to `fetch_jp_bank_rate`).
+  - Consume in `build_m2_jp_inputs` output.
+- **Unblocks:** M2 JP inflation input; combined with CAL-120 closes
+  M2 JP.
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
