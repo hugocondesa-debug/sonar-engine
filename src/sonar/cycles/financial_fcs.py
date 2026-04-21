@@ -20,7 +20,7 @@ tracked.
 
 Tier-conditional Policy 4 (spec §2):
 
-- Tier 1 strict (US/DE/UK/JP per spec list): F4 required or raise.
+- Tier 1 strict (US/DE/GB/JP per spec list): F4 required or raise.
 - Tier 2-4: F4 optional; flag F4_COVERAGE_SPARSE when missing;
   confidence capped at 0.80 (T2/T3) / 0.75 (T4).
 
@@ -42,6 +42,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import structlog
+
 from sonar.cycles.base import (
     REWEIGHT_CONFIDENCE_CAP,
     InsufficientCycleInputsError,
@@ -61,6 +63,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
+log = structlog.get_logger()
+
 METHODOLOGY_VERSION: str = "FCS_COMPOSITE_v0.1"
 MIN_INDICES_REQUIRED: int = 3
 REGIME_TRANSITION_DELTA_MIN: float = 5.0
@@ -71,9 +75,14 @@ F3_M4_DIVERGENCE_THRESHOLD: float = 15.0
 
 CANONICAL_WEIGHTS: dict[str, float] = {"F1": 0.30, "F2": 0.25, "F3": 0.25, "F4": 0.20}
 
-TIER_1_STRICT_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "UK", "JP"})
+TIER_1_STRICT_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "GB", "JP"})
 TIER_2_COUNTRIES: frozenset[str] = frozenset({"FR", "IT", "ES", "CA", "AU"})
 TIER_3_COUNTRIES: frozenset[str] = frozenset({"PT", "IE", "NL", "SE", "CH"})
+
+# ADR-0007 deprecated country aliases — preserved during CAL-128-FOLLOWUP
+# transition window. Removal scheduled Week 10 Day 1
+# (deprecation_target="CAL-128-alias-removal-week10").
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
 
 TIER_CONFIDENCE_CAPS: dict[int, float] = {1: 1.0, 2: 0.80, 3: 0.80, 4: 0.75}
 
@@ -117,13 +126,37 @@ def classify_regime(score: float) -> str:
     return "EUPHORIA"
 
 
+def _normalize_country_code(country_code: str) -> str:
+    """Normalise deprecated ISO aliases to canonical codes (ADR-0007).
+
+    Emits a structlog deprecation warning when an alias is resolved. Canonical
+    codes are returned unchanged. Removal scheduled Week 10 Day 1.
+    """
+    canonical = _DEPRECATED_COUNTRY_ALIASES.get(country_code)
+    if canonical is None:
+        return country_code
+    log.warning(
+        "financial_fcs.deprecated_country_alias",
+        alias=country_code,
+        canonical=canonical,
+        adr="ADR-0007",
+        deprecation_target="CAL-128-alias-removal-week10",
+    )
+    return canonical
+
+
 def resolve_tier(country_code: str) -> int:
-    """Map country to tier per spec §2 + user key decision #3."""
-    if country_code in TIER_1_STRICT_COUNTRIES:
+    """Map country to tier per spec §2 + user key decision #3.
+
+    Deprecated ISO aliases (e.g. "UK") normalise to canonical ("GB") and emit
+    a structlog deprecation warning. Removal Week 10 Day 1 per ADR-0007.
+    """
+    normalized = _normalize_country_code(country_code)
+    if normalized in TIER_1_STRICT_COUNTRIES:
         return 1
-    if country_code in TIER_2_COUNTRIES:
+    if normalized in TIER_2_COUNTRIES:
         return 2
-    if country_code in TIER_3_COUNTRIES:
+    if normalized in TIER_3_COUNTRIES:
         return 3
     return 4
 

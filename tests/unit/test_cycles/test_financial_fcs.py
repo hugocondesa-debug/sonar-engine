@@ -54,6 +54,9 @@ class TestResolveTier:
     def test_us_is_tier_1(self) -> None:
         assert resolve_tier("US") == 1
 
+    def test_gb_is_tier_1(self) -> None:
+        assert resolve_tier("GB") == 1
+
     def test_pt_is_tier_3(self) -> None:
         assert resolve_tier("PT") == 3
 
@@ -62,6 +65,16 @@ class TestResolveTier:
 
     def test_zz_unknown_is_tier_4(self) -> None:
         assert resolve_tier("ZZ") == 4
+
+    def test_uk_alias_resolves_to_tier_1_with_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ADR-0007: "UK" legacy alias still resolves to tier 1 + emits warning."""
+        assert resolve_tier("UK") == 1
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" in captured.out
+        assert "alias=UK" in captured.out
+        assert "canonical=GB" in captured.out
 
 
 class TestClassifyRegime:
@@ -171,7 +184,7 @@ class TestComputeFcsHappy:
         assert CANONICAL_WEIGHTS == {"F1": 0.30, "F2": 0.25, "F3": 0.25, "F4": 0.20}
 
     def test_tier_1_countries_match_spec(self) -> None:
-        assert frozenset({"US", "DE", "UK", "JP"}) == TIER_1_STRICT_COUNTRIES
+        assert frozenset({"US", "DE", "GB", "JP"}) == TIER_1_STRICT_COUNTRIES
 
 
 class TestPolicyFour:
