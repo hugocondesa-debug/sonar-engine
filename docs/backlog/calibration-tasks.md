@@ -1173,7 +1173,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   Backward compat aliases preserved in builders.py, te.py, and
   daily_monetary_indices.py; removal Week 10 Day 1.
 
-### CAL-128-FOLLOWUP — UK → GB rename carve-out files beyond Sprint O strict scope
+### CAL-128-FOLLOWUP — UK → GB rename carve-out files beyond Sprint O strict scope — **CLOSED** (Week 9 Sprint P)
 
 - **Priority:** MEDIUM — completes ISO 3166-1 alpha-2 compliance started
   in CAL-128 (Sprint O).
@@ -1181,47 +1181,58 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   brief §1 literal scope to `config/*.yaml`, `connectors/te.py`,
   `connectors/boe_database.py`, `pipelines/daily_monetary_indices.py`,
   and corresponding tests. Earlier draft of CAL-128 (and ADR-0007
-  scope table) listed additional consumer files where `"UK"` is
+  scope table) listed additional consumer files where `"UK"` was
   still the canonical key. These were **not** touched by Sprint O
-  and remain pending.
-- **Out-of-scope files requiring sweep (sightings 2026-04-21):**
-  - `src/sonar/cycles/financial_fcs.py:23` — docstring Tier 1 strict
-    list `US/DE/UK/JP`.
-  - `src/sonar/cycles/financial_fcs.py:74` —
-    `TIER_1_STRICT_COUNTRIES = frozenset({"US", "DE", "UK", "JP"})`.
-    Rename to `GB` with `UK` alias or frozenset containing both
-    during transition window (matches ADR-0007 §Decision #3).
-  - `src/sonar/overlays/crp.py:75` — `BENCHMARK_COUNTRY_BY_CURRENCY`
-    (or analogous dict) maps `"GBP": "UK"` → rename value to `"GB"`.
-  - `src/sonar/overlays/live_assemblers.py:75` — same currency→country
-    map value `"GBP": "UK"`.
-  - `src/sonar/overlays/live_assemblers.py:224` — docstring wording
-    "UK for GBP".
-  - `src/sonar/overlays/live_assemblers.py:604` — reverse map
-    `COUNTRY_TO_CURRENCY` key `"UK": "GBP"`.
-  - `src/sonar/pipelines/daily_cost_of_capital.py:83` — cost-of-capital
-    country→currency dict key `"UK": "GBP"`.
-  - Consumer tests pinned to the above keys:
-    `tests/unit/test_cycles/test_financial_fcs.py:174`,
-    `tests/unit/test_overlays/test_crp.py:199`,
-    `tests/integration/test_ecs_composite.py:13,166,189`,
-    `tests/integration/test_msc_composite.py:11,189,210`.
-- **Nature of rename:** dict keys `"UK"` → `"GB"` + reverse value
-  `"UK"` → `"GB"` where mapped, plus docstring prose. Pattern mirrors
-  Sprint O execution on `te.py` — add `"UK"` alias lookup with
-  structlog deprecation log for backward compat; remove alias with
-  Week 10 Day 1 deprecation cut per ADR-0007 §Review triggers #1.
-- **Carve-out rationale:** `builders.py` is Sprint L's parallel-worktree
+  and tracked under this follow-up.
+- **Scope executed (Week 9 Sprint P, 2026-04-21):**
+  - `src/sonar/cycles/financial_fcs.py` — `TIER_1_STRICT_COUNTRIES`
+    frozenset member "UK" → "GB" + docstring "US/DE/UK/JP" →
+    "US/DE/GB/JP". `_normalize_country_code()` wired into
+    `resolve_tier()` with structlog deprecation warning.
+  - `src/sonar/overlays/crp.py` —
+    `BENCHMARK_COUNTRIES_BY_CURRENCY["GBP"]` value "UK" → "GB".
+    `_normalize_country_code()` wired into `is_benchmark()`.
+  - `src/sonar/overlays/live_assemblers.py` —
+    `BENCHMARK_BY_CURRENCY["GBP"]` value + `_DEFAULT_CURRENCY_BY_COUNTRY`
+    key + `build_crp_from_live` docstring all flipped to "GB".
+    `_normalize_country_code()` wired into `LiveInputsBuilder.__call__`
+    + `build_crp_from_live`.
+  - `src/sonar/pipelines/daily_cost_of_capital.py` —
+    `COUNTRY_TO_CURRENCY` key "UK" → "GB".
+    `_normalize_country_code()` wired into `main()` CLI entry +
+    `run_one()`.
+  - All four source modules emit a structlog
+    `*.deprecated_country_alias` event with
+    `deprecation_target="CAL-128-alias-removal-week10"` on alias
+    encounter; canonical codes silent.
+  - Each module ships 1+ backward-compat test verifying the "UK"
+    alias still resolves correctly and emits the structlog warning
+    (capsys-captured).
+- **Out-of-scope references observed but preserved** (Sprint O
+  deprecated-alias surfaces, remove Week 10 Day 1):
+  - `config/bc_targets.yaml`, `config/r_star_values.yaml` — loader
+    alias comments.
+  - `connectors/te.py` — `fetch_uk_bank_rate` deprecated wrapper +
+    `TE_*_UK_*` constants re-exported.
+  - `pipelines/daily_monetary_indices.py` — CLI alias + tuple +
+    dispatch normaliser.
+  - `indices/monetary/_config.py`, `indices/monetary/builders.py` —
+    Sprint L + Week 9 chore sweep alias-preservation surfaces.
+  - `scripts/backfill_l5.py:93` — comment-only CLI contract note
+    (describes `--country UK` opt-in; consistent with deprecated
+    alias posture).
+- **Carve-out rationale:** `builders.py` was Sprint L's parallel-worktree
   domain; touching the overlay / cycle / cost-of-capital consumers was
-  flagged as scope creep in the resumed Sprint O session. Consolidating
-  these into a single dedicated follow-up avoids merge-surface expansion
-  mid-sprint.
-- **Implementation:** post-Sprint-L merge + post-CAL-128 final chore on
-  `builders.py`. Suggested branch name `sprint-o-followup-gb-uk-sweep`.
-- **Dependency:** CAL-128 final chore (builders.py sweep) should land
-  first so all consumers can cut over in one atomic rename.
-- **Status:** OPEN — follow-up filed 2026-04-21 during Sprint O resumed
-  session.
+  flagged as scope creep in the resumed Sprint O session. Consolidated
+  into this dedicated follow-up on branch `sprint-p-cal-128-followup`
+  (worktree `/home/macro/projects/sonar-wt-sprint-p`).
+- **Alias removal:** Week 10 Day 1 per ADR-0007 §Review triggers #1;
+  removal commit will strip `_DEPRECATED_COUNTRY_ALIASES`
+  +`_normalize_country_code()` across all four Sprint P modules + the
+  Sprint O surfaces listed above.
+- **Status:** CLOSED 2026-04-21 (Week 9 Sprint P — 4 feature commits
+  + this backlog closure + retrospective). Backward compat aliases
+  preserved in all four modules; removal Week 10 Day 1.
 
 ### CAL-119 — JP country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 8 Sprint L — M1 level)
 
