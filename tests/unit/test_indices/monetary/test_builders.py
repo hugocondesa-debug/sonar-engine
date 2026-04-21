@@ -9,6 +9,7 @@ import pytest
 
 from sonar.connectors.base import Observation
 from sonar.indices.monetary.builders import (
+    FRED_JP_BANK_RATE_SERIES,
     FRED_UK_BANK_RATE_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
@@ -16,6 +17,7 @@ from sonar.indices.monetary.builders import (
     _resample_monthly,
     _to_dated,
     build_m1_ea_inputs,
+    build_m1_jp_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
     build_m2_us_inputs,
@@ -120,19 +122,28 @@ class _FakeFredConnector:
         return out
 
     async def fetch_series(self, series_id: str, start: date, end: date) -> list[Observation]:
-        # Used by build_m1_uk_inputs cascade. Returns monthly OECD-mirror
-        # policy rate (e.g. 4.70 %) as Observations with yield_bps in int.
-        if series_id != FRED_UK_BANK_RATE_SERIES:
+        # Used by build_m1_uk_inputs + build_m1_jp_inputs cascades. Returns
+        # monthly OECD-mirror policy rate values. UK pins at 4.70 %, JP at
+        # 0.40 % (reflecting the 2024 normalisation band).
+        country_code: str
+        yield_bps_val: int
+        if series_id == FRED_UK_BANK_RATE_SERIES:
+            country_code = "UK"
+            yield_bps_val = 470  # 4.70 %
+        elif series_id == FRED_JP_BANK_RATE_SERIES:
+            country_code = "JP"
+            yield_bps_val = 40  # 0.40 %
+        else:
             return []
         out: list[Observation] = []
         year, month = start.year, start.month
         while date(year, month, 1) <= end:
             out.append(
                 Observation(
-                    country_code="UK",
+                    country_code=country_code,
                     observation_date=date(year, month, 1),
                     tenor_years=0.01,
-                    yield_bps=470,  # 4.70 %
+                    yield_bps=yield_bps_val,
                     source="FRED",
                     source_series_id=series_id,
                 )
@@ -202,6 +213,58 @@ class _FakeTEUnavailable:
     async def fetch_uk_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
         _ = start, end
         msg = "TE returned empty series: country='UK' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+    async def fetch_jp_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='JP' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTEJpSuccess:
+    """TE primary path for JP — returns daily BoJ policy-rate observations in pct."""
+
+    def __init__(self, *, pct: float = 0.50) -> None:
+        self.pct = pct
+
+    async def fetch_jp_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="BOJDTR"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeBoJSuccess:
+    async def fetch_bank_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="JP",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=45,  # 0.45 % — BoJ native value differs from TE to prove cascade
+                    source="BOJ",
+                    source_series_id="FM01'STRAMUCOLR",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeBoJGated:
+    """Simulates the BoJ TSD portal browser-gated behaviour."""
+
+    async def fetch_bank_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "BoJ TSD portal is browser-gated"
         raise DataUnavailableError(msg)
 
 
@@ -467,6 +530,127 @@ class TestBuildM1Uk:
 
 
 # ---------------------------------------------------------------------------
+# M1 JP (Sprint L — TE primary → BoJ native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Jp:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily BoJ-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        boj = _FakeBoJSuccess()  # present but skipped (TE wins priority)
+        te = _FakeTEJpSuccess(pct=0.50)
+        inputs = await build_m1_jp_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            boj=boj,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "JP"
+        assert inputs.policy_rate_pct == pytest.approx(0.005)  # TE 0.50 %
+        assert "JP_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "JP_BANK_RATE_BOJ_NATIVE" not in inputs.upstream_flags
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "JP_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.000)
+
+    @pytest.mark.asyncio
+    async def test_boj_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → BoJ native takes over."""
+        fred = _FakeFredConnector()
+        boj = _FakeBoJSuccess()
+        te = _FakeTEUnavailable()
+        inputs = await build_m1_jp_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            boj=boj,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0045)  # BoJ 0.45 %
+        assert "JP_BANK_RATE_BOJ_NATIVE" in inputs.upstream_flags
+        assert "JP_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("boj",)
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + BoJ both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        boj = _FakeBoJGated()
+        te = _FakeTEUnavailable()
+        inputs = await build_m1_jp_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            boj=boj,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.004)  # FRED 0.40 %
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "JP_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "JP_BANK_RATE_BOJ_NATIVE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_boj_absent(self) -> None:
+        """te=None + boj=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_jp_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "JP"
+        assert inputs.source_connector == ("fred",)
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + BoJ gated + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, BoJ, and FRED"):
+            await build_m1_jp_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTEUnavailable(),  # type: ignore[arg-type]
+                boj=_FakeBoJGated(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_jp_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """JP BS/GDP ratio is placeholder — always emits JP_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTEJpSuccess(pct=0.50)
+        inputs = await build_m1_jp_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "JP_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
 # M2 US
 # ---------------------------------------------------------------------------
 
@@ -565,14 +749,42 @@ class TestMonetaryInputsBuilderFacade:
         assert inputs.source_connector == ("te",)
 
     @pytest.mark.asyncio
+    async def test_build_m1_jp_via_facade_te_primary(self) -> None:
+        """JP M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("JP", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "JP"
+        assert "JP_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_jp_via_facade_fred_fallback(self) -> None:
+        """JP M1 dispatch — FRED-only path (no TE/BoJ handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("JP", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "JP"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "JP_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
     async def test_m1_unsupported_country_raises(self) -> None:
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        with pytest.raises(NotImplementedError, match="JP"):
-            await builder.build_m1_inputs("JP", date(2024, 12, 31))
+        with pytest.raises(NotImplementedError, match="CA"):
+            await builder.build_m1_inputs("CA", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_m2_ea_raises(self) -> None:

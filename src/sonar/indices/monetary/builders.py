@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from sonar.connectors.boe_database import BoEDatabaseConnector
+    from sonar.connectors.boj import BoJConnector
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
 __all__ = [
     "MonetaryInputsBuilder",
     "build_m1_ea_inputs",
+    "build_m1_jp_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
     "build_m2_us_inputs",
@@ -68,6 +70,11 @@ __all__ = [
 # which is currently gated by Akamai anti-bot (Sprint I empirical probe).
 FRED_UK_BANK_RATE_SERIES: str = "IRSTCI01GBM156N"
 FRED_UK_GILT_10Y_SERIES: str = "IRLTLT01GBM156N"
+
+# JP OECD-mirror series on FRED — monthly, last-resort backfill when the
+# TE primary + BoJ native paths are both unavailable (Sprint L cascade).
+FRED_JP_BANK_RATE_SERIES: str = "IRSTCI01JPM156N"
+FRED_JP_JGB_10Y_SERIES: str = "IRLTLT01JPM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +508,153 @@ async def build_m1_uk_inputs(
     )
 
 
+# ---------------------------------------------------------------------------
+# M1 — JP (Sprint L — TE primary → BoJ native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+async def _jp_bank_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    boj: BoJConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch JP Bank Rate via TE → BoJ → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch UK cascade (first
+    success wins):
+
+    1. **TE primary** (``fetch_jp_bank_rate`` — daily, BoJ-sourced via
+       ``BOJDTR``). Emits ``JP_BANK_RATE_TE_PRIMARY`` on success.
+    2. **BoJ native** (``fetch_bank_rate`` on the TSD FAME endpoint).
+       Currently browser-gated per Sprint L probe — wire-ready for
+       future unblock. Emits ``JP_BANK_RATE_BOJ_NATIVE`` on success.
+    3. **FRED OECD mirror** (``IRSTCI01JPM156N`` — monthly lag).
+       Last-resort fallback emitting both
+       ``JP_BANK_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so downstream consumers can surface the degradation.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three return
+    empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_jp_bank_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            return (
+                [_DatedValue(o.observation_date, o.value) for o in te_obs],
+                ("JP_BANK_RATE_TE_PRIMARY",),
+                ("te",),
+            )
+
+    if boj is not None:
+        try:
+            boj_obs = await boj.fetch_bank_rate(start, end)
+        except DataUnavailableError:
+            boj_obs = []
+        if boj_obs:
+            return (
+                [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boj_obs],
+                ("JP_BANK_RATE_BOJ_NATIVE",),
+                ("boj",),
+            )
+
+    fred_obs = await fred.fetch_series(FRED_JP_BANK_RATE_SERIES, start, end)
+    if fred_obs:
+        return (
+            [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
+            ("JP_BANK_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
+            ("fred",),
+        )
+
+    msg = "JP Bank Rate unavailable from TE, BoJ, and FRED"
+    raise ValueError(msg)
+
+
+async def build_m1_jp_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    boj: BoJConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 JP inputs via TE → BoJ → FRED cascade + YAML r*/target.
+
+    Sprint L introduces the JP country path using the canonical cascade
+    pattern established by Sprint I-patch for UK. TE's ``interest rate``
+    indicator for Japan back-fills the full BoJ policy-rate history
+    (``BOJDTR``) at daily cadence and is the empirically preferred
+    source — Bank rate decisions propagate into TE within hours of the
+    BoJ press conference, whereas the FRED OECD mirror
+    (``IRSTCI01JPM156N``) only updates once a month. BoJ TSD sits in
+    the second slot as wire-ready scaffold pending a scriptable
+    endpoint (browser-gated as of Sprint L probe, 2026-04-21).
+
+    JP-specific degradations (Phase 1):
+
+    - ``expected_inflation_5y_pct`` defaults to BoJ's 2 % CPI target —
+      no BoJ breakeven-inflation mirror exists at this scope; emits
+      ``EXPECTED_INFLATION_CB_TARGET`` flag (mirrors UK pattern).
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with ``JP_BS_GDP_PROXY_ZERO``
+      flag — JP balance-sheet ratios require BoJ Monetary Base (BoJ
+      TSD ``BS01'MABJMTA``) combined with Cabinet Office JP nominal
+      GDP, neither FRED-mirrored at Sprint L scope. Lands when TSD
+      becomes scriptable or we wire a direct FRED JP M2 / GDP path.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _jp_bank_rate_cascade(
+        start, observation_date, te=te, boj=boj, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "JP Bank Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("JP")  # is_proxy always True for JP
+    expected_inflation_5y_pct = 0.02  # BoJ CPI target; proxy
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "JP_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="JP",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -662,12 +816,14 @@ class MonetaryInputsBuilder:
         cbo: CboConnector,
         ecb_sdw: EcbSdwConnector,
         boe: BoEDatabaseConnector | None = None,
+        boj: BoJConnector | None = None,
         te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
         self.cbo = cbo
         self.ecb_sdw = ecb_sdw
         self.boe = boe
+        self.boj = boj
         self.te = te
 
     async def build_m1_inputs(
@@ -683,6 +839,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 boe=self.boe,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "JP":
+            return await build_m1_jp_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boj=self.boj,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
