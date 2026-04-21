@@ -120,6 +120,30 @@ def _expinf_tenors_bps(row: IndexValue) -> dict[str, float]:
     return out
 
 
+def _expinf_method_tenors_bps(row: IndexValue, key: str) -> dict[str, float]:
+    """Parse a per-method tenor slice (CAL-113 split) → tenor→bps map.
+
+    Returns ``{}`` when the key is absent (pre-Sprint-M rows) so the
+    caller falls back to its legacy unified-tenor path.
+    """
+    if not row.sub_indicators_json:
+        return {}
+    try:
+        sub = _parse_json_dict(row.sub_indicators_json)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    tenors_raw = sub.get(key)
+    if not isinstance(tenors_raw, dict):
+        return {}
+    out: dict[str, float] = {}
+    for k, v in tenors_raw.items():
+        try:
+            out[str(k)] = _decimal_to_bps(float(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def build_m3_inputs_from_db(
     session: Session,
     country_code: str,
@@ -208,11 +232,19 @@ def build_m3_inputs_from_db(
         return None
 
     expinf_flags = tuple(expinf_row.flags.split(",")) if expinf_row.flags else ()
-    bei_10y_bps = tenors_bps.get("10Y")
-    # Without a BEI-vs-SURVEY split in the stored sub-indicators, keep
-    # ``survey_10y_bps`` ``None`` so the compute module flags
-    # ``BEI_SURVEY_DIVERGENCE_UNAVAILABLE`` rather than overreporting.
-    survey_10y_bps: float | None = None
+    # CAL-113 (Sprint M): if the EXPINF row carries per-method tenor
+    # splits, distinguish bei_10y from survey_10y; otherwise fall back
+    # to the legacy behaviour (populate bei only from unified tenors +
+    # leave survey None so the compute module emits
+    # BEI_SURVEY_DIVERGENCE_UNAVAILABLE).
+    bei_tenors_bps = _expinf_method_tenors_bps(expinf_row, "bei_tenors")
+    survey_tenors_bps = _expinf_method_tenors_bps(expinf_row, "survey_tenors")
+    if bei_tenors_bps or survey_tenors_bps:
+        bei_10y_bps: float | None = bei_tenors_bps.get("10Y")
+        survey_10y_bps: float | None = survey_tenors_bps.get("10Y")
+    else:
+        bei_10y_bps = tenors_bps.get("10Y")
+        survey_10y_bps = None
 
     bc_target_decimal = _resolve_bc_target_pct(country_code)
     bc_target_bps = _decimal_to_bps(bc_target_decimal) if bc_target_decimal is not None else None

@@ -248,3 +248,94 @@ def test_malformed_sub_indicators_returns_none(session: Session) -> None:
     session.commit()
     # Malformed JSON yields empty tenors → breakeven_5y5y_bps missing → None.
     assert build_m3_inputs_from_db(session, "US", ANCHOR) is None
+
+
+# ---------------------------------------------------------------------------
+# CAL-113 (Sprint M) — BEI/SURVEY split consumer
+# ---------------------------------------------------------------------------
+
+
+def _expinf_row_with_split(
+    obs_date: date,
+    *,
+    country: str = "US",
+    bei_10y: float | None = 0.024,
+    survey_10y: float | None = 0.027,
+) -> IndexValue:
+    """EXPINF row with bei_tenors + survey_tenors keys (Sprint M emitter)."""
+    unified: dict[str, float] = {"5y5y": 0.0245}
+    bei_tenors: dict[str, float] = {}
+    survey_tenors: dict[str, float] = {}
+    if bei_10y is not None:
+        unified["10Y"] = bei_10y
+        bei_tenors["10Y"] = bei_10y
+    if survey_10y is not None:
+        # Survey typically sourced distinct from BEI — emit under 10Y too.
+        unified.setdefault("10Y", survey_10y)
+        survey_tenors["10Y"] = survey_10y
+    method_per_tenor = {
+        **dict.fromkeys(bei_tenors, "BEI"),
+        **dict.fromkeys(survey_tenors, "SURVEY"),
+    }
+    sub = {
+        "expected_inflation_tenors": unified,
+        "bei_tenors": bei_tenors,
+        "survey_tenors": survey_tenors,
+        "method_per_tenor": method_per_tenor,
+        "methods_available": 2 if bei_tenors and survey_tenors else 1,
+        "anchor_status": "well_anchored",
+    }
+    return IndexValue(
+        index_code=EXPINF_INDEX_CODE,
+        country_code=country,
+        date=obs_date,
+        methodology_version="EXPINF_v1.0",
+        raw_value=0.0245,
+        zscore_clamped=0.0,
+        value_0_100=50.0,
+        sub_indicators_json=json.dumps(sub),
+        confidence=0.85,
+        flags=None,
+        source_overlays_json=json.dumps({}),
+    )
+
+
+def test_bei_only_split_populates_bei_leaves_survey_none(session: Session) -> None:
+    _forwards_with_spot(session, ANCHOR)
+    session.add(_expinf_row_with_split(ANCHOR, bei_10y=0.024, survey_10y=None))
+    session.commit()
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    assert out.bei_10y_bps == pytest.approx(240.0)
+    assert out.survey_10y_bps is None
+
+
+def test_survey_only_split_populates_survey_leaves_bei_none(session: Session) -> None:
+    _forwards_with_spot(session, ANCHOR)
+    session.add(_expinf_row_with_split(ANCHOR, bei_10y=None, survey_10y=0.027))
+    session.commit()
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    assert out.bei_10y_bps is None
+    assert out.survey_10y_bps == pytest.approx(270.0)
+
+
+def test_both_split_populate_distinctly(session: Session) -> None:
+    _forwards_with_spot(session, ANCHOR)
+    session.add(_expinf_row_with_split(ANCHOR, bei_10y=0.024, survey_10y=0.027))
+    session.commit()
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    assert out.bei_10y_bps == pytest.approx(240.0)
+    assert out.survey_10y_bps == pytest.approx(270.0)
+
+
+def test_legacy_row_without_split_preserves_existing_behaviour(session: Session) -> None:
+    """Pre-Sprint-M rows (no bei_tenors / survey_tenors) → survey stays None."""
+    _forwards_with_spot(session, ANCHOR)
+    session.add(_expinf_row(ANCHOR))  # legacy fixture helper, no split keys
+    session.commit()
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    assert out.bei_10y_bps == pytest.approx(240.0)
+    assert out.survey_10y_bps is None
