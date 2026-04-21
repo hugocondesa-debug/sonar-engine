@@ -1870,6 +1870,144 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   null).
 - **Status:** OPEN.
 
+### CAL-CH — CH country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint V — M1 level)
+
+- **Priority:** CLOSED at M1; remaining M2/M3/M4 levels tracked as
+  separate CAL-CH-* items. Mirrors CAL-AU (Sprint T) / CAL-129 (CA) /
+  CAL-119 (JP) / CAL-118 (GB).
+- **Trigger:** CH was the fourth G10 country after the UK/JP/CA/AU
+  quartet that still lacked M1 live. Sprint V ships CH as the fifth
+  country in the Sprint I-patch TE-primary cascade expansion — and
+  introduces the **first negative-rate era flag** in the monetary
+  cascade family, required because the SNB policy rate sat at
+  -0.75 % from 2014-12-18 through 2022-08-31 and Sprint V must
+  preserve the sign throughout.
+- **Scope delivered:**
+  - `SNBConnector` for the SNB data portal (Sprint V C2) —
+    semicolon-delimited public CSVs at
+    `data.snb.ch/api/cube/{cube_id}/data/csv/en`; first connector
+    to consume the SNB cube API in the monetary family. Two cubes
+    wired: `zimoma` (SARON row — monthly overnight rate) and
+    `rendoblim` (10Y Confederation bond yield).
+  - `TEConnector.fetch_ch_policy_rate` wrapper with `SZLTTR`
+    source-drift guard (Sprint V C1). The SZLTTR symbol is TE's
+    legacy "Swiss LIBOR Target Rate" identifier preserved across
+    the 2019 SNB regime change (3M-CHF-LIBOR target → directly-set
+    policy rate).
+  - `build_m1_ch_inputs` + `_ch_policy_rate_cascade` with TE → SNB →
+    FRED cascade (Sprint V C4) including
+    `CH_NEGATIVE_RATE_ERA_DATA` flag whenever the resolved window
+    contains ≥ 1 strictly-negative observation;
+    `build_m2_ch_inputs` + `build_m4_ch_inputs` wire-ready
+    scaffolds (Sprint V C4).
+  - CH entries in `r_star_values.yaml` (0.25 % proxy per SNB WP
+    2024-09) + `bc_targets.yaml` (SNB 1 % band midpoint per SNB
+    0-2 % price-stability definition) (Sprint V C3).
+  - `daily_monetary_indices.py` CH country support + SNB connector
+    instantiation (Sprint V C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with
+    `IRSTCI01CHM156N` + `IRLTLT01CHM156N` (Sprint V C5).
+- **Resolution (Week 9 Sprint V, M1 level):** CH M1 live via TE
+  primary cascade; persisted row emits `CH_POLICY_RATE_TE_PRIMARY` +
+  `R_STAR_PROXY` + `EXPECTED_INFLATION_CB_TARGET` +
+  `CH_INFLATION_TARGET_BAND` + `CH_BS_GDP_PROXY_ZERO` flags. SNB
+  native path **live** (monthly cadence; no `CALIBRATION_STALE`
+  since SNB policy-rate changes are quarterly). FRED OECD mirror
+  (`IRSTCI01CHM156N`, last observed 2024-03) demoted to last-resort
+  with `CH_POLICY_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE`
+  flags. When any cascade-resolved observation is strictly-negative
+  (e.g. 2014-2022 window), cascade additionally emits
+  `CH_NEGATIVE_RATE_ERA_DATA`.
+- **Known gap (spec §4 step 2 ZLB gate):** at negative policy
+  rates, M1 compute raises `InsufficientDataError` because no
+  Krippner shadow-rate connector is wired at Sprint V scope — this
+  is spec-correct behaviour, surfaced during the C5 canary with a
+  2020 anchor. Krippner integration is Phase 2+ scope (CAL-KRIPPNER
+  — not opened Sprint V; bundled with L5 regime-classifier
+  enhancements).
+- **Remaining:** M2/M4/M3 CH paths via CAL-CH-GAP / CAL-CH-M4-FCI /
+  CAL-CH-M3.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
+  CAL-CH-GAP / CAL-CH-M4-FCI / CAL-CH-M3 / CAL-CH-BS-GDP /
+  CAL-CH-CPI / CAL-CH-INFL-FORECAST landing.
+
+### CAL-CH-GAP — CH M2 output-gap source (Week 9 Sprint V surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 CH Taylor-gap compute.
+- **Trigger:** Sprint V C4 shipped `build_m2_ch_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; SECO publishes the
+  quarterly KOF-SECO output gap but no scriptable endpoint exists
+  at Sprint V scope.
+- **Scope:**
+  - Probe OECD EO CH for cadence + coverage (canonical fallback
+    across the cascade family).
+  - Probe SECO macroeconomic forecast PDFs / KOF scriptable endpoints
+    for any structured series; otherwise consume the OECD EO path.
+  - Wire CH output-gap connector and populate
+    `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_ch_inputs` once the resolver lands.
+- **Unblocks:** M2 CH persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-CH-M4-FCI — CH M4 FCI 5-component bundle (Week 9 Sprint V surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 CH custom-FCI compute.
+- **Trigger:** Sprint V C4 shipped `build_m4_ch_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; only 10Y Confederation
+  (SNB `rendoblim` 10J) and policy rate (via M1 cascade) are
+  mappable at Sprint V scope, below the `MIN_CUSTOM_COMPONENTS == 5`
+  floor.
+- **Scope:** connectors/wrappers for the missing components:
+  - CH credit spread (CHF corp vs Confederation; candidate: SNB
+    `rendopa` Pfandbrief yield cube — no FRED mirror known).
+  - CH vol index (no SMI vol index on FRED; candidate: Yahoo `^VSMI`
+    which SIX/UBS co-publish, or realised-vol proxy from `^SSMI`
+    returns).
+  - CHF NEER (SNB `capaerenexch` cube or BIS Trade-Weighted indices
+    via existing `bis.py` connector).
+  - CH mortgage rate (SNB `zihypch` table — no wrapper at Sprint V
+    scope).
+- **Unblocks:** M4 CH persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-CH-M3 — CH M3 market-expectations overlays (Week 9 Sprint V surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
+  analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA) / CAL-AU-M3
+  (AU).
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
+  rows per country; Sprint V did not ship CH NSS or CH EXPINF
+  overlays (Phase 2+ scope).
+- **Scope:**
+  - CH NSS overlay persistence (SNB `rendoblim` 1J-30J tenor family
+    + FRED `IRLTLT01CHM156N` long-end; NSS fit via existing overlay
+    module).
+  - CH EXPINF overlay persistence — note SNB does not issue
+    inflation-indexed Confederation bonds (no direct breakeven
+    series), so fallback is the 1 % SNB 0-2 % band midpoint (already
+    wired as `EXPECTED_INFLATION_CB_TARGET` / `CH_INFLATION_TARGET_BAND`
+    proxy).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` CH path.
+- **Unblocks:** M3 CH persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-CH-BS-GDP — CH balance-sheet / GDP ratio wiring (Week 9 Sprint V surfaced)
+
+- **Priority:** LOW — closes the `CH_BS_GDP_PROXY_ZERO` flag on M1 CH.
+- **Trigger:** Sprint V C4 zero-seeded CH balance-sheet ratios because
+  SNB monthly statistical bulletin (MSB Table B1A candidate) + SECO
+  nominal GDP are not wired at Sprint V scope. SNB balance sheet is
+  structurally unusual — large forex-intervention-driven asset base
+  dating from the 2011-2015 CHF-floor regime — so the zero-seed is
+  especially visible.
+- **Scope:** SNB MSB B1A monthly total assets series combined with
+  SECO nominal GDP (or equivalent FRED `CHEGDPNAD2GDQ`-style series).
+- **Unblocks:** M1 CH BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1 score is
+  null).
+- **Status:** OPEN.
+
 ### CAL-NZ-CPI — NZ CPI YoY wrapper (Week 9 Sprint U-NZ surfaced)
 
 - **Priority:** MEDIUM — required input for M2 NZ Taylor gap.
@@ -1904,6 +2042,45 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
     `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
 - **Unblocks:** M2 NZ second-cycle inflation input; combined with
   CAL-NZ-M2-OUTPUT-GAP + CAL-NZ-CPI closes M2 NZ.
+- **Status:** OPEN.
+
+### CAL-CH-CPI — CH CPI YoY wrapper (Week 9 Sprint V surfaced)
+
+- **Priority:** MEDIUM — required input for M2 CH Taylor gap.
+- **Trigger:** Sprint V C4 `build_m2_ch_inputs` scaffold lists CH CPI
+  YoY as one of three missing inputs; TE generic
+  `fetch_indicator("CH", "inflation rate", ...)` should cover but not
+  probed at Sprint V scope. SNB publishes the `cpikern` cube
+  (headline + core CPI, monthly).
+- **Scope:**
+  - Probe TE generic indicator for CH CPI YoY cadence + coverage.
+  - Probe SNB `cpikern` cube via the existing `SNBConnector` for a
+    native alternative.
+  - Wire `fetch_ch_cpi_yoy` wrapper on `TEConnector` (or
+    `SNBConnector`) with source-drift guard (analogous to
+    `fetch_ch_policy_rate`).
+  - Consume in `build_m2_ch_inputs` output.
+- **Unblocks:** M2 CH inflation input; combined with CAL-CH-GAP +
+  CAL-CH-INFL-FORECAST closes M2 CH.
+- **Status:** OPEN.
+
+### CAL-CH-INFL-FORECAST — CH inflation-forecast wrapper (Week 9 Sprint V surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 CH compute; SNB 0-2 % band
+  midpoint (1 %) serves as CB-target proxy until this lands.
+- **Trigger:** SNB publishes quarterly Monetary Policy Assessment
+  forecast tables (HTML-only) but unwired at Sprint V scope. M2 CH
+  currently treats the 1 % midpoint as the inflation-forecast proxy
+  via `EXPECTED_INFLATION_CB_TARGET` + `CH_INFLATION_TARGET_BAND`.
+- **Scope:**
+  - Probe SNB MPA for scriptable forecast series.
+  - Wire `fetch_ch_inflation_forecast` (connector TBD — likely a
+    HTML-scrape adapter on top of `SNBConnector`).
+  - Consume in `build_m2_ch_inputs` with new flag
+    `CH_INFLATION_FORECAST_SNB_MPA` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 CH second-cycle inflation input; combined with
+  CAL-CH-GAP + CAL-CH-CPI closes M2 CH.
 - **Status:** OPEN.
 
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
