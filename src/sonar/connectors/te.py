@@ -64,6 +64,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "JP": "japan",
     "CA": "canada",
     "AU": "australia",
+    "NZ": "new zealand",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -99,6 +100,7 @@ TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
 TE_EXPECTED_SYMBOL_JP_BANK_RATE = "BOJDTR"
 TE_EXPECTED_SYMBOL_CA_BANK_RATE = "CCLR"
 TE_EXPECTED_SYMBOL_AU_CASH_RATE = "RBATCTR"
+TE_EXPECTED_SYMBOL_NZ_OCR = "NZOCRS"
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,6 +547,48 @@ class TEConnector:
             err = (
                 "TE AU-cash-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_AU_CASH_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_nz_ocr(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """NZ Official Cash Rate — RBNZ policy-rate, TE-sourced.
+
+        TE ``interest rate`` indicator for ``new zealand`` returns the
+        RBNZ Official Cash Rate (HistoricalDataSymbol ``NZOCRS``).
+        Empirical probe 2026-04-21 (Week 9 Sprint U pre-flight) confirmed
+        the symbol, with the series back-filled to 1985-01 and surfaced
+        at daily cadence for the OCR regime (post-1999 inception) —
+        pre-1999 values reflect legacy RBNZ policy-rate proxies TE
+        consolidates under the same interest-rate indicator.
+
+        Chosen as the **primary** source for NZ M1 policy-rate inputs
+        (Sprint U-NZ) per the Sprint I-patch cascade pattern: TE is
+        daily and RBNZ-sourced, whereas the FRED OECD mirror
+        (``IRSTCI01NZM156N``) updates only monthly. The RBNZ
+        statistical-tables CSVs sit in the secondary slot as a wire-
+        ready scaffold — the www.rbnz.govt.nz host **403s at the
+        perimeter regardless of User-Agent** (Sprint U probe
+        2026-04-21 confirmed this against both Mozilla and descriptive
+        ``SONAR/2.0`` UAs), so the RBNZ connector ships raising
+        :class:`DataUnavailableError` until the host-level block lifts
+        (CAL-NZ-RBNZ-TABLES).
+
+        Guards source identity via the ``NZOCRS`` symbol check
+        mirroring the Conference Board / Michigan-5Y / GB / JP / CA /
+        AU wrappers; on drift raises :class:`DataUnavailableError` so
+        the NZ cascade can fall back cleanly.
+        """
+        obs = await self.fetch_indicator("NZ", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_NZ_OCR)
+        ):
+            err = (
+                "TE NZ-OCR source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NZ_OCR!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)

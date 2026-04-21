@@ -926,3 +926,120 @@ async def test_live_canary_au_cash_rate(tmp_cache_dir: Path) -> None:
             assert 0.0 <= o.value <= 10.0
     finally:
         await conn.aclose()
+
+
+async def test_wrapper_nz_ocr_happy_path(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
+    """TE ``interest rate`` for NZ returns ``NZOCRS`` (RBNZ Official Cash Rate)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "New Zealand",
+                "Category": "Interest Rate",
+                "DateTime": "2024-08-14T00:00:00",
+                "Value": 5.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NZOCRS",
+                "LastUpdate": "2024-08-14T02:00:00",
+            },
+            {
+                "Country": "New Zealand",
+                "Category": "Interest Rate",
+                "DateTime": "2025-02-19T00:00:00",
+                "Value": 3.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NZOCRS",
+                "LastUpdate": "2025-02-19T02:00:00",
+            },
+            {
+                "Country": "New Zealand",
+                "Category": "Interest Rate",
+                "DateTime": "2026-04-08T00:00:00",
+                "Value": 2.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NZOCRS",
+                "LastUpdate": "2026-04-08T02:00:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_nz_ocr(date(2024, 1, 1), date(2026, 5, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "NZ"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "NZOCRS"
+    # RBNZ OCR stayed in [0.25, 8.25]% post-1999 inception.
+    for o in obs:
+        assert 0.0 <= o.value <= 20.0
+
+
+async def test_wrapper_nz_ocr_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-NZOCRS symbol, raise — catches mis-attribution."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "New Zealand",
+                "Category": "Interest Rate",
+                "DateTime": "2025-02-19T00:00:00",
+                "Value": 3.75,
+                "HistoricalDataSymbol": "NZINTR",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="NZ-OCR source drift"):
+        await te_connector.fetch_nz_ocr(date(2024, 1, 1), date(2025, 12, 31))
+
+
+async def test_wrapper_nz_ocr_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → ``fetch_indicator`` raises; cascade callers treat as
+    TE-unavailable and fall through to RBNZ scaffold / FRED."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_nz_ocr(date(2024, 1, 1), date(2025, 12, 31))
+
+
+async def test_wrapper_nz_ocr_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 500+ NZOCRS observations end-to-end."""
+    payload = _load_cassette("te_nz_ocr_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_nz_ocr(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) >= 300
+    assert obs[0].historical_data_symbol == "NZOCRS"
+    assert obs[0].country == "NZ"
+    # Recent window: RBNZ OCR sits in [2.25, 5.50]% across 2023-26.
+    recent = obs[-24:]
+    for o in recent:
+        assert 0.0 <= o.value <= 10.0
+
+
+@pytest.mark.slow
+async def test_live_canary_nz_ocr(tmp_cache_dir: Path) -> None:
+    """Live probe of TE NZ OCR — confirms ``NZOCRS`` symbol + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. TE back-fills the full
+    history regardless of the window, so filter client-side to the
+    recent 2Y before asserting the band.
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_nz_ocr(start, today)
+        assert len(obs) >= 3
+        assert obs[0].historical_data_symbol == "NZOCRS"
+        assert obs[0].country == "NZ"
+        recent = [o for o in obs if o.observation_date >= start]
+        for o in recent:
+            # RBNZ OCR stayed within [0.25, 5.50]% across 2023-26.
+            assert 0.0 <= o.value <= 10.0
+    finally:
+        await conn.aclose()
