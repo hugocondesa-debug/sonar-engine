@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
+    from sonar.connectors.rba import RBAConnector
     from sonar.connectors.te import TEConnector
 
 
@@ -65,15 +66,18 @@ log = structlog.get_logger()
 
 __all__ = [
     "MonetaryInputsBuilder",
+    "build_m1_au_inputs",
     "build_m1_ca_inputs",
     "build_m1_ea_inputs",
     "build_m1_gb_inputs",
     "build_m1_jp_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
+    "build_m2_au_inputs",
     "build_m2_ca_inputs",
     "build_m2_jp_inputs",
     "build_m2_us_inputs",
+    "build_m4_au_inputs",
     "build_m4_ca_inputs",
     "build_m4_jp_inputs",
     "build_m4_us_inputs",
@@ -99,6 +103,11 @@ FRED_JP_JGB_10Y_SERIES: str = "IRLTLT01JPM156N"
 # TE primary and BoC Valet native are unavailable (Sprint S cascade).
 FRED_CA_BANK_RATE_SERIES: str = "IRSTCI01CAM156N"
 FRED_CA_GOC_10Y_SERIES: str = "IRLTLT01CAM156N"
+
+# AU OECD-mirror series on FRED — monthly, last-resort backfill when both
+# TE primary and RBA F1 native are unavailable (Sprint T cascade).
+FRED_AU_CASH_RATE_SERIES: str = "IRSTCI01AUM156N"
+FRED_AU_AGB_10Y_SERIES: str = "IRLTLT01AUM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -1016,6 +1025,253 @@ async def build_m4_ca_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — AU (Sprint T — TE primary → RBA F1 native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+async def _au_cash_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    rba: RBAConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch AU Cash Rate via TE → RBA → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch (GB), Sprint L (JP),
+    and Sprint S (CA) cascades (first success wins). AU joins CA as the
+    second country with a reachable native secondary slot — the RBA
+    statistical-tables CSVs are a public static publication, so when TE
+    fails AU lands ``AU_CASH_RATE_RBA_NATIVE`` with no staleness flag
+    (unlike GB / JP where the native slot ships as a wire-ready
+    scaffold).
+
+    1. **TE primary** (``fetch_au_cash_rate`` — daily, RBA-sourced via
+       ``RBATCTR``). Emits ``AU_CASH_RATE_TE_PRIMARY`` on success.
+    2. **RBA F1 native** (``fetch_cash_rate`` on ``FIRMMCRTD`` — Cash
+       Rate Target). Emits ``AU_CASH_RATE_RBA_NATIVE`` on success.
+    3. **FRED OECD mirror** (``IRSTCI01AUM156N`` — monthly lag).
+       Last-resort fallback emitting both
+       ``AU_CASH_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so downstream consumers can surface the degradation.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three
+    return empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_au_cash_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            return (
+                [_DatedValue(o.observation_date, o.value) for o in te_obs],
+                ("AU_CASH_RATE_TE_PRIMARY",),
+                ("te",),
+            )
+
+    if rba is not None:
+        try:
+            rba_obs = await rba.fetch_cash_rate(start, end)
+        except DataUnavailableError:
+            rba_obs = []
+        if rba_obs:
+            return (
+                [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in rba_obs],
+                ("AU_CASH_RATE_RBA_NATIVE",),
+                ("rba",),
+            )
+
+    fred_obs = await fred.fetch_series(FRED_AU_CASH_RATE_SERIES, start, end)
+    if fred_obs:
+        return (
+            [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
+            ("AU_CASH_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
+            ("fred",),
+        )
+
+    msg = "AU Cash Rate unavailable from TE, RBA, and FRED"
+    raise ValueError(msg)
+
+
+async def build_m1_au_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    rba: RBAConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 AU inputs via TE → RBA → FRED cascade + YAML r*/target.
+
+    Sprint T introduces the AU country path using the canonical cascade
+    pattern established by Sprint I-patch (GB), Sprint L (JP), and
+    Sprint S (CA). TE's ``interest rate`` indicator for Australia
+    back-fills the full RBA policy-rate history (``RBATCTR``) at daily
+    cadence and is the empirically preferred source — decisions
+    propagate into TE within hours of the RBA announcement, whereas the
+    FRED OECD mirror (``IRSTCI01AUM156N``) only updates once a month.
+    RBA F1 ``FIRMMCRTD`` (Cash Rate Target) sits in the secondary slot
+    as a first-class reachable public static CSV (contrast BoE IADB /
+    BoJ TSD which ship as wire-ready scaffolds).
+
+    AU-specific degradations (Phase 1):
+
+    - ``expected_inflation_5y_pct`` defaults to RBA's 2-3 % target
+      midpoint (2.5 %) — no RBA breakeven-inflation mirror exists at
+      this scope; emits ``EXPECTED_INFLATION_CB_TARGET`` flag (mirrors
+      GB / JP / CA pattern).
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with
+      ``AU_BS_GDP_PROXY_ZERO`` flag — AU balance-sheet ratios require
+      RBA weekly balance-sheet (table ``A1`` series) combined with ABS
+      nominal GDP, neither wired at Sprint T scope. Lands when
+      CAL-AU-BS-GDP closes.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _au_cash_rate_cascade(
+        start, observation_date, te=te, rba=rba, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "AU Cash Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("AU")  # is_proxy always True for AU
+    # RBA 2-3 % band midpoint used as the 5Y inflation-expectation anchor;
+    # the central-bank target loader (bc_targets.yaml) returns 0.025 for AU.
+    expected_inflation_5y_pct = resolve_inflation_target("AU")
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "AU_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="AU",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — AU (Sprint T — wire-ready scaffold, raises pending AU gap + CPI)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_au_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD AU gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    rba: RBAConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 AU inputs (scaffold — raises until AU gap source lands).
+
+    Sprint T ships the dispatch wire-ready so the pipeline can route
+    ``--country AU`` without crashing. The AU Taylor-gap inputs require
+    three sources that are not yet connected at this scope:
+
+    - **AU CPI YoY**: no ``fetch_au_cpi_yoy`` wrapper on either TE or
+      FRED within Sprint T scope (CAL-AU-CPI).
+    - **Output gap**: Australia-specific — the RBA publishes a
+      quarterly output gap via SMP technical notes but no scriptable
+      endpoint exists at Sprint T scope (CAL-AU-GAP). OECD EO AU also
+      maps through the same connector family.
+    - **Inflation forecast**: RBA publishes quarterly SMP forecasts —
+      HTML-hosted but unwired Sprint T (CAL-AU-INFL-FORECAST).
+
+    Once any of those sources lands, this function resolves the
+    cascade like :func:`build_m2_us_inputs` does for the CBO output-
+    gap path. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (caught by
+    :func:`daily_monetary_indices.build_live_monetary_inputs` which
+    logs a structured ``monetary_pipeline.builder_skipped`` warning
+    rather than crashing).
+    """
+    msg = (
+        "M2 AU builder scaffold shipped Sprint T but requires CPI YoY, "
+        "output-gap, and inflation-forecast AU connectors that are not "
+        "yet wired (see CAL-AU-CPI / CAL-AU-GAP / CAL-AU-INFL-FORECAST). "
+        "Raises so the pipeline skips M2 AU cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — AU (Sprint T — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_au_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future AU FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    rba: RBAConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 AU inputs (scaffold — raises until ≥5 FCI components).
+
+    AU lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so AU must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    T close the reachable components are:
+
+    - 10Y AGB yield via RBA F2 ``FCMYGBAG10D`` (wired C2)
+    - Cash Rate via the M1 cascade (wired C4)
+
+    Pending components (bundled into CAL-AU-M4-FCI):
+
+    - AU credit spread (BBB corp vs AGB; candidate: FRED ``BAMLHYAU``
+      or RBA F3 corporate-yield series)
+    - AU vol index (no S&P/ASX VIX-analog readily on FRED; Yahoo
+      ^AXVI or proxy from ^VIX)
+    - AU AUD NEER (RBA F11 nominal-TWI; index form)
+    - AU mortgage rate (RBA F5 lender-rates table)
+
+    Once ≥5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (mirrors M2 AU / CA skip behaviour).
+    """
+    msg = (
+        "M4 AU builder scaffold shipped Sprint T but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + AUD "
+        "NEER + mortgage; see CAL-AU-M4-FCI). Raises so the pipeline "
+        "skips M4 AU cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -1179,6 +1435,7 @@ class MonetaryInputsBuilder:
         boc: BoCConnector | None = None,
         boe: BoEDatabaseConnector | None = None,
         boj: BoJConnector | None = None,
+        rba: RBAConnector | None = None,
         te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
@@ -1187,6 +1444,7 @@ class MonetaryInputsBuilder:
         self.boc = boc
         self.boe = boe
         self.boj = boj
+        self.rba = rba
         self.te = te
 
     async def build_m1_inputs(
@@ -1224,6 +1482,14 @@ class MonetaryInputsBuilder:
                 boc=self.boc,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "AU":
+            return await build_m1_au_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                rba=self.rba,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
@@ -1248,6 +1514,14 @@ class MonetaryInputsBuilder:
                 boc=self.boc,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "AU":
+            return await build_m2_au_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                rba=self.rba,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -1269,6 +1543,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 boc=self.boc,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "AU":
+            return await build_m4_au_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                rba=self.rba,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"

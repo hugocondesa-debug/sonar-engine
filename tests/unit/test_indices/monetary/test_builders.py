@@ -9,6 +9,7 @@ import pytest
 
 from sonar.connectors.base import Observation
 from sonar.indices.monetary.builders import (
+    FRED_AU_CASH_RATE_SERIES,
     FRED_CA_BANK_RATE_SERIES,
     FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
@@ -17,15 +18,18 @@ from sonar.indices.monetary.builders import (
     _latest_on_or_before,
     _resample_monthly,
     _to_dated,
+    build_m1_au_inputs,
     build_m1_ca_inputs,
     build_m1_ea_inputs,
     build_m1_gb_inputs,
     build_m1_jp_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
+    build_m2_au_inputs,
     build_m2_ca_inputs,
     build_m2_jp_inputs,
     build_m2_us_inputs,
+    build_m4_au_inputs,
     build_m4_ca_inputs,
     build_m4_jp_inputs,
     build_m4_us_inputs,
@@ -130,9 +134,9 @@ class _FakeFredConnector:
 
     async def fetch_series(self, series_id: str, start: date, end: date) -> list[Observation]:
         # Used by build_m1_gb_inputs + build_m1_jp_inputs + build_m1_ca_inputs
-        # cascades. Returns monthly OECD-mirror policy rate values. GB pins at
-        # 4.70 %, JP at 0.40 %, CA at 3.00 % (reflecting the 2024-25
-        # normalisation band).
+        # + build_m1_au_inputs cascades. Returns monthly OECD-mirror policy
+        # rate values. GB pins at 4.70 %, JP at 0.40 %, CA at 3.00 %, AU at
+        # 4.00 % (reflecting the 2024-25 normalisation band).
         country_code: str
         yield_bps_val: int
         if series_id == FRED_GB_BANK_RATE_SERIES:
@@ -144,6 +148,9 @@ class _FakeFredConnector:
         elif series_id == FRED_CA_BANK_RATE_SERIES:
             country_code = "CA"
             yield_bps_val = 300  # 3.00 %
+        elif series_id == FRED_AU_CASH_RATE_SERIES:
+            country_code = "AU"
+            yield_bps_val = 400  # 4.00 %
         else:
             return []
         out: list[Observation] = []
@@ -337,6 +344,67 @@ class _FakeBoCUnavailable:
     async def fetch_bank_rate(self, start: date, end: date) -> list[Observation]:
         _ = start, end
         msg = "BoC Valet unreachable (test-fake)"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTEAuSuccess:
+    """TE primary path for AU — returns daily RBA cash-rate observations in pct."""
+
+    def __init__(self, *, pct: float = 4.10) -> None:
+        self.pct = pct
+
+    async def fetch_au_cash_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="RBATCTR"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTEAuUnavailable:
+    """TE primary fails for AU with DataUnavailableError — cascade fails over."""
+
+    async def fetch_au_cash_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='AU' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeRBASuccess:
+    """RBA F1 native — FIRMMCRTD cash-rate target."""
+
+    def __init__(self, *, yield_bps: int = 395) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_cash_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="AU",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,  # 3.95 % differs from TE to prove cascade
+                    source="RBA",
+                    source_series_id="FIRMMCRTD",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeRBAUnavailable:
+    """Simulates an RBA host outage (e.g. Akamai reject / transient 5xx)."""
+
+    async def fetch_cash_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "RBA F1 unreachable (test-fake)"
         raise DataUnavailableError(msg)
 
 
@@ -1015,6 +1083,193 @@ class TestBuildM4Ca:
 
 
 # ---------------------------------------------------------------------------
+# M1 AU (Sprint T — TE primary → RBA F1 native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Au:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily RBA-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        rba = _FakeRBASuccess()  # present but skipped (TE wins priority)
+        te = _FakeTEAuSuccess(pct=4.10)
+        inputs = await build_m1_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rba=rba,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "AU"
+        assert inputs.policy_rate_pct == pytest.approx(0.041)  # TE 4.10 %
+        assert "AU_CASH_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "AU_CASH_RATE_RBA_NATIVE" not in inputs.upstream_flags
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "AU_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0075)
+        # RBA inflation target midpoint 2.5 %.
+        assert inputs.expected_inflation_5y_pct == pytest.approx(0.025)
+
+    @pytest.mark.asyncio
+    async def test_rba_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → RBA F1 native takes over (robust path)."""
+        fred = _FakeFredConnector()
+        rba = _FakeRBASuccess(yield_bps=395)
+        te = _FakeTEAuUnavailable()
+        inputs = await build_m1_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rba=rba,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0395)  # RBA 3.95 %
+        assert "AU_CASH_RATE_RBA_NATIVE" in inputs.upstream_flags
+        assert "AU_CASH_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("rba",)
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + RBA both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        rba = _FakeRBAUnavailable()
+        te = _FakeTEAuUnavailable()
+        inputs = await build_m1_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            rba=rba,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.04)  # FRED 4.00 %
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "AU_CASH_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "AU_CASH_RATE_RBA_NATIVE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_rba_absent(self) -> None:
+        """te=None + rba=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "AU"
+        assert inputs.source_connector == ("fred",)
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + RBA unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, RBA, and FRED"):
+            await build_m1_au_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTEAuUnavailable(),  # type: ignore[arg-type]
+                rba=_FakeRBAUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_au_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """AU BS/GDP ratio is placeholder — always emits AU_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTEAuSuccess(pct=4.10)
+        inputs = await build_m1_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "AU_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 AU (Sprint T — scaffold raises until AU gap + CPI connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Au:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 AU scaffold is wire-ready but raises until AU gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTEAuSuccess(pct=4.10)
+        with pytest.raises(InsufficientDataError, match="CAL-AU"):
+            await build_m2_au_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_au_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 AU (Sprint T — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Au:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 AU scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTEAuSuccess(pct=4.10)
+        rba = _FakeRBASuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-AU-M4-FCI"):
+            await build_m4_au_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                rba=rba,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_au_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -1121,10 +1376,10 @@ class TestMonetaryInputsBuilderFacade:
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        # AU remains unwired at Sprint S close — CA is now a supported
-        # country (see :func:`build_m1_ca_inputs`).
-        with pytest.raises(NotImplementedError, match="AU"):
-            await builder.build_m1_inputs("AU", date(2024, 12, 31))
+        # NZ remains unwired at Sprint T close — AU joined the supported
+        # set in this sprint (see :func:`build_m1_au_inputs`).
+        with pytest.raises(NotImplementedError, match="NZ"):
+            await builder.build_m1_inputs("NZ", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_build_m1_ca_via_facade_te_primary(self) -> None:
@@ -1167,6 +1422,72 @@ class TestMonetaryInputsBuilderFacade:
         assert inputs.country_code == "CA"
         assert "R_STAR_PROXY" in inputs.upstream_flags
         assert "CA_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_build_m1_au_via_facade_te_primary(self) -> None:
+        """AU M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEAuSuccess(pct=4.10),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("AU", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "AU"
+        assert "AU_CASH_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_au_via_facade_rba_secondary(self) -> None:
+        """AU M1 dispatch — TE absent, RBA handle present → native path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            rba=_FakeRBASuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("AU", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "AU"
+        assert "AU_CASH_RATE_RBA_NATIVE" in inputs.upstream_flags
+        assert inputs.source_connector == ("rba",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_au_via_facade_fred_fallback(self) -> None:
+        """AU M1 dispatch — FRED-only path (no TE/RBA handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("AU", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "AU"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "AU_CASH_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_au_dispatches_to_au_builder(self) -> None:
+        """AU M2 dispatch routes to the AU scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEAuSuccess(pct=4.10),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-AU"):
+            await builder.build_m2_inputs("AU", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_au_dispatches_to_au_builder(self) -> None:
+        """AU M4 dispatch routes to the AU scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEAuSuccess(pct=4.10),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-AU-M4-FCI"):
+            await builder.build_m4_inputs("AU", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
