@@ -1,1 +1,372 @@
-{"meta":{"id":"IDREF481336b6-386d-426f-942a-a9e8bcea496d","prepared":"2026-04-20T11:10:03","test":false,"datasetId":"1efa1da4-0b09-41b9-8857-5ed3444d7bb5","sender":{"id":"UNKNOWN"},"receiver":{"id":"guest"},"links":[{"rel":"self","href":"/data/dataflow/BIS/WS_CREDIT_GAP/1.0/Q.PT...?endPeriod=2024-Q2&format=jsondata&startPeriod=2023-Q4","uri":"https://raw.githubusercontent.com/sdmx-twg/sdmx-json/develop/structure-message/tools/schemas/1.0/sdmx-json-structure-schema.json"}]},"data":{"dataSets":[{"links":[{"rel":"dataflow","urn":"urn:sdmx:org.sdmx.infomodel.datastructure.Dataflow=BIS:WS_CREDIT_GAP(1.0)"}],"reportingBegin":"2023-10-01T00:00:00","reportingEnd":"2024-04-01T23:59:59","action":"Information","series":{"0:0:0:0:0":{"attributes":[null,null],"observations":{"0":["136.1",0,0,null],"1":["133.9",0,0,null],"2":["132.9",0,0,null]}},"0:0:0:0:1":{"attributes":[null,null],"observations":{"0":["176.4",0,0,null],"1":["173.6",0,0,null],"2":["170.8",0,0,null]}},"0:0:0:0:2":{"attributes":[null,null],"observations":{"0":["-40.3",0,0,null],"1":["-39.7",0,0,null],"2":["-38",0,0,null]}}},"attributes":[0,0,0,0]}],"structure":{"links":[{"rel":"dataflow","urn":"urn:sdmx:org.sdmx.infomodel.datastructure.Dataflow=BIS:WS_CREDIT_GAP(1.0)"},{"rel":"datastructure","urn":"urn:sdmx:org.sdmx.infomodel.datastructure.DataStructure=BIS:BIS_CREDIT_GAP(1.0)"}],"name":"Credit-to-GDP gaps","names":{"en":"Credit-to-GDP gaps"},"dimensions":{"dataset":[],"series":[{"id":"FREQ","name":"Frequency","keyPosition":0,"role":null,"values":[{"id":"Q","name":"Quarterly"}]},{"id":"BORROWERS_CTY","name":"Borrowers' country","keyPosition":1,"role":null,"values":[{"id":"PT","name":"Portugal"}]},{"id":"TC_BORROWERS","name":"Borrowing sector","keyPosition":2,"role":null,"values":[{"id":"P","name":"Private non-financial sector"}]},{"id":"TC_LENDERS","name":"Lending sector","keyPosition":3,"role":null,"values":[{"id":"A","name":"All sectors"}]},{"id":"CG_DTYPE","name":"Credit gap data type","keyPosition":4,"role":null,"values":[{"id":"A","name":"Credit-to-GDP ratios (actual data)"},{"id":"B","name":"Credit-to-GDP trend (HP filter)","description":"The HP filter is a statistical tool used in macroeconomics, especially in real business cycle theory, to remove the cyclical component of a time series."},{"id":"C","name":"Credit-to-GDP gaps (actual-trend)","description":"The credit-to-GDP gap is defined as the difference between the credit-to-GDP ratio and its long-run trend, and captures the build-up of excessive credit in a reduced form fashion."}]}],"observation":[{"id":"TIME_PERIOD","name":"Time period or range","keyPosition":5,"role":"time","values":[{"start":"2023-10-01T00:00:00","end":"2023-12-31T23:59:59","id":"2023-Q4","name":"2023-Q4"},{"start":"2024-01-01T00:00:00","end":"2024-03-31T23:59:59","id":"2024-Q1","name":"2024-Q1"},{"start":"2024-04-01T00:00:00","end":"2024-06-30T23:59:59","id":"2024-Q2","name":"2024-Q2"}]}]},"attributes":{"dataset":[{"id":"COLLECTION","name":"Collection Indicator","relationship":{"none":{}},"role":null,"values":[{"id":"E","name":"End of period"}]},{"id":"DECIMALS","name":"Decimals","relationship":{"none":{}},"role":null,"values":[{"id":"1","name":"One"}]},{"id":"UNIT_MEASURE","name":"Unit of measure","relationship":{"none":{}},"role":null,"values":[{"id":"770","name":"Percentage of GDP"}]},{"id":"UNIT_MULT","name":"Unit Multiplier","relationship":{"none":{}},"role":null,"values":[{"id":"0","name":"Units"}]}],"series":[{"id":"TIME_FORMAT","name":"Time Format","relationship":{"dimensions":["FREQ","BORROWERS_CTY","TC_BORROWERS","TC_LENDERS","CG_DTYPE"]},"role":null,"values":[]},{"id":"TITLE_TS","name":"Title (tseries level)","relationship":{"dimensions":["FREQ","BORROWERS_CTY","TC_BORROWERS","TC_LENDERS","CG_DTYPE"]},"role":null,"values":[]}],"observation":[{"id":"OBS_STATUS","name":"Observation Status","relationship":{"primaryMeasure":"OBS_VALUE"},"role":null,"values":[{"id":"A","name":"Normal value"}]},{"id":"OBS_CONF","name":"Observation confidentiality","relationship":{"primaryMeasure":"OBS_VALUE"},"role":null,"values":[{"id":"F","name":"Free"}]},{"id":"OBS_PRE_BREAK","name":"Pre-Break Observation","relationship":{"primaryMeasure":"OBS_VALUE"},"role":null,"values":[]}]}}}}
+{
+    "meta": {
+        "id": "IDREFc75a207e-f36b-4b59-bb83-ca9d9d0b35eb",
+        "prepared": "2026-04-21T20:25:14",
+        "test": false,
+        "datasetId": "dfb5a0b6-e001-44ff-a270-096bb8f66ba6",
+        "sender": {
+            "id": "UNKNOWN"
+        },
+        "receiver": {
+            "id": "guest"
+        },
+        "links": [
+            {
+                "rel": "self",
+                "href": "/data/dataflow/BIS/WS_CREDIT_GAP/1.0/Q.PT.P.A.*?endPeriod=2024-Q2&startPeriod=2023-Q4",
+                "uri": "https://raw.githubusercontent.com/sdmx-twg/sdmx-json/develop/structure-message/tools/schemas/1.0/sdmx-json-structure-schema.json"
+            }
+        ]
+    },
+    "data": {
+        "dataSets": [
+            {
+                "links": [
+                    {
+                        "rel": "dataflow",
+                        "urn": "urn:sdmx:org.sdmx.infomodel.datastructure.Dataflow=BIS:WS_CREDIT_GAP(1.0)"
+                    }
+                ],
+                "reportingBegin": "2023-10-01T00:00:00",
+                "reportingEnd": "2024-04-01T23:59:59",
+                "action": "Information",
+                "series": {
+                    "0:0:0:0:0": {
+                        "attributes": [
+                            null,
+                            null
+                        ],
+                        "observations": {
+                            "0": [
+                                "136.1",
+                                0,
+                                0,
+                                null
+                            ],
+                            "1": [
+                                "133.9",
+                                0,
+                                0,
+                                null
+                            ],
+                            "2": [
+                                "132.9",
+                                0,
+                                0,
+                                null
+                            ]
+                        }
+                    },
+                    "0:0:0:0:1": {
+                        "attributes": [
+                            null,
+                            null
+                        ],
+                        "observations": {
+                            "0": [
+                                "176.4",
+                                0,
+                                0,
+                                null
+                            ],
+                            "1": [
+                                "173.6",
+                                0,
+                                0,
+                                null
+                            ],
+                            "2": [
+                                "170.8",
+                                0,
+                                0,
+                                null
+                            ]
+                        }
+                    },
+                    "0:0:0:0:2": {
+                        "attributes": [
+                            null,
+                            null
+                        ],
+                        "observations": {
+                            "0": [
+                                "-40.3",
+                                0,
+                                0,
+                                null
+                            ],
+                            "1": [
+                                "-39.7",
+                                0,
+                                0,
+                                null
+                            ],
+                            "2": [
+                                "-38",
+                                0,
+                                0,
+                                null
+                            ]
+                        }
+                    }
+                },
+                "attributes": [
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            }
+        ],
+        "structure": {
+            "links": [
+                {
+                    "rel": "dataflow",
+                    "urn": "urn:sdmx:org.sdmx.infomodel.datastructure.Dataflow=BIS:WS_CREDIT_GAP(1.0)"
+                },
+                {
+                    "rel": "datastructure",
+                    "urn": "urn:sdmx:org.sdmx.infomodel.datastructure.DataStructure=BIS:BIS_CREDIT_GAP(1.0)"
+                }
+            ],
+            "name": "Credit-to-GDP gaps",
+            "names": {
+                "en": "Credit-to-GDP gaps"
+            },
+            "dimensions": {
+                "dataset": [],
+                "series": [
+                    {
+                        "id": "FREQ",
+                        "name": "Frequency",
+                        "keyPosition": 0,
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "Q",
+                                "name": "Quarterly"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "BORROWERS_CTY",
+                        "name": "Borrowers' country",
+                        "keyPosition": 1,
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "PT",
+                                "name": "Portugal"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "TC_BORROWERS",
+                        "name": "Borrowing sector",
+                        "keyPosition": 2,
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "P",
+                                "name": "Private non-financial sector"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "TC_LENDERS",
+                        "name": "Lending sector",
+                        "keyPosition": 3,
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "A",
+                                "name": "All sectors"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "CG_DTYPE",
+                        "name": "Credit gap data type",
+                        "keyPosition": 4,
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "A",
+                                "name": "Credit-to-GDP ratios (actual data)"
+                            },
+                            {
+                                "id": "B",
+                                "name": "Credit-to-GDP trend (HP filter)",
+                                "description": "The HP filter is a statistical tool used in macroeconomics, especially in real business\u00a0cycle theory, to remove the cyclical component of a time series."
+                            },
+                            {
+                                "id": "C",
+                                "name": "Credit-to-GDP gaps (actual-trend)",
+                                "description": "The credit-to-GDP gap is defined as the difference between the credit-to-GDP ratio\u00a0and its long-run trend, and captures the build-up of excessive credit in a reduced form\u00a0fashion."
+                            }
+                        ]
+                    }
+                ],
+                "observation": [
+                    {
+                        "id": "TIME_PERIOD",
+                        "name": "Time period or range",
+                        "keyPosition": 5,
+                        "role": "time",
+                        "values": [
+                            {
+                                "start": "2023-10-01T00:00:00",
+                                "end": "2023-12-31T23:59:59",
+                                "id": "2023-Q4",
+                                "name": "2023-Q4"
+                            },
+                            {
+                                "start": "2024-01-01T00:00:00",
+                                "end": "2024-03-31T23:59:59",
+                                "id": "2024-Q1",
+                                "name": "2024-Q1"
+                            },
+                            {
+                                "start": "2024-04-01T00:00:00",
+                                "end": "2024-06-30T23:59:59",
+                                "id": "2024-Q2",
+                                "name": "2024-Q2"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "attributes": {
+                "dataset": [
+                    {
+                        "id": "COLLECTION",
+                        "name": "Collection Indicator",
+                        "relationship": {
+                            "none": {}
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "E",
+                                "name": "End of period"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "DECIMALS",
+                        "name": "Decimals",
+                        "relationship": {
+                            "none": {}
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "1",
+                                "name": "One"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "UNIT_MEASURE",
+                        "name": "Unit of measure",
+                        "relationship": {
+                            "none": {}
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "770",
+                                "name": "Percentage of GDP"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "UNIT_MULT",
+                        "name": "Unit Multiplier",
+                        "relationship": {
+                            "none": {}
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "0",
+                                "name": "Units"
+                            }
+                        ]
+                    }
+                ],
+                "series": [
+                    {
+                        "id": "TIME_FORMAT",
+                        "name": "Time Format",
+                        "relationship": {
+                            "dimensions": [
+                                "FREQ",
+                                "BORROWERS_CTY",
+                                "TC_BORROWERS",
+                                "TC_LENDERS",
+                                "CG_DTYPE"
+                            ]
+                        },
+                        "role": null,
+                        "values": []
+                    },
+                    {
+                        "id": "TITLE_TS",
+                        "name": "Title (tseries level)",
+                        "relationship": {
+                            "dimensions": [
+                                "FREQ",
+                                "BORROWERS_CTY",
+                                "TC_BORROWERS",
+                                "TC_LENDERS",
+                                "CG_DTYPE"
+                            ]
+                        },
+                        "role": null,
+                        "values": []
+                    }
+                ],
+                "observation": [
+                    {
+                        "id": "OBS_STATUS",
+                        "name": "Observation Status",
+                        "relationship": {
+                            "primaryMeasure": "OBS_VALUE"
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "A",
+                                "name": "Normal value"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "OBS_CONF",
+                        "name": "Observation confidentiality",
+                        "relationship": {
+                            "primaryMeasure": "OBS_VALUE"
+                        },
+                        "role": null,
+                        "values": [
+                            {
+                                "id": "F",
+                                "name": "Free"
+                            }
+                        ]
+                    },
+                    {
+                        "id": "OBS_PRE_BREAK",
+                        "name": "Pre-Break Observation",
+                        "relationship": {
+                            "primaryMeasure": "OBS_VALUE"
+                        },
+                        "role": null,
+                        "values": []
+                    }
+                ]
+            }
+        }
+    }
+}

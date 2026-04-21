@@ -156,10 +156,15 @@ class TestLiveCanary:
 
         cache_dir = tmp_path / "bis_live"
         cache_dir.mkdir()
-        connector = BisConnector(cache_dir=str(cache_dir))
-        try:
-            report = asyncio.run(
-                run_ingestion(
+
+        async def _ingest() -> dict[str, object]:
+            # Build + close the connector inside the same event loop; the
+            # httpx.AsyncClient binds to the loop in which it was
+            # instantiated, so a second asyncio.run() would tear it down
+            # against a closed loop and raise RuntimeError.
+            connector = BisConnector(cache_dir=str(cache_dir))
+            try:
+                return await run_ingestion(
                     session=db_session,
                     connector=connector,
                     countries=["US"],
@@ -167,9 +172,10 @@ class TestLiveCanary:
                     start_date=date(2024, 1, 1),
                     end_date=date(2024, 7, 1),
                 )
-            )
-        finally:
-            asyncio.run(connector.aclose())
+            finally:
+                await connector.aclose()
+
+        report = asyncio.run(_ingest())
 
         assert report["failures"] == 0
         totals = report["totals"]
