@@ -42,14 +42,25 @@ if TYPE_CHECKING:
     from sonar.cycles.financial_fcs import FcsComputedResult
     from sonar.cycles.monetary_msc import MscComputedResult
     from sonar.cycles.orchestrator import CyclesOrchestrationResult
+    from sonar.db.models import (
+        CreditCycleScore,
+        EconomicCycleScore,
+        FinancialCycleScore,
+        MonetaryCycleScore,
+    )
     from sonar.regimes.types import CccsRegime, EcsRegime, FcsRegime, MscRegime3Band
 
 __all__ = [
     "build_cccs_snapshot",
+    "build_cccs_snapshot_from_orm",
     "build_ecs_snapshot",
+    "build_ecs_snapshot_from_orm",
     "build_fcs_snapshot",
+    "build_fcs_snapshot_from_orm",
     "build_l5_inputs_from_cycles_result",
+    "build_l5_inputs_from_snapshots",
     "build_msc_snapshot",
+    "build_msc_snapshot_from_orm",
 ]
 
 
@@ -124,4 +135,87 @@ def build_l5_inputs_from_cycles_result(
         cccs=build_cccs_snapshot(result.cccs),
         fcs=build_fcs_snapshot(result.fcs),
         msc=build_msc_snapshot(result.msc),
+    )
+
+
+# ---------------------------------------------------------------------------
+# ORM → Snapshot helpers (used by the backfill script; same field
+# conventions as the in-memory ``*ComputedResult`` helpers above).
+# ---------------------------------------------------------------------------
+
+
+def build_ecs_snapshot_from_orm(row: EconomicCycleScore | None) -> EcsSnapshot | None:
+    """Build :class:`EcsSnapshot` from a persisted ``economic_cycle_scores`` row."""
+    if row is None:
+        return None
+    return EcsSnapshot(
+        ecs_id=str(row.ecs_id),
+        score=float(row.score_0_100),
+        regime=cast("EcsRegime", row.regime),
+        stagflation_active=bool(row.stagflation_overlay_active),
+        confidence=float(row.confidence),
+    )
+
+
+def build_cccs_snapshot_from_orm(row: CreditCycleScore | None) -> CccsSnapshot | None:
+    """Build :class:`CccsSnapshot` from a persisted ``credit_cycle_scores`` row."""
+    if row is None:
+        return None
+    return CccsSnapshot(
+        cccs_id=str(row.cccs_id),
+        score=float(row.score_0_100),
+        regime=cast("CccsRegime", row.regime),
+        boom_active=bool(row.boom_overlay_active),
+        confidence=float(row.confidence),
+    )
+
+
+def build_fcs_snapshot_from_orm(row: FinancialCycleScore | None) -> FcsSnapshot | None:
+    """Build :class:`FcsSnapshot` from a persisted ``financial_cycle_scores`` row."""
+    if row is None:
+        return None
+    return FcsSnapshot(
+        fcs_id=str(row.fcs_id),
+        score=float(row.score_0_100),
+        regime=cast("FcsRegime", row.regime),
+        bubble_warning_active=bool(row.bubble_warning_active),
+        confidence=float(row.confidence),
+    )
+
+
+def build_msc_snapshot_from_orm(row: MonetaryCycleScore | None) -> MscSnapshot | None:
+    """Build :class:`MscSnapshot` from a persisted ``monetary_cycle_scores`` row."""
+    if row is None:
+        return None
+    return MscSnapshot(
+        msc_id=str(row.msc_id),
+        score=float(row.score_0_100),
+        regime_3band=cast("MscRegime3Band", row.regime_3band),
+        dilemma_active=bool(row.dilemma_overlay_active),
+        confidence=float(row.confidence),
+    )
+
+
+def build_l5_inputs_from_snapshots(
+    country_code: str,
+    observation_date: date,
+    *,
+    ecs: EcsSnapshot | None,
+    cccs: CccsSnapshot | None,
+    fcs: FcsSnapshot | None,
+    msc: MscSnapshot | None,
+) -> L5RegimeInputs:
+    """Thin constructor wrapper for pre-built Snapshot tuples.
+
+    Used by the backfill script (:mod:`sonar.scripts.backfill_l5`),
+    which reads persisted cycle rows and produces Snapshots directly
+    rather than routing through ``CyclesOrchestrationResult``.
+    """
+    return L5RegimeInputs(
+        country_code=country_code,
+        date=observation_date,
+        ecs=ecs,
+        cccs=cccs,
+        fcs=fcs,
+        msc=msc,
     )
