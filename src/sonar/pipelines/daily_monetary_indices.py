@@ -98,7 +98,7 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # "GB" and invokes :func:`build_m1_gb_inputs` (CAL-128 closure — post-
 # Sprint-L chore commit). End-to-end GB dispatch is live; alias path
 # scheduled for removal Week 10 Day 1.
-MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP", "CA", "AU")
+MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP", "CA", "AU", "NZ")
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
 _DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
@@ -288,12 +288,14 @@ def _build_live_connectors(
     TE is optional: when ``te_api_key`` is empty the builder falls
     through to BoE → FRED (stale-flagged) for the GB cascade, BoJ →
     FRED (stale-flagged) for the JP cascade, BoC Valet → FRED
-    (stale-flagged) for the CA cascade, and RBA F1 CSV → FRED
-    (stale-flagged) for the AU cascade. Note the CA + AU secondary
-    slots are both reachable public APIs so --te-api-key="" still
-    delivers daily-fresh M1 rows for those countries when the native
-    host is up — unlike GB/JP where the native fallback is itself
-    gated.
+    (stale-flagged) for the CA cascade, RBA F1 CSV → FRED
+    (stale-flagged) for the AU cascade, and RBNZ B2 → FRED (stale-
+    flagged) for the NZ cascade. Note the CA + AU secondary slots
+    are both reachable public APIs so --te-api-key="" still delivers
+    daily-fresh M1 rows for those countries when the native host is
+    up — the NZ RBNZ host currently perimeter-403s (CAL-NZ-RBNZ-
+    TABLES) so NZ without TE lands on FRED with
+    NZ_OCR_FRED_FALLBACK_STALE + CALIBRATION_STALE flags.
     """
     from sonar.connectors.boc import BoCConnector  # noqa: PLC0415
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
@@ -302,6 +304,7 @@ def _build_live_connectors(
     from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
     from sonar.connectors.rba import RBAConnector  # noqa: PLC0415
+    from sonar.connectors.rbnz import RBNZConnector  # noqa: PLC0415
     from sonar.connectors.te import TEConnector  # noqa: PLC0415
 
     fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
@@ -311,11 +314,20 @@ def _build_live_connectors(
     boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
     boj = BoJConnector(cache_dir=f"{cache_dir}/boj")
     rba = RBAConnector(cache_dir=f"{cache_dir}/rba")
+    rbnz = RBNZConnector(cache_dir=f"{cache_dir}/rbnz")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
     builder = MonetaryInputsBuilder(
-        fred=fred, cbo=cbo, ecb_sdw=ecb, boc=boc, boe=boe, boj=boj, rba=rba, te=te
+        fred=fred,
+        cbo=cbo,
+        ecb_sdw=ecb,
+        boc=boc,
+        boe=boe,
+        boj=boj,
+        rba=rba,
+        rbnz=rbnz,
+        te=te,
     )
-    connectors: list[object] = [fred, ecb, boc, boe, boj, rba]
+    connectors: list[object] = [fred, ecb, boc, boe, boj, rba, rbnz]
     if te is not None:
         connectors.append(te)
     return builder, connectors
@@ -371,10 +383,11 @@ def main(
         help=(
             "TradingEconomics API key — unlocks the GB M1 TE-primary "
             "cascade (Sprint I-patch), JP M1 TE-primary cascade (Sprint "
-            "L), CA M1 TE-primary cascade (Sprint S), and AU M1 "
-            "TE-primary cascade (Sprint T). Optional; country-native "
-            "fallbacks (BoE / BoJ / BoC Valet / RBA F1 CSV) and the "
-            "FRED OECD mirror remain available when absent."
+            "L), CA M1 TE-primary cascade (Sprint S), AU M1 TE-primary "
+            "cascade (Sprint T), and NZ M1 TE-primary cascade (Sprint "
+            "U-NZ). Optional; country-native fallbacks (BoE / BoJ / "
+            "BoC Valet / RBA F1 CSV / RBNZ B2 CSV) and the FRED OECD "
+            "mirror remain available when absent."
         ),
     ),
     cache_dir: str = typer.Option(

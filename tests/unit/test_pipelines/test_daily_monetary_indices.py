@@ -121,19 +121,21 @@ def test_targets_constant_matches_brief() -> None:
 
 
 def test_monetary_supported_countries_includes_gb_and_jp() -> None:
-    """GB (ADR-0007) + JP + CA + AU stay; US + EA present; none in T1_7."""
+    """GB (ADR-0007) + JP + CA + AU + NZ stay; US + EA present; none in T1_7."""
     assert "GB" in MONETARY_SUPPORTED_COUNTRIES
     assert "JP" in MONETARY_SUPPORTED_COUNTRIES
     assert "CA" in MONETARY_SUPPORTED_COUNTRIES
     assert "AU" in MONETARY_SUPPORTED_COUNTRIES
+    assert "NZ" in MONETARY_SUPPORTED_COUNTRIES
     assert "US" in MONETARY_SUPPORTED_COUNTRIES
     assert "EA" in MONETARY_SUPPORTED_COUNTRIES
-    # None of GB / JP / CA / AU / EA is in T1_7_COUNTRIES (--all-t1
+    # None of GB / JP / CA / AU / NZ / EA is in T1_7_COUNTRIES (--all-t1
     # preserves the historical 7-country semantics).
     assert "GB" not in T1_7_COUNTRIES
     assert "JP" not in T1_7_COUNTRIES
     assert "CA" not in T1_7_COUNTRIES
     assert "AU" not in T1_7_COUNTRIES
+    assert "NZ" not in T1_7_COUNTRIES
     assert "EA" not in T1_7_COUNTRIES
 
 
@@ -226,3 +228,17 @@ def test_run_one_au_synthetic_persists_m1(session: Session) -> None:
     outcome = run_one(session, "AU", date(2024, 12, 31), inputs_builder=_synthetic_builder)
     assert outcome.persisted["m1"] == 1
     assert session.query(M1Row).filter(M1Row.country_code == "AU").count() == 1
+
+
+def test_run_one_nz_synthetic_persists_m1(session: Session) -> None:
+    """NZ synthetic bundle — pipeline persists M1 via the TE-primary cascade.
+
+    Mirrors the AU / CA synthetic-bundle smoke — live builders leave
+    M2/M4 as None via ``InsufficientDataError`` catch (scaffold raises
+    pending CAL-NZ-CPI / CAL-NZ-M2-OUTPUT-GAP / CAL-NZ-M4-FCI), but
+    the synthetic builder passes through so the M1/M2/M4 routing is
+    exercised end-to-end.
+    """
+    outcome = run_one(session, "NZ", date(2024, 12, 31), inputs_builder=_synthetic_builder)
+    assert outcome.persisted["m1"] == 1
+    assert session.query(M1Row).filter(M1Row.country_code == "NZ").count() == 1

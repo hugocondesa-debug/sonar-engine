@@ -111,22 +111,25 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "MICH": 1.0,
     "EXPINF10YR": 10.0,
     # OECD MEI mirror series — monthly short-term interest rates
-    # (consumed by the GB / JP / CA / AU monetary M1 cascades as last-
-    # resort FRED fallback when TE + country-native connectors both
-    # fail). Tenor ≈ 0.01Y (overnight) since all four track the
-    # short-rate target. AU entry added Week 9 Sprint T.
+    # (consumed by the GB / JP / CA / AU / NZ monetary M1 cascades as
+    # last-resort FRED fallback when TE + country-native connectors
+    # both fail). Tenor ≈ 0.01Y (overnight) since all five track the
+    # short-rate target. NZ entry added Week 9 Sprint U-NZ.
     "IRSTCI01GBM156N": 0.01,
     "IRSTCI01JPM156N": 0.01,
     "IRSTCI01CAM156N": 0.01,
     "IRSTCI01AUM156N": 0.01,
+    "IRSTCI01NZM156N": 0.01,
     # OECD MEI mirror — monthly long-term interest rates (10Y
     # sovereign benchmark). Reserved for M4 FCI custom paths across
-    # GB / JP / CA / AU; not yet consumed at Sprint S/T scope but
-    # wired for the upcoming CAL-121 / CAL-131 / CAL-AU-M4-FCI bundles.
+    # GB / JP / CA / AU / NZ; not yet consumed at Sprint S/T/U scope
+    # but wired for the upcoming CAL-121 / CAL-131 / CAL-AU-M4-FCI /
+    # CAL-NZ-M4-FCI bundles.
     "IRLTLT01GBM156N": 10.0,
     "IRLTLT01JPM156N": 10.0,
     "IRLTLT01CAM156N": 10.0,
     "IRLTLT01AUM156N": 10.0,
+    "IRLTLT01NZM156N": 10.0,
 }
 
 # Back-compat alias for Week 1 nominal-only callers.
