@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = [
+    "MONETARY_SUPPORTED_COUNTRIES",
     "T1_7_COUNTRIES",
     "InputsBuilder",
     "MonetaryPipelineOutcome",
@@ -78,6 +79,11 @@ __all__ = [
 ]
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+
+# Monetary pipeline now accepts UK via BoE -> FRED cascade (sprint 8-I).
+# Kept separate from T1_7_COUNTRIES so --all-t1 preserves the historical
+# 7-country semantics; callers opt in to UK via --country UK.
+MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "UK")
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1
@@ -308,6 +314,7 @@ def main(
             sys.exit(EXIT_IO)
         # Local imports — connectors only instantiated on live backend so the
         # default path keeps a zero-dependency CLI footprint.
+        from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
         from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
         from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
         from sonar.connectors.fred import FredConnector  # noqa: PLC0415
@@ -315,8 +322,9 @@ def main(
         fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
         cbo = CboConnector(fred=fred)
         ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
-        monetary_builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb)
-        connectors_to_close.extend([fred, ecb])
+        boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
+        monetary_builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe)
+        connectors_to_close.extend([fred, ecb, boe])
         builder = _live_inputs_builder_factory(
             builder=monetary_builder, history_years=history_years
         )

@@ -20,6 +20,7 @@ from sonar.indices.monetary.m2_taylor_gaps import M2TaylorGapsInputs
 from sonar.indices.monetary.m4_fci import M4FciInputs
 from sonar.indices.monetary.orchestrator import MonetaryIndicesInputs
 from sonar.pipelines.daily_monetary_indices import (
+    MONETARY_SUPPORTED_COUNTRIES,
     T1_7_COUNTRIES,
     default_inputs_builder,
     run_one,
@@ -116,3 +117,21 @@ def test_seven_country_synthetic_run(session: Session) -> None:
 def test_targets_constant_matches_brief() -> None:
     assert T1_7_COUNTRIES == ("US", "DE", "PT", "IT", "ES", "FR", "NL")
     assert len(T1_7_COUNTRIES) == 7
+
+
+def test_monetary_supported_countries_includes_uk() -> None:
+    """Sprint 8-I adds UK; US + EA stay; UK must be opt-in via --country."""
+    assert "UK" in MONETARY_SUPPORTED_COUNTRIES
+    assert "US" in MONETARY_SUPPORTED_COUNTRIES
+    assert "EA" in MONETARY_SUPPORTED_COUNTRIES
+    # UK is NOT in T1_7_COUNTRIES (--all-t1 preserves 7-country semantics).
+    assert "UK" not in T1_7_COUNTRIES
+
+
+def test_run_one_uk_synthetic_persists_m1(session: Session) -> None:
+    """UK synthetic bundle — pipeline persists M1 (M2/M4 not wired this sprint)."""
+    outcome = run_one(session, "UK", date(2024, 12, 31), inputs_builder=_synthetic_builder)
+    assert outcome.persisted["m1"] == 1
+    # The synthetic builder populates M2/M4 too, so they persist here;
+    # the real live path leaves them None via NotImplementedError catch.
+    assert session.query(M1Row).filter(M1Row.country_code == "UK").count() == 1
