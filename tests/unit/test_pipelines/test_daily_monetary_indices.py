@@ -121,17 +121,19 @@ def test_targets_constant_matches_brief() -> None:
 
 
 def test_monetary_supported_countries_includes_gb_and_jp() -> None:
-    """GB canonical (ADR-0007) + JP (Sprint L) + CA (Sprint S); US + EA stay; none in T1_7."""
+    """GB (ADR-0007) + JP + CA + AU stay; US + EA present; none in T1_7."""
     assert "GB" in MONETARY_SUPPORTED_COUNTRIES
     assert "JP" in MONETARY_SUPPORTED_COUNTRIES
     assert "CA" in MONETARY_SUPPORTED_COUNTRIES
+    assert "AU" in MONETARY_SUPPORTED_COUNTRIES
     assert "US" in MONETARY_SUPPORTED_COUNTRIES
     assert "EA" in MONETARY_SUPPORTED_COUNTRIES
-    # Neither GB / JP / CA / EA is in T1_7_COUNTRIES (--all-t1 preserves
-    # the historical 7-country semantics).
+    # None of GB / JP / CA / AU / EA is in T1_7_COUNTRIES (--all-t1
+    # preserves the historical 7-country semantics).
     assert "GB" not in T1_7_COUNTRIES
     assert "JP" not in T1_7_COUNTRIES
     assert "CA" not in T1_7_COUNTRIES
+    assert "AU" not in T1_7_COUNTRIES
     assert "EA" not in T1_7_COUNTRIES
 
 
@@ -210,3 +212,17 @@ def test_run_one_ca_synthetic_persists_m1(session: Session) -> None:
     outcome = run_one(session, "CA", date(2024, 12, 31), inputs_builder=_synthetic_builder)
     assert outcome.persisted["m1"] == 1
     assert session.query(M1Row).filter(M1Row.country_code == "CA").count() == 1
+
+
+def test_run_one_au_synthetic_persists_m1(session: Session) -> None:
+    """AU synthetic bundle — pipeline persists M1 via the TE-primary cascade.
+
+    Mirrors the JP / CA synthetic-bundle smoke — live builders leave
+    M2/M4 as None via ``InsufficientDataError`` catch (scaffold raises
+    pending CAL-AU-CPI / CAL-AU-GAP / CAL-AU-M4-FCI), but the
+    synthetic builder passes through so the M1/M2/M4 routing is
+    exercised end-to-end.
+    """
+    outcome = run_one(session, "AU", date(2024, 12, 31), inputs_builder=_synthetic_builder)
+    assert outcome.persisted["m1"] == 1
+    assert session.query(M1Row).filter(M1Row.country_code == "AU").count() == 1
