@@ -30,8 +30,21 @@ class TestBenchmark:
     def test_us_is_usd_benchmark(self) -> None:
         assert is_benchmark("US", "USD")
 
+    def test_gb_is_gbp_benchmark(self) -> None:
+        assert is_benchmark("GB", "GBP")
+
     def test_pt_is_not_eur_benchmark(self) -> None:
         assert not is_benchmark("PT", "EUR")
+
+    def test_uk_alias_resolves_to_gbp_benchmark_with_warning(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ADR-0007: "UK" still matches GBP benchmark via alias normaliser."""
+        assert is_benchmark("UK", "GBP")
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" in captured.out
+        assert "alias=UK" in captured.out
+        assert "canonical=GB" in captured.out
 
     def test_canonical_benchmark_shortcut(self) -> None:
         result = build_canonical(
@@ -196,7 +209,7 @@ class TestSpec:
         assert BENCHMARK_COUNTRIES_BY_CURRENCY == {
             "EUR": "DE",
             "USD": "US",
-            "GBP": "UK",
+            "GBP": "GB",
             "JPY": "JP",
         }
 

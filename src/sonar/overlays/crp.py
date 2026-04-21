@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
+import structlog
+
 from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
@@ -36,6 +38,8 @@ if TYPE_CHECKING:
 
     from sonar.connectors.base import Observation
     from sonar.connectors.fmp import FMPPriceObservation
+
+log = structlog.get_logger()
 
 __all__ = [
     "BENCHMARK_COUNTRIES_BY_CURRENCY",
@@ -72,9 +76,14 @@ DAMODARAN_STANDARD_RATIO: float = 1.5
 BENCHMARK_COUNTRIES_BY_CURRENCY: dict[str, str] = {
     "EUR": "DE",
     "USD": "US",
-    "GBP": "UK",
+    "GBP": "GB",
     "JPY": "JP",
 }
+
+# ADR-0007 deprecated country aliases — preserved during CAL-128-FOLLOWUP
+# transition window. Removal scheduled Week 10 Day 1
+# (deprecation_target="CAL-128-alias-removal-week10").
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
 
 Method = Literal["CDS", "SOV_SPREAD", "RATING", "BENCHMARK"]
 HIERARCHY: tuple[Method, ...] = ("CDS", "SOV_SPREAD", "RATING")
@@ -193,9 +202,34 @@ def compute_vol_ratio(
     )
 
 
+def _normalize_country_code(country_code: str) -> str:
+    """Normalise deprecated ISO aliases to canonical codes (ADR-0007).
+
+    Emits a structlog deprecation warning when an alias is resolved. Canonical
+    codes are returned unchanged. Removal scheduled Week 10 Day 1.
+    """
+    canonical = _DEPRECATED_COUNTRY_ALIASES.get(country_code)
+    if canonical is None:
+        return country_code
+    log.warning(
+        "crp.deprecated_country_alias",
+        alias=country_code,
+        canonical=canonical,
+        adr="ADR-0007",
+        deprecation_target="CAL-128-alias-removal-week10",
+    )
+    return canonical
+
+
 def is_benchmark(country_code: str, currency: str = "EUR") -> bool:
-    """``True`` if the country is the benchmark for its currency block."""
-    return BENCHMARK_COUNTRIES_BY_CURRENCY.get(currency) == country_code
+    """``True`` if the country is the benchmark for its currency block.
+
+    Deprecated ISO aliases (e.g. "UK") are normalised to canonical ("GB")
+    before comparison and emit a structlog deprecation warning. Removal
+    Week 10 Day 1 per ADR-0007.
+    """
+    normalized = _normalize_country_code(country_code)
+    return BENCHMARK_COUNTRIES_BY_CURRENCY.get(currency) == normalized
 
 
 # ---------------------------------------------------------------------------
