@@ -64,6 +64,11 @@ __all__ = [
     "InputsBuilder",
     "OverlayBundle",
     "OverlayResults",
+    "StaticInputsBuilder",
+    "build_erp_us_bundle",
+    "build_expected_inflation_bundle",
+    "build_rating_bundle",
+    "build_sov_spread_crp_bundle",
     "default_inputs_builder",
     "main",
     "nss_spot_exists",
@@ -167,9 +172,233 @@ def default_inputs_builder(
 
 
 # ---------------------------------------------------------------------------
-# Per-overlay compute helpers — Commits 2-5 flesh these out. For C1 the
-# pipeline still resolves end-to-end: each helper is a synchronous
-# one-liner that returns None so the gather stays zero-network.
+# Bundle assemblers — C2-C5 wire each overlay's inputs from reasonable
+# defaults. Live-connector assemblers (FMP / Shiller / Multpl / TE
+# sovereign yields / Damodaran scrape / ECB linkers) land in follow-on
+# CALs; this sprint orchestrates the compute + persist layer.
+# ---------------------------------------------------------------------------
+
+
+def build_erp_us_bundle(
+    *,
+    observation_date: date,
+    index_level: float,
+    trailing_earnings: float,
+    forward_earnings_est: float,
+    dividend_yield_pct: float,
+    cape_ratio: float,
+    risk_free_nominal: float,
+    risk_free_real: float,
+    buyback_yield_pct: float | None = None,
+    consensus_growth_5y: float = 0.10,
+    retention: float = 0.60,
+    roe: float = 0.20,
+    risk_free_confidence: float = 0.95,
+    upstream_flags: tuple[str, ...] = (),
+) -> ERPInput:
+    """Assemble an :class:`ERPInput` for US with explicit live-ish values.
+
+    Pass-through to the :class:`sonar.overlays.erp.ERPInput` dataclass
+    with sensible Week-3.5 defaults for ``consensus_growth_5y`` /
+    ``retention`` / ``roe`` (Damodaran standard table). Callers that
+    have a live FMP / Shiller / Multpl assembly override.
+    """
+    from sonar.overlays.erp import ERPInput  # noqa: PLC0415
+
+    return ERPInput(
+        market_index="SPX",
+        country_code="US",
+        observation_date=observation_date,
+        index_level=index_level,
+        trailing_earnings=trailing_earnings,
+        forward_earnings_est=forward_earnings_est,
+        dividend_yield_pct=dividend_yield_pct,
+        buyback_yield_pct=buyback_yield_pct,
+        cape_ratio=cape_ratio,
+        risk_free_nominal=risk_free_nominal,
+        risk_free_real=risk_free_real,
+        consensus_growth_5y=consensus_growth_5y,
+        retention=retention,
+        roe=roe,
+        risk_free_confidence=risk_free_confidence,
+        upstream_flags=upstream_flags,
+    )
+
+
+def build_sov_spread_crp_bundle(
+    *,
+    country_code: str,
+    observation_date: date,
+    sov_yield_country_pct: float,
+    sov_yield_benchmark_pct: float,
+    vol_ratio: float = 1.23,
+    vol_ratio_source: str = "damodaran_standard",
+    tenor: str = "10Y",
+    currency_denomination: str = "EUR",
+) -> dict[str, Any]:
+    """Build a CRP kwargs dict routed through the SOV_SPREAD method.
+
+    Yields in decimal (e.g. ``0.042`` for 4.2 %). Returns a ``**kwargs``
+    dict ready for :func:`sonar.overlays.crp.build_canonical`.
+    """
+    from sonar.overlays.crp import compute_sov_spread  # noqa: PLC0415
+
+    sov_spread = compute_sov_spread(
+        country_code=country_code,
+        observation_date=observation_date,
+        sov_yield_country_pct=sov_yield_country_pct,
+        sov_yield_benchmark_pct=sov_yield_benchmark_pct,
+        tenor=tenor,
+        currency_denomination=currency_denomination,
+        vol_ratio=vol_ratio,
+        vol_ratio_source=vol_ratio_source,
+    )
+    return {
+        "country_code": country_code,
+        "observation_date": observation_date,
+        "sov_spread": sov_spread,
+        "currency": currency_denomination,
+    }
+
+
+def build_rating_bundle(
+    *,
+    country_code: str,
+    observation_date: date,
+    agency_ratings: list[dict[str, Any]],
+    rating_type: str = "FC",
+) -> dict[str, Any]:
+    """Build a rating-spread kwargs dict from per-agency raw rating inputs.
+
+    Each element of ``agency_ratings`` is a dict with ``agency`` /
+    ``rating_raw`` / ``outlook`` / ``watch`` / ``action_date`` keys —
+    the assembler runs them through ``apply_modifiers`` to produce the
+    :class:`RatingAgencyRaw` rows that ``consolidate`` expects.
+    """
+    from sonar.overlays.rating_spread import (  # noqa: PLC0415
+        RatingAgencyRaw,
+        apply_modifiers,
+        lookup_base_notch,
+    )
+
+    rows: list[RatingAgencyRaw] = []
+    for raw in agency_ratings:
+        base_notch = lookup_base_notch(raw["agency"], raw["rating_raw"])
+        adjusted = apply_modifiers(
+            base_notch=base_notch,
+            outlook=raw["outlook"],
+            watch=raw["watch"],
+        )
+        rows.append(
+            RatingAgencyRaw(
+                agency=raw["agency"],
+                rating_raw=raw["rating_raw"],
+                rating_type=rating_type,  # type: ignore[arg-type]
+                base_notch=base_notch,
+                notch_adjusted=adjusted,
+                outlook=raw["outlook"],
+                watch=raw["watch"],
+                action_date=raw["action_date"],
+            )
+        )
+    return {
+        "rows": rows,
+        "country_code": country_code,
+        "observation_date": observation_date,
+        "rating_type": rating_type,
+    }
+
+
+def build_expected_inflation_bundle(
+    *,
+    country_code: str,
+    observation_date: date,
+    nominal_yields: dict[str, float],
+    linker_real_yields: dict[str, float] | None = None,
+    survey_horizons: dict[str, float] | None = None,
+    survey_name: str | None = None,
+    survey_release_date: date | None = None,
+    bc_target_pct: float | None = 0.02,
+) -> dict[str, Any]:
+    """Build expected-inflation kwargs dict for :func:`build_canonical`.
+
+    Supplies a BEI row when both nominal + linker yields are provided,
+    and/or a SURVEY row when survey horizons are provided. Returns a
+    dict directly usable as ``**kwargs``.
+    """
+    from sonar.overlays.expected_inflation import (  # noqa: PLC0415
+        ExpInfBEI,
+        ExpInfSurvey,
+        compute_bei_from_yields,
+    )
+
+    bei: ExpInfBEI | None = None
+    if linker_real_yields is not None:
+        tenors = compute_bei_from_yields(nominal_yields, linker_real_yields)
+        if tenors:
+            bei = ExpInfBEI(
+                country_code=country_code,
+                observation_date=observation_date,
+                nominal_yields=dict(nominal_yields),
+                linker_real_yields=dict(linker_real_yields),
+                bei_tenors=tenors,
+                linker_connector="fred",
+                nss_fit_id=None,
+                confidence=0.85,
+                flags=(),
+            )
+
+    survey: ExpInfSurvey | None = None
+    if survey_horizons and survey_name and survey_release_date:
+        survey = ExpInfSurvey(
+            country_code=country_code,
+            observation_date=observation_date,
+            survey_name=survey_name,
+            survey_release_date=survey_release_date,
+            horizons=dict(survey_horizons),
+            interpolated_tenors=dict(survey_horizons),
+            confidence=0.75,
+            flags=(),
+        )
+
+    return {
+        "country_code": country_code,
+        "observation_date": observation_date,
+        "bei": bei,
+        "survey": survey,
+        "bc_target_pct": bc_target_pct,
+    }
+
+
+class StaticInputsBuilder:
+    """Wrap pre-assembled per-country ``OverlayBundle`` objects.
+
+    Test and integration-smoke friendly: construct with a
+    ``{country_code: OverlayBundle}`` mapping and the builder dispatches
+    on ``country_code`` in its ``__call__``. Unknown countries fall
+    back to an empty bundle so the orchestrator routes a structured
+    skip.
+    """
+
+    def __init__(self, bundles: dict[str, OverlayBundle]) -> None:
+        self._bundles = bundles
+
+    def __call__(
+        self,
+        session: Session,  # noqa: ARG002 — Protocol compatibility
+        country_code: str,
+        observation_date: date,
+    ) -> OverlayBundle:
+        hit = self._bundles.get(country_code)
+        if hit is not None:
+            return hit
+        return OverlayBundle(country_code=country_code, observation_date=observation_date)
+
+
+# ---------------------------------------------------------------------------
+# Per-overlay compute helpers — run_one invokes these via asyncio.gather.
+# Each returns (result_or_none, skip_reason_or_none) so one overlay's
+# InsufficientDataError/ValueError never short-circuits the gather.
 # ---------------------------------------------------------------------------
 
 
