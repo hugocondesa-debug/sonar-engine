@@ -247,8 +247,8 @@ def test_format_matrix_shape() -> None:
         CountryStatus(country_code="DE", as_of_date=ANCHOR),  # all cycles None
     ]
     table = format_matrix(statuses)
-    # Country + 4 cycle columns.
-    assert len(table.columns) == 5
+    # Country + 4 cycle columns + L5 column.
+    assert len(table.columns) == 6
     assert table.row_count == 2
 
 
@@ -265,3 +265,99 @@ def test_all_t1_matrix_end_to_end(session: Session) -> None:
     assert by_country["PT"].ecs is None
     table = format_matrix(statuses)
     assert table.row_count == 7
+
+
+# ---------------------------------------------------------------------------
+# L5 meta-regime display (Sprint K C3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_l5(
+    session: Session,
+    *,
+    country: str = "US",
+    meta_regime: str = "soft_landing",
+    confidence: float = 0.82,
+    reason: str = "expansion+neutral",
+    flags: str | None = "L5_SOFT_LANDING",
+    ts: datetime | None = None,
+) -> None:
+    session.execute(
+        text(
+            "INSERT INTO l5_meta_regimes "
+            "(l5_id, country_code, date, methodology_version, meta_regime, "
+            "ecs_id, cccs_id, fcs_id, msc_id, confidence, flags, "
+            "classification_reason, created_at) "
+            "VALUES (:id, :c, :d, 'L5_META_REGIME_v0.1', :mr, "
+            "NULL, NULL, NULL, NULL, :conf, :flags, :reason, :ts)"
+        ),
+        {
+            "id": f"l5-{country}",
+            "c": country,
+            "d": ANCHOR.isoformat(),
+            "mr": meta_regime,
+            "conf": confidence,
+            "flags": flags,
+            "reason": reason,
+            "ts": (ts or NOW).isoformat(),
+        },
+    )
+
+
+def test_l5_meta_regime_populated_when_row_exists(session: Session) -> None:
+    _seed_l5(session)
+    session.commit()
+    status = get_country_status(session, "US", ANCHOR, now=NOW)
+    assert status.l5_meta_regime is not None
+    assert status.l5_meta_regime.meta_regime == "soft_landing"
+    assert status.l5_meta_regime.confidence == pytest.approx(0.82)
+    assert status.l5_meta_regime.flags == ("L5_SOFT_LANDING",)
+    assert status.l5_meta_regime.classification_reason == "expansion+neutral"
+    assert status.l5_meta_regime.freshness == "fresh"
+
+
+def test_l5_none_when_no_row(session: Session) -> None:
+    status = get_country_status(session, "US", ANCHOR, now=NOW)
+    assert status.l5_meta_regime is None
+
+
+def test_l5_stale_freshness(session: Session) -> None:
+    _seed_l5(session, ts=NOW - timedelta(hours=48))
+    session.commit()
+    status = get_country_status(session, "US", ANCHOR, now=NOW)
+    assert status.l5_meta_regime is not None
+    assert status.l5_meta_regime.freshness == "stale"
+
+
+def test_format_status_summary_includes_l5_row(session: Session) -> None:
+    _seed_l5(session, meta_regime="overheating")
+    session.commit()
+    status = get_country_status(session, "US", ANCHOR, now=NOW)
+    table = format_status_summary(status)
+    # Row count: we only seeded L5 (no L4 cycles), so one Meta-Regime row.
+    assert table.row_count == 1
+
+
+def test_format_status_summary_na_when_l5_missing() -> None:
+    status = CountryStatus(country_code="US", as_of_date=ANCHOR)
+    table = format_status_summary(status)
+    # No cycles + no L5 → zero L4 rows + one "Meta-Regime … N/A" row.
+    assert table.row_count == 1
+
+
+def test_format_status_verbose_includes_classification_reason(session: Session) -> None:
+    _seed_l5(session, reason="peak+boom+optimism", meta_regime="overheating")
+    session.commit()
+    status = get_country_status(session, "US", ANCHOR, now=NOW)
+    table = format_status_verbose(status)
+    assert table.row_count == 1  # L5 row only (no L4 cycles seeded)
+
+
+def test_matrix_includes_l5_column(session: Session) -> None:
+    _seed_l5(session, country="US", meta_regime="soft_landing")
+    _seed_l5(session, country="DE", meta_regime="recession_risk")
+    session.commit()
+    statuses = [get_country_status(session, c, ANCHOR, now=NOW) for c in ("US", "DE", "PT")]
+    table = format_matrix(statuses)
+    assert len(table.columns) == 6  # Country + CCCS/FCS/MSC/ECS + L5
+    assert table.row_count == 3

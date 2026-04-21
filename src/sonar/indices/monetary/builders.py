@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
+    from sonar.connectors.te import TEConnector
 
 
 __all__ = [
@@ -357,7 +358,7 @@ async def build_m1_ea_inputs(
 
 
 # ---------------------------------------------------------------------------
-# M1 — UK (Sprint I CAL — BoE → TE → FRED cascade)
+# M1 — UK (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
 # ---------------------------------------------------------------------------
 
 
@@ -365,54 +366,86 @@ async def _uk_bank_rate_cascade(
     start: date,
     end: date,
     *,
+    te: TEConnector | None,
     boe: BoEDatabaseConnector | None,
     fred: FredConnector,
-) -> tuple[list[_DatedValue], tuple[str, ...]]:
-    """Fetch UK Bank Rate history with BoE → FRED fallback.
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch UK Bank Rate via TE → BoE → FRED priority-first-wins cascade.
 
-    Returns the series + any `upstream_flags` describing which source
-    answered. BoE is preferred (daily, authoritative); FRED's
-    ``IRSTCI01GBM156N`` OECD mirror is monthly but reliably reachable
-    from any IP (BoE IADB is currently behind Akamai anti-bot — see
-    :mod:`sonar.connectors.boe_database`).
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering (first success wins):
+
+    1. **TE primary** (``fetch_uk_bank_rate`` — daily, BoE-sourced via
+       ``UKBRBASE``). Emits ``UK_BANK_RATE_TE_PRIMARY`` on success.
+    2. **BoE native** (``fetch_bank_rate`` on the IADB CSV endpoint).
+       Currently gated by Akamai anti-bot — wire-ready for future
+       bypass. Emits ``UK_BANK_RATE_BOE_NATIVE`` on success.
+    3. **FRED OECD mirror** (``IRSTCI01GBM156N`` — monthly lag).
+       Last-resort fallback emitting both
+       ``UK_BANK_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE`` to
+       make the degradation auditable downstream.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three return
+    empty the cascade raises ``ValueError``.
     """
-    flags: list[str] = []
-    if boe is not None:
-        from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
 
+    if te is not None:
+        try:
+            te_obs = await te.fetch_uk_bank_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            return (
+                [_DatedValue(o.observation_date, o.value) for o in te_obs],
+                ("UK_BANK_RATE_TE_PRIMARY",),
+                ("te",),
+            )
+
+    if boe is not None:
         try:
             boe_obs = await boe.fetch_bank_rate(start, end)
         except DataUnavailableError:
-            flags.append("UK_BANK_RATE_BOE_FALLBACK")
-        else:
-            if boe_obs:
-                return (
-                    [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boe_obs],
-                    (),
-                )
-            flags.append("UK_BANK_RATE_BOE_EMPTY")
+            boe_obs = []
+        if boe_obs:
+            return (
+                [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boe_obs],
+                ("UK_BANK_RATE_BOE_NATIVE",),
+                ("boe",),
+            )
+
     fred_obs = await fred.fetch_series(FRED_UK_BANK_RATE_SERIES, start, end)
-    if not fred_obs:
-        msg = "UK Bank Rate: BoE + FRED both returned empty"
-        raise ValueError(msg)
-    return (
-        [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
-        tuple(flags),
-    )
+    if fred_obs:
+        return (
+            [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
+            ("UK_BANK_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
+            ("fred",),
+        )
+
+    msg = "UK Bank Rate unavailable from TE, BoE, and FRED"
+    raise ValueError(msg)
 
 
 async def build_m1_uk_inputs(
     fred: FredConnector,
     observation_date: date,
     *,
+    te: TEConnector | None = None,
     boe: BoEDatabaseConnector | None = None,
     history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
 ) -> M1EffectiveRatesInputs:
-    """Assemble M1 UK inputs via BoE → FRED cascade + YAML r*/target.
+    """Assemble M1 UK inputs via TE → BoE → FRED cascade + YAML r*/target.
 
-    BoE IADB is preferred when reachable. When the CSV endpoint returns
-    the Akamai anti-bot ErrorPage (or ``boe`` is omitted), the builder
-    falls back to FRED's OECD-mirror series.
+    Sprint I-patch re-prioritised the cascade: TE primary (daily
+    BoE-sourced via ``UKBRBASE``) fixes the signal-quality regression
+    introduced by Sprint I Day 1 — where the FRED OECD mirror's monthly
+    cadence lagged BoE's daily policy decisions. BoE IADB stays as the
+    wire-ready secondary for post-Akamai unblock; FRED is the
+    last-resort fallback that emits ``UK_BANK_RATE_FRED_FALLBACK_STALE``
+    + ``CALIBRATION_STALE`` so downstream consumers can surface the
+    degradation.
 
     UK-specific degradations (Phase 1):
 
@@ -426,8 +459,8 @@ async def build_m1_uk_inputs(
     """
     start = observation_date - timedelta(days=history_years * 366)
 
-    policy_hist, cascade_flags = await _uk_bank_rate_cascade(
-        start, observation_date, boe=boe, fred=fred
+    policy_hist, cascade_flags, cascade_sources = await _uk_bank_rate_cascade(
+        start, observation_date, te=te, boe=boe, fred=fred
     )
     latest_policy = _latest_on_or_before(policy_hist, observation_date)
     if latest_policy is None:
@@ -444,12 +477,13 @@ async def build_m1_uk_inputs(
     real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
     stance_hist = [r - r_star_pct for r in real_shadow_hist]
 
-    flags: list[str] = list(cascade_flags)
-    flags.append("R_STAR_PROXY")
-    flags.append("EXPECTED_INFLATION_CB_TARGET")
-    flags.append("UK_BS_GDP_PROXY_ZERO")
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "UK_BS_GDP_PROXY_ZERO",
+    ]
 
-    source: tuple[str, ...] = ("boe", "fred") if boe is not None else ("fred",)
     return M1EffectiveRatesInputs(
         country_code="UK",
         observation_date=observation_date,
@@ -462,7 +496,7 @@ async def build_m1_uk_inputs(
         stance_vs_neutral_history=tuple(stance_hist),
         balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
         lookback_years=history_years,
-        source_connector=source,
+        source_connector=cascade_sources,
         upstream_flags=tuple(flags),
     )
 
@@ -628,11 +662,13 @@ class MonetaryInputsBuilder:
         cbo: CboConnector,
         ecb_sdw: EcbSdwConnector,
         boe: BoEDatabaseConnector | None = None,
+        te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
         self.cbo = cbo
         self.ecb_sdw = ecb_sdw
         self.boe = boe
+        self.te = te
 
     async def build_m1_inputs(
         self, country: str, observation_date: date, **kwargs: object
@@ -645,6 +681,7 @@ class MonetaryInputsBuilder:
             return await build_m1_uk_inputs(
                 self.fred,
                 observation_date,
+                te=self.te,
                 boe=self.boe,
                 **kwargs,  # type: ignore[arg-type]
             )

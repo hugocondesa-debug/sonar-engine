@@ -39,6 +39,7 @@ __all__ = [
     "T1_7_COUNTRIES",
     "CountryStatus",
     "CycleStatus",
+    "L5MetaRegimeStatus",
     "app",
     "format_matrix",
     "format_status_summary",
@@ -73,8 +74,20 @@ class CycleStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class L5MetaRegimeStatus:
+    """Snapshot of the L5 meta-regime for a ``(country, as_of_date)``."""
+
+    meta_regime: str
+    confidence: float
+    flags: tuple[str, ...]
+    classification_reason: str
+    last_updated: datetime
+    freshness: Freshness
+
+
+@dataclass(frozen=True, slots=True)
 class CountryStatus:
-    """All four L4 cycles for a country at a given anchor date."""
+    """All four L4 cycles + the L5 meta-regime for a country at a given anchor date."""
 
     country_code: str
     as_of_date: date
@@ -82,6 +95,7 @@ class CountryStatus:
     fcs: CycleStatus | None = None
     msc: CycleStatus | None = None
     ecs: CycleStatus | None = None
+    l5_meta_regime: L5MetaRegimeStatus | None = None
 
 
 def _coerce_timestamp(value: object) -> datetime:
@@ -235,6 +249,46 @@ def get_country_status(
                 "e4": "e4_score_0_100",
             },
         ),
+        l5_meta_regime=_fetch_l5_meta_regime(session, country_code, as_of, now=anchor),
+    )
+
+
+def _fetch_l5_meta_regime(
+    session: Session,
+    country_code: str,
+    as_of: date,
+    *,
+    now: datetime,
+) -> L5MetaRegimeStatus | None:
+    """Query ``l5_meta_regimes`` for the latest row at or before ``as_of``.
+
+    Returns ``None`` when no row exists (expected when the L4 cycles
+    persisted without meeting the Policy 1 >= 3/4 threshold, or when
+    Sprint K's daily_cycles wiring has not yet run for this triplet).
+    """
+    row = (
+        session.execute(
+            text(
+                "SELECT meta_regime, confidence, flags, classification_reason, created_at "
+                "FROM l5_meta_regimes "
+                "WHERE country_code = :c AND date <= :d "
+                "ORDER BY date DESC, created_at DESC LIMIT 1"
+            ),
+            {"c": country_code, "d": as_of.isoformat()},
+        )
+        .mappings()
+        .first()
+    )
+    if row is None:
+        return None
+    last_updated = _coerce_timestamp(row["created_at"])
+    return L5MetaRegimeStatus(
+        meta_regime=str(row["meta_regime"]),
+        confidence=float(row["confidence"]),
+        flags=_parse_flags(row["flags"]),
+        classification_reason=str(row["classification_reason"]),
+        last_updated=last_updated,
+        freshness=_classify_freshness(last_updated, now=now),
     )
 
 
@@ -262,13 +316,30 @@ _REGIME_STYLE = {
 }
 
 
+# L5 meta-regime → Rich style. Six canonical regimes per
+# docs/specs/regimes/cross-cycle-meta-regimes.md §2.
+_L5_REGIME_STYLE: dict[str, str] = {
+    "overheating": "red",
+    "stagflation_risk": "magenta",
+    "late_cycle_bubble": "yellow",  # "orange" not a canonical Rich color
+    "recession_risk": "red",
+    "soft_landing": "green",
+    "unclassified": "bright_black",  # Rich equivalent of gray
+}
+
+
 def _regime_markup(regime: str) -> str:
     style = _REGIME_STYLE.get(regime, "white")
     return f"[{style}]{regime}[/{style}]"
 
 
+def _l5_regime_markup(meta_regime: str) -> str:
+    style = _L5_REGIME_STYLE.get(meta_regime, "white")
+    return f"[{style}]{meta_regime}[/{style}]"
+
+
 def format_status_summary(status: CountryStatus) -> Table:
-    """4-row Rich table with one row per L4 cycle."""
+    """4-row Rich table with one row per L4 cycle plus an L5 meta-regime row."""
     table = Table(
         title=f"SONAR cycle status — {status.country_code} @ {status.as_of_date.isoformat()}",
         show_lines=False,
@@ -291,11 +362,25 @@ def format_status_summary(status: CountryStatus) -> Table:
             cycle.last_updated.isoformat(sep=" ", timespec="minutes"),
             cycle.freshness,
         )
+    # L5 row — "Meta-Regime" in the cycle column, regime styled via
+    # _L5_REGIME_STYLE, score column left blank (L5 has no 0-100 score).
+    if status.l5_meta_regime is not None:
+        l5 = status.l5_meta_regime
+        table.add_row(
+            "Meta-Regime",
+            "—",
+            _l5_regime_markup(l5.meta_regime),
+            f"{l5.confidence:.2f}",
+            l5.last_updated.isoformat(sep=" ", timespec="minutes"),
+            l5.freshness,
+        )
+    else:
+        table.add_row("Meta-Regime", "—", "[dim]N/A[/dim]", "—", "—", "—")
     return table
 
 
 def format_status_verbose(status: CountryStatus) -> Table:
-    """Extend the summary with L3 sub-score breakdowns per cycle."""
+    """Extend the summary with L3 sub-score breakdowns per cycle and L5 detail."""
     table = Table(
         title=f"SONAR cycle status (verbose) — {status.country_code} "
         f"@ {status.as_of_date.isoformat()}",
@@ -318,15 +403,29 @@ def format_status_verbose(status: CountryStatus) -> Table:
             " ".join(sub_pairs) or "—",
             ",".join(cycle.flags) or "—",
         )
+    # L5 verbose row — classification_reason in the sub-index slot, flags
+    # (including any L5_*_MISSING markers) in the flags column.
+    if status.l5_meta_regime is not None:
+        l5 = status.l5_meta_regime
+        table.add_row(
+            "Meta-Regime",
+            "—",
+            _l5_regime_markup(l5.meta_regime),
+            f"reason={l5.classification_reason}",
+            ",".join(l5.flags) or "—",
+        )
+    else:
+        table.add_row("Meta-Regime", "—", "[dim]N/A[/dim]", "—", "—")
     return table
 
 
 def format_matrix(statuses: list[CountryStatus]) -> Table:
-    """7-country x 4-cycle matrix; shows score + regime per cell."""
+    """7-country x 4-cycle matrix + L5 meta-regime column."""
     table = Table(title="SONAR cross-country cycle matrix", header_style="bold")
     table.add_column("Country")
     for cycle in ("CCCS", "FCS", "MSC", "ECS"):
         table.add_column(cycle)
+    table.add_column("L5")
     for status in statuses:
         row: list[str] = [status.country_code]
         for slot in (status.cccs, status.fcs, status.msc, status.ecs):
@@ -334,6 +433,10 @@ def format_matrix(statuses: list[CountryStatus]) -> Table:
                 row.append("[dim]N/A[/dim]")
             else:
                 row.append(f"{slot.score:.0f} {_regime_markup(slot.regime)}")
+        if status.l5_meta_regime is None:
+            row.append("[dim]N/A[/dim]")
+        else:
+            row.append(_l5_regime_markup(status.l5_meta_regime.meta_regime))
         table.add_row(*row)
     return table
 

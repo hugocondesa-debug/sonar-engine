@@ -172,6 +172,39 @@ class _FakeBoEAkamai:
         raise DataUnavailableError(msg)
 
 
+@dataclass(frozen=True)
+class _FakeTEIndicatorObs:
+    """Mirrors :class:`TEIndicatorObservation` shape for cascade tests."""
+
+    observation_date: date
+    value: float
+    historical_data_symbol: str = "UKBRBASE"
+
+
+class _FakeTESuccess:
+    """TE primary path — returns daily UK Bank Rate observations in pct."""
+
+    def __init__(self, *, pct: float = 4.80) -> None:
+        self.pct = pct
+
+    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(_FakeTEIndicatorObs(observation_date=d, value=self.pct))
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTEUnavailable:
+    """TE primary fails with DataUnavailableError — cascade fails over."""
+
+    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='UK' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
 class _FakeCboConnector:
     def __init__(self, gap: float = 0.005) -> None:
         self.gap = gap
@@ -329,51 +362,78 @@ class TestBuildM1Ea:
 
 
 # ---------------------------------------------------------------------------
-# M1 UK (Sprint I — BoE → FRED cascade)
+# M1 UK (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
 # ---------------------------------------------------------------------------
 
 
 class TestBuildM1Uk:
     @pytest.mark.asyncio
-    async def test_boe_primary_path(self) -> None:
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily series, no staleness flags."""
         fred = _FakeFredConnector()
-        boe = _FakeBoESuccess()
+        boe = _FakeBoESuccess()  # present but skipped (TE wins priority)
+        te = _FakeTESuccess(pct=4.80)
         inputs = await build_m1_uk_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
             boe=boe,  # type: ignore[arg-type]
             history_years=2,
         )
         assert inputs.country_code == "UK"
-        # BoE returned 4.75 % — cascade flag absent when BoE succeeds.
-        assert inputs.policy_rate_pct == pytest.approx(0.0475)
-        assert "UK_BANK_RATE_BOE_FALLBACK" not in inputs.upstream_flags
+        # TE returned 4.80 % — priority-first-wins over BoE fake's 4.75 %.
+        assert inputs.policy_rate_pct == pytest.approx(0.048)
+        assert "UK_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "UK_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
         assert "R_STAR_PROXY" in inputs.upstream_flags
         assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
         assert "UK_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
-        assert inputs.r_star_pct == pytest.approx(0.005)
-        assert inputs.balance_sheet_pct_gdp_current == 0.0
-        assert inputs.source_connector == ("boe", "fred")
+        assert inputs.source_connector == ("te",)
 
     @pytest.mark.asyncio
-    async def test_fred_fallback_when_boe_gated(self) -> None:
-        """BoE IADB ErrorPage → cascade to FRED OECD mirror."""
+    async def test_boe_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → BoE native takes over."""
         fred = _FakeFredConnector()
-        boe = _FakeBoEAkamai()
+        boe = _FakeBoESuccess()
+        te = _FakeTEUnavailable()
         inputs = await build_m1_uk_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
             boe=boe,  # type: ignore[arg-type]
             history_years=2,
         )
-        assert inputs.country_code == "UK"
-        # FRED mirror returned 4.70 %.
-        assert inputs.policy_rate_pct == pytest.approx(0.047)
-        assert "UK_BANK_RATE_BOE_FALLBACK" in inputs.upstream_flags
+        assert inputs.policy_rate_pct == pytest.approx(0.0475)  # BoE 4.75 %
+        assert "UK_BANK_RATE_BOE_NATIVE" in inputs.upstream_flags
+        assert "UK_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("boe",)
 
     @pytest.mark.asyncio
-    async def test_fred_only_when_boe_absent(self) -> None:
-        """boe=None (default) → FRED path without cascade flag."""
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + BoE both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        boe = _FakeBoEAkamai()
+        te = _FakeTEUnavailable()
+        inputs = await build_m1_uk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            boe=boe,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.047)  # FRED 4.70 %
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "UK_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "UK_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_boe_absent(self) -> None:
+        """te=None + boe=None → FRED path still emits staleness flags."""
         fred = _FakeFredConnector()
         inputs = await build_m1_uk_inputs(
             fred,  # type: ignore[arg-type]
@@ -382,21 +442,26 @@ class TestBuildM1Uk:
         )
         assert inputs.country_code == "UK"
         assert inputs.source_connector == ("fred",)
-        assert "UK_BANK_RATE_BOE_FALLBACK" not in inputs.upstream_flags
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
 
     @pytest.mark.asyncio
-    async def test_empty_sources_raises(self) -> None:
-        class _Empty:
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + BoE gated + FRED empty → ValueError."""
+
+        class _EmptyFred:
             async def fetch_series(
                 self, series_id: str, start: date, end: date
             ) -> list[Observation]:
                 _ = series_id, start, end
                 return []
 
-        with pytest.raises(ValueError, match="both returned empty"):
+        with pytest.raises(ValueError, match="TE, BoE, and FRED"):
             await build_m1_uk_inputs(
-                _Empty(),  # type: ignore[arg-type]
+                _EmptyFred(),  # type: ignore[arg-type]
                 date(2024, 12, 31),
+                te=_FakeTEUnavailable(),  # type: ignore[arg-type]
+                boe=_FakeBoEAkamai(),  # type: ignore[arg-type]
                 history_years=1,
             )
 
@@ -474,7 +539,7 @@ class TestMonetaryInputsBuilderFacade:
 
     @pytest.mark.asyncio
     async def test_build_m1_uk_via_facade(self) -> None:
-        """UK M1 dispatch — FRED-only path (no BoE handle)."""
+        """UK M1 dispatch — FRED-only path (no TE/BoE handles) → stale flags."""
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
@@ -483,6 +548,21 @@ class TestMonetaryInputsBuilderFacade:
         inputs = await builder.build_m1_inputs("UK", date(2024, 12, 31), history_years=2)
         assert inputs.country_code == "UK"
         assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_build_m1_uk_via_facade_te_primary(self) -> None:
+        """UK M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTESuccess(pct=4.80),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("UK", date(2024, 12, 31), history_years=2)
+        assert "UK_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
 
     @pytest.mark.asyncio
     async def test_m1_unsupported_country_raises(self) -> None:
