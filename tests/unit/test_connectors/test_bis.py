@@ -13,6 +13,10 @@ import pytest_asyncio
 from tenacity import wait_none
 
 from sonar.connectors.bis import (
+    ACCEPT_HEADER,
+    AGENCY_ID,
+    BASE_URL,
+    DATAFLOW_VERSIONS,
     BisConnector,
     BisObservation,
     _date_to_period,
@@ -188,6 +192,58 @@ async def test_empty_payload_returns_empty_list(
     httpx_mock.add_response(method="GET", json={"data": {"dataSets": []}})
     obs = await bis_connector.fetch_dsr("XX", date(2024, 1, 1), date(2024, 6, 30))
     assert obs == []
+
+
+def test_accept_header_exact_spec() -> None:
+    """Accept header must be exactly the v1.0.0 SDMX-JSON media type.
+
+    BIS stats.bis.org rejects ``;version=2.0.0`` / ``;version=3.0.0``
+    with HTTP 406 and returns SDMX-XML if the header is omitted
+    (Week 9 Sprint AA / CAL-136 empirical findings). Any extra
+    alternates (``, application/json``) tighten attack surface but the
+    spec pins us to the canonical string.
+    """
+    assert ACCEPT_HEADER == "application/vnd.sdmx.data+json;version=1.0.0"
+
+
+def test_dataflow_versions_map() -> None:
+    """Dataflow → version map is the single source of truth."""
+    assert DATAFLOW_VERSIONS["WS_TC"] == "2.0"
+    assert DATAFLOW_VERSIONS["WS_DSR"] == "1.0"
+    assert DATAFLOW_VERSIONS["WS_CREDIT_GAP"] == "1.0"
+    assert DATAFLOW_VERSIONS["WS_SPP"] == "1.0"
+
+
+async def test_fetch_url_pattern_ws_tc(httpx_mock: HTTPXMock, bis_connector: BisConnector) -> None:
+    """URL for WS_TC must be /data/dataflow/BIS/WS_TC/2.0/{key} with no format qs."""
+    httpx_mock.add_response(method="GET", json=_load_fixture("ws_tc_PT_sample"))
+    await bis_connector.fetch_credit_stock_ratio("PT", date(2024, 1, 1), date(2024, 6, 30))
+    [req] = httpx_mock.get_requests()
+    expected_path = f"{BASE_URL}/data/dataflow/{AGENCY_ID}/WS_TC/2.0/Q.PT.P.A.M.770.A"
+    assert str(req.url).startswith(expected_path), str(req.url)
+    assert "format=jsondata" not in str(req.url), str(req.url)
+    assert req.headers["Accept"] == ACCEPT_HEADER
+
+
+async def test_fetch_url_pattern_ws_dsr(httpx_mock: HTTPXMock, bis_connector: BisConnector) -> None:
+    """URL for WS_DSR must be /data/dataflow/BIS/WS_DSR/1.0/{key}."""
+    httpx_mock.add_response(method="GET", json=_load_fixture("ws_dsr_US_sample"))
+    await bis_connector.fetch_dsr("US", date(2024, 1, 1), date(2024, 6, 30))
+    [req] = httpx_mock.get_requests()
+    expected_path = f"{BASE_URL}/data/dataflow/{AGENCY_ID}/WS_DSR/1.0/Q.US.P"
+    assert str(req.url).startswith(expected_path), str(req.url)
+    assert "format=jsondata" not in str(req.url), str(req.url)
+
+
+async def test_fetch_url_pattern_ws_credit_gap(
+    httpx_mock: HTTPXMock, bis_connector: BisConnector
+) -> None:
+    """URL for WS_CREDIT_GAP must be /data/dataflow/BIS/WS_CREDIT_GAP/1.0/{key}."""
+    httpx_mock.add_response(method="GET", json=_load_fixture("ws_credit_gap_PT_sample"))
+    await bis_connector.fetch_credit_gap("PT", date(2024, 1, 1), date(2024, 6, 30))
+    [req] = httpx_mock.get_requests()
+    expected_path = f"{BASE_URL}/data/dataflow/{AGENCY_ID}/WS_CREDIT_GAP/1.0/Q.PT.P.A.C"
+    assert str(req.url).startswith(expected_path), str(req.url)
 
 
 @pytest.mark.slow

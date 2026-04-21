@@ -2,25 +2,34 @@
 
 Public API:
 - ``fetch_dsr(country, start_date, end_date)`` → ``list[BisObservation]``
-  Dataflow ``BIS:BIS_DSR(1.0)``, key ``Q.{CTY}.P``. Returns DSR in percent
+  Dataflow ``BIS:WS_DSR(1.0)``, key ``Q.{CTY}.P``. Returns DSR in percent
   display (e.g. 14.5 for US 2024-Q2). Phase 0 Bloco D validated 7/7 T1;
   credit-indices-brief-v3 Commit 1 re-validated 2026-04-20.
 - ``fetch_credit_gap(country, start_date, end_date, cg_dtype='C')`` →
-  ``list[BisObservation]``. Dataflow ``BIS:BIS_CREDIT_GAP(1.0)``,
+  ``list[BisObservation]``. Dataflow ``BIS:WS_CREDIT_GAP(1.0)``,
   key ``Q.{CTY}.P.A.{CG_DTYPE}`` where ``CG_DTYPE ∈ {A, B, C}``:
   A=actual, B=trend (BIS one-sided HP), C=gap (actual-trend). Default
   ``C`` for the L2 consumer.
 - ``fetch_credit_stock_ratio(country, start_date, end_date)`` →
-  ``list[BisObservation]``. Dataflow ``BIS:BIS_TOTAL_CREDIT(2.0)``,
-  key ``Q.{CTY}.P.A.M.770.A`` per CAL-019 resolution 2026-04-20.
+  ``list[BisObservation]``. Dataflow ``BIS:WS_TC(2.0)`` (migrated from
+  1.0 during 2026 — see :data:`DATAFLOW_VERSIONS`), key
+  ``Q.{CTY}.P.A.M.770.A`` per CAL-019 resolution 2026-04-20.
   Returns credit-to-GDP ratio in percent display.
-- ``fetch_structure(dataflow_id)`` → ``dict``. Used by Commit 1 CAL-019
-  debug; retained here for future structure-drift detection.
+- ``fetch_property_price_index(country, start_date, end_date)`` →
+  ``list[BisObservation]``. Dataflow ``BIS:WS_SPP(1.0)``, key
+  ``Q.{CTY}.N.628`` — F-cycle F1 input.
+- ``fetch_structure(dataflow_id)`` → ``dict``. Used by CAL-019 debug
+  path; retained here for future structure-drift detection.
 
-Base URL: ``https://stats.bis.org/api/v2``
-Format: ``?format=jsondata`` (SDMX-JSON 1.0.0)
-Accept header: ``application/vnd.sdmx.data+json;version=1.0.0,
-application/json`` — **mandatory** for WS_DSR (omission returns 406).
+Base URL: ``https://stats.bis.org/api/v2``. Path pattern (SDMX v2 REST):
+``/data/dataflow/{AGENCY}/{DATAFLOW_ID}/{VERSION}/{key}`` — legacy
+``/data/{DATAFLOW_ID}/{key}?format=jsondata`` was retired during 2026
+(CAL-136, Week 9 Sprint AA).
+
+Accept header: ``application/vnd.sdmx.data+json;version=1.0.0`` —
+**mandatory**. Omission returns SDMX-XML (StructureSpecificData) and
+``;version=2.0.0``/``;version=3.0.0`` are rejected with HTTP 406.
+
 Rate limit: 1 req/sec polite-use throttle (undocumented).
 Auth: none (public).
 """
@@ -30,7 +39,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import httpx
 import structlog
@@ -50,17 +59,28 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 BASE_URL = "https://stats.bis.org/api/v2"
-ACCEPT_HEADER = "application/vnd.sdmx.data+json;version=1.0.0, application/json"
+AGENCY_ID = "BIS"
+ACCEPT_HEADER = "application/vnd.sdmx.data+json;version=1.0.0"
 RATE_LIMIT_SLEEP_SECONDS = 1.0
 
-# Dataflow identifiers per credit-indices-brief-v3 §3 + credit.md §3.1.
-DATAFLOW_WS_DSR = ("WS_DSR", "1.0")
-DATAFLOW_WS_CREDIT_GAP = ("WS_CREDIT_GAP", "1.0")
-DATAFLOW_WS_TC = ("WS_TC", "2.0")
-# F-cycle F1 property-gap input per docs/specs/indices/financial/F1-valuations.md §2.
-# BIS renamed the dataflow WS_LONG_PP → WS_SPP (Selected Property Prices) —
-# discovered Week 5 Sprint 1 cassette probe; resolved Week 6 Sprint 3 (CAL-072).
-DATAFLOW_WS_SPP = ("WS_SPP", "1.0")
+# Canonical dataflow → version map (Week 9 Sprint AA / CAL-136).
+# WS_TC migrated from 1.0 → 2.0 during 2026; WS_LONG_PP renamed → WS_SPP
+# during Week 5 / CAL-072. Consumers that need `(flow_id, version)`
+# tuples should use the DATAFLOW_WS_* helpers below (back-compat).
+DATAFLOW_VERSIONS: Final[dict[str, str]] = {
+    "WS_TC": "2.0",
+    "WS_DSR": "1.0",
+    "WS_CREDIT_GAP": "1.0",
+    "WS_SPP": "1.0",
+}
+
+# Tuple-shaped aliases retained for call sites that import the
+# `(flow_id, version)` pair directly. Derived from DATAFLOW_VERSIONS so
+# new dataflows need only a single entry above.
+DATAFLOW_WS_DSR = ("WS_DSR", DATAFLOW_VERSIONS["WS_DSR"])
+DATAFLOW_WS_CREDIT_GAP = ("WS_CREDIT_GAP", DATAFLOW_VERSIONS["WS_CREDIT_GAP"])
+DATAFLOW_WS_TC = ("WS_TC", DATAFLOW_VERSIONS["WS_TC"])
+DATAFLOW_WS_SPP = ("WS_SPP", DATAFLOW_VERSIONS["WS_SPP"])
 
 CgDtype = Literal["A", "B", "C"]  # A=actual, B=trend, C=gap
 
@@ -141,11 +161,10 @@ class BisConnector:
         end_date: date,
     ) -> dict[str, Any]:
         flow_id, version = dataflow
-        url = f"{BASE_URL}/data/dataflow/BIS/{flow_id}/{version}/{key}"
+        url = f"{BASE_URL}/data/dataflow/{AGENCY_ID}/{flow_id}/{version}/{key}"
         params = {
             "startPeriod": _date_to_period(start_date),
             "endPeriod": _date_to_period(end_date),
-            "format": "jsondata",
         }
         await self._respect_rate_limit()
         r = await self.client.get(url, params=params)
@@ -159,7 +178,7 @@ class BisConnector:
     )
     async def fetch_structure(self, dataflow_id: str) -> dict[str, Any]:
         """Fetch dataflow structure (codelists + dimensions) for audit."""
-        url = f"{BASE_URL}/structure/dataflow/BIS/{dataflow_id}"
+        url = f"{BASE_URL}/structure/dataflow/{AGENCY_ID}/{dataflow_id}"
         params = {"references": "all", "detail": "full"}
         await self._respect_rate_limit()
         r = await self.client.get(url, params=params)
@@ -337,7 +356,9 @@ def _parse_series(
 
 __all__ = [
     "ACCEPT_HEADER",
+    "AGENCY_ID",
     "BASE_URL",
+    "DATAFLOW_VERSIONS",
     "DATAFLOW_WS_CREDIT_GAP",
     "DATAFLOW_WS_DSR",
     "DATAFLOW_WS_SPP",
