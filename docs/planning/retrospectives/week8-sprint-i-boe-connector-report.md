@@ -182,3 +182,21 @@ in parallel. Observable interactions:
   their builders land.
 
 *End of retrospective. Sprint CLOSED 2026-04-21.*
+
+## 10. Sprint I-patch amendment (2026-04-21)
+
+The BoE → FRED cascade shipped in this sprint was signal-quality
+inadequate: FRED's OECD mirror is monthly, and Akamai gating meant the
+BoE primary branch effectively never succeeded in prod. Sprint I-patch
+(`docs/planning/retrospectives/week8-sprint-i-patch-te-cascade-report.md`)
+corrects this by installing TE as the cascade primary (daily,
+BoE-sourced via `UKBRBASE`) and demoting FRED to last-resort with
+explicit `UK_BANK_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE`
+flags. All Sprint I code stays in place; the only behavioural change
+is cascade priority ordering inside `_uk_bank_rate_cascade`
+(`src/sonar/indices/monetary/builders.py`) and the new
+`fetch_uk_bank_rate` wrapper in `TEConnector`.
+
+Signal quality gap closed operationally; no CAL opened against the
+original Sprint I because the issue surfaced during retro review
+rather than incident tracking.
