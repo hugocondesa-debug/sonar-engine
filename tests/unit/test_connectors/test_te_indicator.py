@@ -61,10 +61,16 @@ def _load_cassette(name: str) -> list[dict]:
 
 
 def test_country_name_map_covers_t1() -> None:
-    for c in ("US", "DE", "UK", "JP", "IT", "ES", "FR", "NL", "PT"):
+    for c in ("US", "DE", "GB", "JP", "IT", "ES", "FR", "NL", "PT"):
         assert c in TE_COUNTRY_NAME_MAP
     assert TE_COUNTRY_NAME_MAP["US"] == "united states"
     assert TE_COUNTRY_NAME_MAP["DE"] == "germany"
+    assert TE_COUNTRY_NAME_MAP["GB"] == "united kingdom"
+
+
+def test_country_name_map_uk_alias_preserved() -> None:
+    """Legacy ``"UK"`` resolves to the same TE slug per ADR-0007 alias."""
+    assert TE_COUNTRY_NAME_MAP["UK"] == TE_COUNTRY_NAME_MAP["GB"] == "united kingdom"
 
 
 def test_indicator_name_constants() -> None:
@@ -362,10 +368,10 @@ async def test_wrapper_michigan_5y_raises_on_source_drift(
         await te_connector.fetch_michigan_5y_inflation_us(date(2024, 1, 1), date(2024, 6, 30))
 
 
-async def test_wrapper_uk_bank_rate_happy_path(
+async def test_wrapper_gb_bank_rate_happy_path(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """TE ``interest rate`` for UK returns ``UKBRBASE`` (BoE Bank Rate)."""
+    """TE ``interest rate`` for GB returns ``UKBRBASE`` (BoE Bank Rate)."""
     httpx_mock.add_response(
         method="GET",
         json=[
@@ -389,17 +395,17 @@ async def test_wrapper_uk_bank_rate_happy_path(
             },
         ],
     )
-    obs = await te_connector.fetch_uk_bank_rate(date(2024, 12, 1), date(2025, 3, 1))
+    obs = await te_connector.fetch_gb_bank_rate(date(2024, 12, 1), date(2025, 3, 1))
     assert len(obs) == 2
-    assert obs[0].country == "UK"
+    assert obs[0].country == "GB"
     assert obs[0].indicator == "interest rate"
     assert obs[0].historical_data_symbol == "UKBRBASE"
-    # UK Bank Rate has historically spanned [0.10, 15.0].
+    # BoE Bank Rate has historically spanned [0.10, 15.0].
     for o in obs:
         assert 0.0 <= o.value <= 20.0
 
 
-async def test_wrapper_uk_bank_rate_raises_on_source_drift(
+async def test_wrapper_gb_bank_rate_raises_on_source_drift(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
     """If TE swaps in a non-UKBRBASE symbol, raise — catches mis-attribution."""
@@ -415,18 +421,43 @@ async def test_wrapper_uk_bank_rate_raises_on_source_drift(
             }
         ],
     )
-    with pytest.raises(DataUnavailableError, match="UK-bank-rate source drift"):
-        await te_connector.fetch_uk_bank_rate(date(2024, 12, 1), date(2024, 12, 31))
+    with pytest.raises(DataUnavailableError, match="GB-bank-rate source drift"):
+        await te_connector.fetch_gb_bank_rate(date(2024, 12, 1), date(2024, 12, 31))
 
 
-async def test_wrapper_uk_bank_rate_empty_response_raises(
+async def test_wrapper_gb_bank_rate_empty_response_raises(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
     """Empty payload → fetch_indicator raises; cascade callers treat as
     TE-unavailable and fall through to the next source."""
     httpx_mock.add_response(method="GET", json=[])
     with pytest.raises(DataUnavailableError, match="empty series"):
-        await te_connector.fetch_uk_bank_rate(date(2024, 12, 1), date(2024, 12, 31))
+        await te_connector.fetch_gb_bank_rate(date(2024, 12, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_uk_bank_rate_deprecated_alias_delegates(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """``fetch_uk_bank_rate`` is preserved as a deprecated alias for
+    :meth:`TEConnector.fetch_gb_bank_rate` per ADR-0007 — called today
+    by ``builders.py`` UK cascade carve-out. Emits a structlog
+    deprecation warning and delegates to the canonical GB method."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "United Kingdom",
+                "Category": "Interest Rate",
+                "DateTime": "2024-12-19T00:00:00",
+                "Value": 4.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "UKBRBASE",
+            }
+        ],
+    )
+    obs = await te_connector.fetch_uk_bank_rate(date(2024, 12, 1), date(2024, 12, 31))
+    assert len(obs) == 1
+    assert obs[0].historical_data_symbol == "UKBRBASE"
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +545,8 @@ def test_michigan_5y_indicator_constant() -> None:
 
 
 @pytest.mark.slow
-async def test_live_canary_uk_bank_rate(tmp_cache_dir: Path) -> None:
-    """Live probe of TE UK Bank Rate — confirms UKBRBASE symbol + daily cadence.
+async def test_live_canary_gb_bank_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE GB Bank Rate — confirms UKBRBASE symbol + daily cadence.
 
     Skips when ``TE_API_KEY`` is not set. The endpoint back-fills the
     full history regardless of the window, so filter client-side to
@@ -528,10 +559,10 @@ async def test_live_canary_uk_bank_rate(tmp_cache_dir: Path) -> None:
     try:
         today = datetime.now(tz=UTC).date()
         start = today - timedelta(days=365 * 2)
-        obs = await conn.fetch_uk_bank_rate(start, today)
+        obs = await conn.fetch_gb_bank_rate(start, today)
         assert len(obs) >= 5
         assert obs[0].historical_data_symbol == "UKBRBASE"
-        assert obs[0].country == "UK"
+        assert obs[0].country == "GB"
         # BoE Bank Rate ranged [0.10, 5.25] across the last decade; keep
         # the canary band loose to absorb future moves without flaking.
         recent = [o for o in obs if o.observation_date >= start]

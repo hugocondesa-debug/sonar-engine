@@ -53,10 +53,14 @@ log = structlog.get_logger()
 
 # ISO 3166-1 alpha-2 → TE canonical country name (used by
 # /historical/country/{country}/indicator/{indicator}).
+# "GB" is the canonical alpha-2 for United Kingdom per ADR-0007;
+# "UK" retained as deprecated alias (emits warning on lookup via
+# :func:`_canonicalize_country_iso`).
 TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "US": "united states",
     "DE": "germany",
-    "UK": "united kingdom",
+    "GB": "united kingdom",
+    "UK": "united kingdom",  # deprecated alias — ADR-0007
     "JP": "japan",
     "IT": "italy",
     "ES": "spain",
@@ -86,7 +90,10 @@ TE_INDICATOR_INTEREST_RATE = "interest rate"
 # incorrect premise for lack of this guard).
 TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC = "CONCCONF"
 TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION = "USAM5YIE"
-TE_EXPECTED_SYMBOL_UK_BANK_RATE = "UKBRBASE"
+TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
+# Deprecated alias for :data:`TE_EXPECTED_SYMBOL_GB_BANK_RATE` per
+# ADR-0007 (UK → GB canonical rename). Removed Week 10 Day 1.
+TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,11 +109,13 @@ class TEIndicatorObservation:
     historical_data_symbol: str = ""  # TE "HistoricalDataSymbol" — source id
 
 
-# SONAR 2-letter country code → TE 10Y Bloomberg symbol.
+# SONAR 2-letter country code → TE 10Y Bloomberg symbol. GB is
+# canonical (ADR-0007); UK alias preserved for backward compat.
 TE_10Y_SYMBOLS: dict[str, str] = {
     "US": "USGG10YR:IND",
     "DE": "GDBR10:IND",
-    "UK": "GUKG10:IND",
+    "GB": "GUKG10:IND",
+    "UK": "GUKG10:IND",  # deprecated alias — ADR-0007
     "JP": "GJGB10:IND",
     "IT": "GBTPGR10:IND",
     "ES": "GSPG10YR:IND",
@@ -422,8 +431,8 @@ class TEConnector:
             raise DataUnavailableError(err)
         return obs
 
-    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
-        """UK Bank Rate — BoE policy-rate series, TE-sourced.
+    async def fetch_gb_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """GB Bank Rate — BoE policy-rate series, TE-sourced.
 
         TE ``interest rate`` indicator for ``united kingdom`` returns
         the BoE Bank Rate directly (HistoricalDataSymbol
@@ -431,27 +440,45 @@ class TEConnector:
         rate-change announcement — the series back-fills forward so a
         single query returns the full decision history.
 
-        Chosen as the **primary** source for UK M1 policy-rate inputs
+        Chosen as the **primary** source for GB M1 policy-rate inputs
         (Sprint I-patch) because the FRED OECD mirror shipped Sprint I
         Day 1 is monthly-lagged vs BoE's daily-cadence decisions.
         Guards source identity via the ``UKBRBASE`` symbol check
         mirroring the Conference Board / Michigan-5Y wrappers; on
-        drift raises :class:`DataUnavailableError` so the UK cascade
+        drift raises :class:`DataUnavailableError` so the GB cascade
         can fall back cleanly.
+
+        Canonical name post ADR-0007. :func:`fetch_uk_bank_rate` remains
+        available as a deprecated alias.
         """
-        obs = await self.fetch_indicator("UK", TE_INDICATOR_INTEREST_RATE, start, end)
+        obs = await self.fetch_indicator("GB", TE_INDICATOR_INTEREST_RATE, start, end)
         if (
             obs
             and obs[0].historical_data_symbol
-            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_UK_BANK_RATE)
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_GB_BANK_RATE)
         ):
             err = (
-                "TE UK-bank-rate source drift: expected "
-                f"{TE_EXPECTED_SYMBOL_UK_BANK_RATE!r}, got "
+                "TE GB-bank-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_GB_BANK_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
         return obs
+
+    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """Deprecated alias for :meth:`fetch_gb_bank_rate` (ADR-0007).
+
+        Preserved so Sprint L's untouched ``builders.py`` carve-out can
+        continue calling the UK-named method during the transition
+        window. Emits a structlog ``te.fetch_uk_bank_rate.deprecated``
+        warning on every invocation. Removed Week 10 Day 1.
+        """
+        log.warning(
+            "te.fetch_uk_bank_rate.deprecated",
+            replacement="fetch_gb_bank_rate",
+            adr="ADR-0007",
+        )
+        return await self.fetch_gb_bank_rate(start, end)
 
     # -------------------------------------------------------------------
     # Telemetry

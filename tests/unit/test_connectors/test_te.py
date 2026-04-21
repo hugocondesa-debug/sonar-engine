@@ -40,10 +40,15 @@ async def te_connector(tmp_cache_dir: Path) -> AsyncIterator[TEConnector]:
 
 
 def test_10y_symbol_mapping_covers_t1() -> None:
-    for c in ("US", "DE", "UK", "JP", "IT", "ES", "FR", "NL", "PT"):
+    for c in ("US", "DE", "GB", "JP", "IT", "ES", "FR", "NL", "PT"):
         assert c in TE_10Y_SYMBOLS
     assert TE_10Y_SYMBOLS["US"] == "USGG10YR:IND"
     assert TE_10Y_SYMBOLS["DE"] == "GDBR10:IND"
+
+
+def test_10y_symbol_uk_alias_preserved() -> None:
+    """Legacy ``"UK"`` lookup returns the same GB symbol per ADR-0007."""
+    assert TE_10Y_SYMBOLS["UK"] == TE_10Y_SYMBOLS["GB"] == "GUKG10:IND"
 
 
 async def test_fetch_happy_us_10y(httpx_mock: HTTPXMock, te_connector: TEConnector) -> None:
@@ -136,22 +141,20 @@ async def test_window_around_wrapper_widens_to_5y(
 
 
 # ---------------------------------------------------------------------------
-# UK 10Y gilt via existing fetch_sovereign_yield_historical (Sprint I-patch C2)
+# GB 10Y gilt via existing fetch_sovereign_yield_historical (Sprint I-patch C2)
 # ---------------------------------------------------------------------------
 
 
-def test_uk_10y_symbol_mapping_present() -> None:
-    """Verification — existing GUKG10:IND mapping already covers UK 10Y."""
-    assert TE_10Y_SYMBOLS["UK"] == "GUKG10:IND"
+def test_gb_10y_symbol_mapping_present() -> None:
+    """Verification — existing GUKG10:IND mapping already covers GB 10Y."""
+    assert TE_10Y_SYMBOLS["GB"] == "GUKG10:IND"
 
 
-async def test_fetch_uk_10y_gilt_via_existing_helper(
+async def test_fetch_gb_10y_gilt_via_existing_helper(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """``fetch_sovereign_yield_historical(country='UK', tenor='10Y')``
-    already returns UK 10Y gilt yields via the ``GUKG10:IND`` mapping; no
-    dedicated UK wrapper needed for Sprint I-patch (verified empirically
-    during the C1 probe)."""
+    """``fetch_sovereign_yield_historical(country='GB', tenor='10Y')``
+    returns GB 10Y gilt yields via the ``GUKG10:IND`` mapping."""
     httpx_mock.add_response(
         method="GET",
         json=[
@@ -161,19 +164,35 @@ async def test_fetch_uk_10y_gilt_via_existing_helper(
         ],
     )
     rows = await te_connector.fetch_sovereign_yield_historical(
-        "UK", "10Y", date(2024, 12, 1), date(2024, 12, 31)
+        "GB", "10Y", date(2024, 12, 1), date(2024, 12, 31)
     )
     assert len(rows) == 3
-    assert all(r.country_code == "UK" for r in rows)
+    assert all(r.country_code == "GB" for r in rows)
     assert all(r.tenor_years == 10.0 for r in rows)
     assert all(r.source_series_id == "GUKG10:IND" for r in rows)
     # GBP 10Y gilt late 2024 sat ~4.4-4.7%.
     assert rows[-1].yield_bps == 457  # 4.568 * 100
 
 
+async def test_fetch_uk_alias_still_resolves(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Legacy ``"UK"`` input continues to work via the dict alias entry
+    (ADR-0007 backward compat); observations carry the input code."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[{"Symbol": "GUKG10:IND", "Date": "31/12/2024", "Close": 4.568}],
+    )
+    rows = await te_connector.fetch_sovereign_yield_historical(
+        "UK", "10Y", date(2024, 12, 1), date(2024, 12, 31)
+    )
+    assert len(rows) == 1
+    assert rows[0].source_series_id == "GUKG10:IND"
+
+
 @pytest.mark.slow
-async def test_live_canary_uk_10y_gilt(tmp_cache_dir: Path) -> None:
-    """Live probe — UK 10Y gilt daily observations via TE markets endpoint."""
+async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
+    """Live probe — GB 10Y gilt daily observations via TE markets endpoint."""
     api_key = os.environ.get("TE_API_KEY")
     if not api_key:
         pytest.skip("TE_API_KEY not set")
@@ -181,11 +200,11 @@ async def test_live_canary_uk_10y_gilt(tmp_cache_dir: Path) -> None:
     try:
         today = datetime.now(tz=UTC).date()
         start = today - timedelta(days=60)
-        rows = await conn.fetch_sovereign_yield_historical("UK", "10Y", start, today)
+        rows = await conn.fetch_sovereign_yield_historical("GB", "10Y", start, today)
         # Daily cadence over ~60 days → expect ≥ 20 business-day observations.
         assert len(rows) >= 20
-        assert rows[0].country_code == "UK"
-        # UK 10Y gilt has stayed in [0.1, 6.0]% for the past decade.
+        assert rows[0].country_code == "GB"
+        # GB 10Y gilt has stayed in [0.1, 6.0]% for the past decade.
         for o in rows:
             assert 0 < o.yield_bps / 100 < 10
     finally:
