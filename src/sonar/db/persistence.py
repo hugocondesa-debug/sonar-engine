@@ -37,6 +37,7 @@ from sonar.db.models import (
     FinancialRiskAppetite,
     FinancialValuations,
     IndexValue,
+    L5MetaRegime,
     M1EffectiveRatesResult as M1EffectiveRatesRow,
     M2TaylorGapsResult as M2TaylorGapsRow,
     M4FciResult as M4FciRow,
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
     from sonar.overlays.erp import ERPFitResult, ERPInput
     from sonar.overlays.nss import NSSFitResult
     from sonar.overlays.rating_spread import ConsolidatedRating, RatingAgencyRaw
+    from sonar.regimes.types import L5RegimeResult
 
 
 class DuplicatePersistError(Exception):
@@ -1321,3 +1323,49 @@ def persist_many_overlay_results(
         written["expected_inflation"] = 1
 
     return written
+
+
+# ---------------------------------------------------------------------------
+# L5 regime persistence — week8 sprint H
+# ---------------------------------------------------------------------------
+
+
+def _to_l5_row(result: L5RegimeResult) -> L5MetaRegime:
+    from uuid import uuid4  # noqa: PLC0415 — local to keep helper standalone
+
+    return L5MetaRegime(
+        l5_id=str(uuid4()),
+        country_code=result.country_code,
+        date=result.date,
+        methodology_version=result.methodology_version,
+        meta_regime=result.meta_regime.value,
+        ecs_id=result.ecs_id,
+        cccs_id=result.cccs_id,
+        fcs_id=result.fcs_id,
+        msc_id=result.msc_id,
+        confidence=result.confidence,
+        flags=_flags_to_csv(result.flags),
+        classification_reason=result.classification_reason,
+    )
+
+
+def persist_l5_meta_regime_result(session: Session, result: L5RegimeResult) -> None:
+    """Persist an :class:`L5RegimeResult` row atomically.
+
+    Re-persisting the same ``(country, date, methodology_version)``
+    triplet raises :class:`DuplicatePersistError` — consistent with
+    the existing cycle / index persistence helpers.
+    """
+    row = _to_l5_row(result)
+    try:
+        session.add(row)
+        session.commit()
+    except IntegrityError as e:
+        session.rollback()
+        if "unique" in str(e.orig).lower():
+            err = (
+                f"L5 row already persisted: country={result.country_code}, "
+                f"date={result.date}, version={result.methodology_version}"
+            )
+            raise DuplicatePersistError(err) from e
+        raise
