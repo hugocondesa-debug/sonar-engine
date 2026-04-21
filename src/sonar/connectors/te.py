@@ -65,6 +65,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "CA": "canada",
     "AU": "australia",
     "NZ": "new zealand",
+    "CH": "switzerland",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -101,6 +102,14 @@ TE_EXPECTED_SYMBOL_JP_BANK_RATE = "BOJDTR"
 TE_EXPECTED_SYMBOL_CA_BANK_RATE = "CCLR"
 TE_EXPECTED_SYMBOL_AU_CASH_RATE = "RBATCTR"
 TE_EXPECTED_SYMBOL_NZ_OCR = "NZOCRS"
+# SNB policy rate mirror. Symbol inherits the legacy "Swiss LIBOR
+# Target Rate" identifier (``SZLTTR``) even though SNB migrated from a
+# 3M-CHF-LIBOR target midpoint (pre-2019) to a directly-set SNB policy
+# rate (2019-now) — TE preserves the single-series contract across the
+# regime change. Sprint V empirical probe 2026-04-21 confirmed all 341
+# observations (2000-01-03 → 2026-03-19) carry ``SZLTTR``, including
+# the 93 rows spanning the negative-rate era 2014-12-18 → 2022-08-31.
+TE_EXPECTED_SYMBOL_CH_POLICY_RATE = "SZLTTR"
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,6 +598,56 @@ class TEConnector:
             err = (
                 "TE NZ-OCR source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_NZ_OCR!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_ch_policy_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """CH Policy Rate — SNB policy-rate series, TE-sourced.
+
+        TE ``interest rate`` indicator for ``switzerland`` returns the
+        SNB policy rate directly (HistoricalDataSymbol ``SZLTTR`` —
+        legacy "Swiss LIBOR Target Rate" identifier, preserved by TE
+        across the 2019 regime change when SNB dropped the 3M-CHF-LIBOR
+        target midpoint in favour of a directly-set policy rate). Daily
+        cadence back-filled to 2000-01-03 (~341 observations at Sprint V
+        probe, 2026-04-21); TE surfaces each rate-change announcement
+        plus the constant intervening quotes so a single query returns
+        the full decision history regardless of ``d1``/``d2``.
+
+        **Negative-rate era preservation**: 93 rows across 2014-12-18 →
+        2022-08-31 carry negative values (minimum -0.75 %, the deepest
+        negative-rate regime of any G10 central bank). The wrapper (and
+        the downstream builder) preserve the sign throughout — the
+        ``int(round(value * 100))`` conversion at the Observation layer
+        handles negative yields naturally via Python's round-half-even
+        semantics, and no clamp is applied. Cascade callers emit
+        ``CH_NEGATIVE_RATE_ERA_DATA`` when the returned window contains
+        at least one strictly-negative observation.
+
+        Chosen as the **primary** source for CH M1 policy-rate inputs
+        (Sprint V) per the Sprint I-patch cascade pattern — TE is daily
+        and SNB-sourced, while the SNB data-portal native path (Sprint
+        V C2) covers overnight-money-market rates (SARON) via the
+        ``zimoma`` cube at monthly cadence. FRED OECD mirror
+        ``IRSTCI01CHM156N`` is relegated to last-resort with staleness
+        flags.
+
+        Guards source identity via the ``SZLTTR`` symbol check mirroring
+        the GB / JP / CA / AU wrappers; on drift raises
+        :class:`DataUnavailableError` so the CH cascade can fall back
+        cleanly.
+        """
+        obs = await self.fetch_indicator("CH", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_CH_POLICY_RATE)
+        ):
+            err = (
+                "TE CH-policy-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CH_POLICY_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)

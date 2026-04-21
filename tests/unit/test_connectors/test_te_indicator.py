@@ -1043,3 +1043,180 @@ async def test_live_canary_nz_ocr(tmp_cache_dir: Path) -> None:
             assert 0.0 <= o.value <= 10.0
     finally:
         await conn.aclose()
+
+
+async def test_wrapper_ch_policy_rate_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``interest rate`` for CH returns ``SZLTTR`` (SNB policy rate)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2022-09-22T00:00:00",
+                "Value": 0.5,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2022-09-22T07:30:00",
+            },
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2024-03-21T00:00:00",
+                "Value": 1.5,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2024-03-21T08:30:00",
+            },
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2026-03-19T00:00:00",
+                "Value": 0.0,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2026-03-19T08:30:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_ch_policy_rate(date(2022, 1, 1), date(2026, 4, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "CH"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "SZLTTR"
+    # SNB policy rate ranged over [-0.75, 3.50]% since 2000.
+    for o in obs:
+        assert -1.0 <= o.value <= 5.0
+
+
+async def test_wrapper_ch_policy_rate_preserves_negative_values(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Negative-rate era 2015-2022 flows through wrapper with sign intact.
+
+    SNB policy rate reached -0.75 % (Jan 2015 → Jun 2022). The wrapper
+    must not clamp, flip, or drop negative observations — the downstream
+    cascade emits ``CH_NEGATIVE_RATE_ERA_DATA`` on detection.
+    """
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2015-01-15T00:00:00",
+                "Value": -0.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2015-01-15T08:30:00",
+            },
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2020-06-18T00:00:00",
+                "Value": -0.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2020-06-18T08:30:00",
+            },
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2022-06-16T00:00:00",
+                "Value": -0.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "SZLTTR",
+                "LastUpdate": "2022-06-16T07:30:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_ch_policy_rate(date(2015, 1, 1), date(2022, 12, 31))
+    assert len(obs) == 3
+    values = [o.value for o in obs]
+    assert values == [-0.75, -0.75, -0.25]
+    # Preserving sign is the whole point — guard explicitly.
+    assert all(v < 0 for v in values)
+
+
+async def test_wrapper_ch_policy_rate_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-SZLTTR symbol, raise — catches mis-attribution."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Switzerland",
+                "Category": "Interest Rate",
+                "DateTime": "2024-03-21T00:00:00",
+                "Value": 1.5,
+                "HistoricalDataSymbol": "SWINTR",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="CH-policy-rate source drift"):
+        await te_connector.fetch_ch_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ch_policy_rate_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → ``fetch_indicator`` raises; cascade callers treat as
+    TE-unavailable and fall through to SNB native."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_ch_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ch_policy_rate_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 300+ SZLTTR daily obs + 93 negatives."""
+    payload = _load_cassette("te_ch_policy_rate_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_ch_policy_rate(date(2000, 1, 1), date(2026, 4, 1))
+    assert len(obs) >= 300
+    assert obs[0].historical_data_symbol == "SZLTTR"
+    assert obs[0].country == "CH"
+    # Negative-rate era 2014-12-18 → 2022-08-31 is preserved in the
+    # cassette; exactly 93 strictly-negative rows per Sprint V probe.
+    neg = [o for o in obs if o.value < 0]
+    assert len(neg) >= 80  # empirical: 93; guard the ≥80 lower bound
+    # Boundaries of the negative era line up with documented SNB history.
+    first_neg = min(neg, key=lambda o: o.observation_date)
+    last_neg = max(neg, key=lambda o: o.observation_date)
+    assert first_neg.observation_date >= date(2014, 1, 1)
+    assert last_neg.observation_date <= date(2023, 1, 1)
+
+
+@pytest.mark.slow
+async def test_live_canary_ch_policy_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE CH Policy Rate — confirms ``SZLTTR`` symbol + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. The endpoint back-fills the
+    full history regardless of the window, so a generous 12Y lookback
+    still returns at least the negative-rate era for historical
+    validation.
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 12)
+        obs = await conn.fetch_ch_policy_rate(start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "SZLTTR"
+        assert obs[0].country == "CH"
+        # Full CH policy-rate corridor 2014-2026: [-0.75, 1.75] pct.
+        for o in obs:
+            assert -1.0 <= o.value <= 5.0
+        # Historical negative-rate preservation: with 12Y lookback we
+        # expect to see at least one strictly-negative observation.
+        neg = [o for o in obs if o.value < 0]
+        assert len(neg) >= 1, "expected at least one negative-rate era observation"
+    finally:
+        await conn.aclose()
