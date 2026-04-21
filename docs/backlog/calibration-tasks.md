@@ -1157,6 +1157,56 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `builders.py` pending post Sprint L merge. Full CLOSED once chore
   commit lands on main.
 
+### CAL-128-FOLLOWUP — UK → GB rename carve-out files beyond Sprint O strict scope
+
+- **Priority:** MEDIUM — completes ISO 3166-1 alpha-2 compliance started
+  in CAL-128 (Sprint O).
+- **Trigger:** Sprint O (Week 8 Day 4) resumed session narrowed the
+  brief §1 literal scope to `config/*.yaml`, `connectors/te.py`,
+  `connectors/boe_database.py`, `pipelines/daily_monetary_indices.py`,
+  and corresponding tests. Earlier draft of CAL-128 (and ADR-0007
+  scope table) listed additional consumer files where `"UK"` is
+  still the canonical key. These were **not** touched by Sprint O
+  and remain pending.
+- **Out-of-scope files requiring sweep (sightings 2026-04-21):**
+  - `src/sonar/cycles/financial_fcs.py:23` — docstring Tier 1 strict
+    list `US/DE/UK/JP`.
+  - `src/sonar/cycles/financial_fcs.py:74` —
+    `TIER_1_STRICT_COUNTRIES = frozenset({"US", "DE", "UK", "JP"})`.
+    Rename to `GB` with `UK` alias or frozenset containing both
+    during transition window (matches ADR-0007 §Decision #3).
+  - `src/sonar/overlays/crp.py:75` — `BENCHMARK_COUNTRY_BY_CURRENCY`
+    (or analogous dict) maps `"GBP": "UK"` → rename value to `"GB"`.
+  - `src/sonar/overlays/live_assemblers.py:75` — same currency→country
+    map value `"GBP": "UK"`.
+  - `src/sonar/overlays/live_assemblers.py:224` — docstring wording
+    "UK for GBP".
+  - `src/sonar/overlays/live_assemblers.py:604` — reverse map
+    `COUNTRY_TO_CURRENCY` key `"UK": "GBP"`.
+  - `src/sonar/pipelines/daily_cost_of_capital.py:83` — cost-of-capital
+    country→currency dict key `"UK": "GBP"`.
+  - Consumer tests pinned to the above keys:
+    `tests/unit/test_cycles/test_financial_fcs.py:174`,
+    `tests/unit/test_overlays/test_crp.py:199`,
+    `tests/integration/test_ecs_composite.py:13,166,189`,
+    `tests/integration/test_msc_composite.py:11,189,210`.
+- **Nature of rename:** dict keys `"UK"` → `"GB"` + reverse value
+  `"UK"` → `"GB"` where mapped, plus docstring prose. Pattern mirrors
+  Sprint O execution on `te.py` — add `"UK"` alias lookup with
+  structlog deprecation log for backward compat; remove alias with
+  Week 10 Day 1 deprecation cut per ADR-0007 §Review triggers #1.
+- **Carve-out rationale:** `builders.py` is Sprint L's parallel-worktree
+  domain; touching the overlay / cycle / cost-of-capital consumers was
+  flagged as scope creep in the resumed Sprint O session. Consolidating
+  these into a single dedicated follow-up avoids merge-surface expansion
+  mid-sprint.
+- **Implementation:** post-Sprint-L merge + post-CAL-128 final chore on
+  `builders.py`. Suggested branch name `sprint-o-followup-gb-uk-sweep`.
+- **Dependency:** CAL-128 final chore (builders.py sweep) should land
+  first so all consumers can cut over in one atomic rename.
+- **Status:** OPEN — follow-up filed 2026-04-21 during Sprint O resumed
+  session.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1

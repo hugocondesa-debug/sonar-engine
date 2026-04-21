@@ -22,6 +22,7 @@ from sonar.indices.monetary.orchestrator import MonetaryIndicesInputs
 from sonar.pipelines.daily_monetary_indices import (
     MONETARY_SUPPORTED_COUNTRIES,
     T1_7_COUNTRIES,
+    _warn_if_deprecated_alias,
     default_inputs_builder,
     run_one,
 )
@@ -119,19 +120,62 @@ def test_targets_constant_matches_brief() -> None:
     assert len(T1_7_COUNTRIES) == 7
 
 
-def test_monetary_supported_countries_includes_uk() -> None:
-    """Sprint 8-I adds UK; US + EA stay; UK must be opt-in via --country."""
-    assert "UK" in MONETARY_SUPPORTED_COUNTRIES
+def test_monetary_supported_countries_includes_gb() -> None:
+    """GB is canonical per ADR-0007; US + EA stay; neither in T1_7."""
+    assert "GB" in MONETARY_SUPPORTED_COUNTRIES
     assert "US" in MONETARY_SUPPORTED_COUNTRIES
     assert "EA" in MONETARY_SUPPORTED_COUNTRIES
-    # UK is NOT in T1_7_COUNTRIES (--all-t1 preserves 7-country semantics).
-    assert "UK" not in T1_7_COUNTRIES
+    # Neither GB nor EA is in T1_7_COUNTRIES (--all-t1 preserves 7-country semantics).
+    assert "GB" not in T1_7_COUNTRIES
+    assert "EA" not in T1_7_COUNTRIES
+
+
+def test_monetary_supported_countries_preserves_uk_alias() -> None:
+    """Backward compat: "UK" remains accepted per ADR-0007 deprecation window."""
+    assert "UK" in MONETARY_SUPPORTED_COUNTRIES
+
+
+def test_warn_if_deprecated_alias_logs_on_uk(capsys: pytest.CaptureFixture[str]) -> None:
+    """--country UK emits ``monetary_pipeline.deprecated_country_alias`` warning.
+
+    structlog renders to stdout by default; capsys captures the event.
+    """
+    _warn_if_deprecated_alias("UK")
+    captured = capsys.readouterr()
+    assert "deprecated_country_alias" in captured.out
+    assert "alias=UK" in captured.out
+    assert "canonical=GB" in captured.out
+
+
+def test_warn_if_deprecated_alias_silent_on_gb(capsys: pytest.CaptureFixture[str]) -> None:
+    """Canonical GB must not emit the deprecation log."""
+    _warn_if_deprecated_alias("GB")
+    captured = capsys.readouterr()
+    assert "deprecated_country_alias" not in captured.out
+
+
+def test_warn_if_deprecated_alias_silent_on_us(capsys: pytest.CaptureFixture[str]) -> None:
+    """Existing canonical codes untouched by the alias helper."""
+    _warn_if_deprecated_alias("US")
+    captured = capsys.readouterr()
+    assert "deprecated_country_alias" not in captured.out
+
+
+def test_run_one_gb_synthetic_persists_m1(session: Session) -> None:
+    """GB canonical synthetic bundle — pipeline persists M1 end-to-end."""
+    outcome = run_one(session, "GB", date(2024, 12, 31), inputs_builder=_synthetic_builder)
+    assert outcome.persisted["m1"] == 1
+    assert session.query(M1Row).filter(M1Row.country_code == "GB").count() == 1
 
 
 def test_run_one_uk_synthetic_persists_m1(session: Session) -> None:
-    """UK synthetic bundle — pipeline persists M1 (M2/M4 not wired this sprint)."""
+    """Legacy UK synthetic bundle — backward-compat path during carve-out.
+
+    Synthetic builder is country-agnostic (pass-through); this exercises
+    the run_one library entry point with the pre-rename country code
+    that operators may still be supplying. Will be retired once
+    builders.py carve-out closes (post-Sprint-L chore commit).
+    """
     outcome = run_one(session, "UK", date(2024, 12, 31), inputs_builder=_synthetic_builder)
     assert outcome.persisted["m1"] == 1
-    # The synthetic builder populates M2/M4 too, so they persist here;
-    # the real live path leaves them None via NotImplementedError catch.
     assert session.query(M1Row).filter(M1Row.country_code == "UK").count() == 1
