@@ -111,10 +111,11 @@ def test_compute_all_economic_indices_empty_inputs() -> None:
         EconomicIndicesInputs(country_code="US", observation_date=date(2024, 12, 31))
     )
     assert results.e1 is None
+    assert results.e2 is None
     assert results.e3 is None
     assert results.e4 is None
     assert results.skips is not None
-    assert set(results.skips) == {"e1", "e3", "e4"}
+    assert set(results.skips) == {"e1", "e2", "e3", "e4"}
 
 
 def test_run_one_default_persists_nothing(session: Session) -> None:

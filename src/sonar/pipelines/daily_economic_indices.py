@@ -54,6 +54,7 @@ from sonar.indices.economic.e1_activity import (
     E1ActivityResult,
     compute_e1_activity,
 )
+from sonar.indices.economic.e2_leading import E2Inputs, compute_e2_leading_slope
 from sonar.indices.economic.e3_labor import (
     E3LaborInputs,
     E3LaborResult,
@@ -64,6 +65,7 @@ from sonar.indices.economic.e4_sentiment import (
     E4SentimentResult,
     compute_e4_sentiment,
 )
+from sonar.indices.exceptions import InsufficientInputsError as E2InsufficientInputsError
 from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
@@ -72,6 +74,8 @@ if TYPE_CHECKING:
     from sonar.connectors.eurostat import EurostatConnector
     from sonar.connectors.fred import FredConnector
     from sonar.connectors.te import TEConnector
+    from sonar.indices.base import IndexResult
+    from sonar.indices.economic.db_backed_builder import EconomicDbBackedInputsBuilder
 
 log = structlog.get_logger()
 
@@ -98,11 +102,16 @@ EXIT_IO = 4
 
 @dataclass(frozen=True, slots=True)
 class EconomicIndicesInputs:
-    """Bundle of E1 + E3 + E4 inputs. E2 intentionally out of scope (see module docstring)."""
+    """Bundle of E1/E2/E3/E4 inputs.
+
+    E2 populated via :class:`EconomicDbBackedInputsBuilder` (CAL-108);
+    E1/E3/E4 via the async live connector builders.
+    """
 
     country_code: str
     observation_date: date
     e1: E1ActivityInputs | None = None
+    e2: E2Inputs | None = None
     e3: E3LaborInputs | None = None
     e4: E4SentimentInputs | None = None
 
@@ -114,6 +123,7 @@ class EconomicIndicesResults:
     country_code: str
     observation_date: date
     e1: E1ActivityResult | None = None
+    e2: IndexResult | None = None
     e3: E3LaborResult | None = None
     e4: E4SentimentResult | None = None
     skips: dict[str, str] | None = None
@@ -192,9 +202,10 @@ async def build_live_economic_inputs(
 
 
 def compute_all_economic_indices(inputs: EconomicIndicesInputs) -> EconomicIndicesResults:
-    """Run E1 + E3 + E4 independently, catching compute failures as skips."""
+    """Run E1/E2/E3/E4 independently, catching compute failures as skips."""
     skips: dict[str, str] = {}
     e1: E1ActivityResult | None = None
+    e2: IndexResult | None = None
     e3: E3LaborResult | None = None
     e4: E4SentimentResult | None = None
 
@@ -205,6 +216,14 @@ def compute_all_economic_indices(inputs: EconomicIndicesInputs) -> EconomicIndic
             skips["e1"] = str(exc)
     else:
         skips["e1"] = "no inputs provided"
+
+    if inputs.e2 is not None:
+        try:
+            e2 = compute_e2_leading_slope(inputs.e2)
+        except (InsufficientDataError, E2InsufficientInputsError) as exc:
+            skips["e2"] = str(exc)
+    else:
+        skips["e2"] = "no inputs provided"
 
     if inputs.e3 is not None:
         try:
@@ -226,6 +245,7 @@ def compute_all_economic_indices(inputs: EconomicIndicesInputs) -> EconomicIndic
         country_code=inputs.country_code,
         observation_date=inputs.observation_date,
         e1=e1,
+        e2=e2,
         e3=e3,
         e4=e4,
         skips=skips,
@@ -246,12 +266,42 @@ def run_one(
     observation_date: date,
     *,
     inputs_builder: InputsBuilder | None = None,
+    db_backed_builder: EconomicDbBackedInputsBuilder | None = None,
 ) -> EconomicPipelineOutcome:
-    """Single ``(country, date)`` pipeline run: build → compute → persist."""
+    """Single ``(country, date)`` pipeline run: build → compute → persist.
+
+    When ``db_backed_builder`` is supplied the pipeline additionally
+    reads persisted NSS rows via :meth:`EconomicDbBackedInputsBuilder.build_e2_inputs`
+    and merges the result into the live bundle. The overlay path is
+    additive — live E1/E3/E4 slots are preserved; only ``e2`` is filled
+    when DB rows are available (CAL-108). Missing NSS rows keep
+    ``e2 is None`` and the orchestrator logs a clean skip.
+    """
     builder = inputs_builder or default_inputs_builder
     inputs = builder(session, country_code, observation_date)
+    if db_backed_builder is not None:
+        try:
+            e2_inputs = db_backed_builder.build_e2_inputs(country_code, observation_date)
+        except Exception as exc:
+            log.warning(
+                "economic_pipeline.db_backed_e2_error",
+                country=country_code,
+                error=str(exc),
+            )
+            e2_inputs = None
+        if e2_inputs is not None:
+            inputs = EconomicIndicesInputs(
+                country_code=inputs.country_code,
+                observation_date=inputs.observation_date,
+                e1=inputs.e1,
+                e2=e2_inputs,
+                e3=inputs.e3,
+                e4=inputs.e4,
+            )
     results = compute_all_economic_indices(inputs)
-    persisted = persist_many_economic_results(session, e1=results.e1, e3=results.e3, e4=results.e4)
+    persisted = persist_many_economic_results(
+        session, e1=results.e1, e2=results.e2, e3=results.e3, e4=results.e4
+    )
     log.info(
         "economic_pipeline.persisted",
         country=country_code,
@@ -346,11 +396,21 @@ def main(
         builder = _live_inputs_builder_factory(fred=fred, eurostat=eurostat)
 
     session = SessionLocal()
+    # Always spin up the DB-backed reader so E2 fills when daily_curves
+    # has persisted rows for the country/date — CAL-108 makes this
+    # additive over whatever live path the bundle assembles.
+    from sonar.indices.economic.db_backed_builder import (  # noqa: PLC0415
+        EconomicDbBackedInputsBuilder as _EconomicDbBackedInputsBuilder,
+    )
+
+    db_backed = _EconomicDbBackedInputsBuilder(session)
     exit_code = EXIT_OK
     try:
         for c in targets:
             try:
-                outcome = run_one(session, c, obs_date, inputs_builder=builder)
+                outcome = run_one(
+                    session, c, obs_date, inputs_builder=builder, db_backed_builder=db_backed
+                )
                 if sum(outcome.persisted.values()) == 0:
                     log.warning(
                         "economic_pipeline.no_inputs",

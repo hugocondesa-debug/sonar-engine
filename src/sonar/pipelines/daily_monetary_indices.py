@@ -48,6 +48,9 @@ from sonar.db.persistence import (
 )
 from sonar.db.session import SessionLocal
 from sonar.indices.monetary.builders import MonetaryInputsBuilder
+from sonar.indices.monetary.m3_market_expectations import (
+    compute_m3_market_expectations_anchor,
+)
 from sonar.indices.monetary.orchestrator import (
     MonetaryIndicesInputs,
     MonetaryIndicesResults,
@@ -57,6 +60,9 @@ from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+    from sonar.indices.base import IndexResult
+    from sonar.indices.monetary.db_backed_builder import MonetaryDbBackedInputsBuilder
 
 
 log = structlog.get_logger()
@@ -173,12 +179,43 @@ def run_one(
     observation_date: date,
     *,
     inputs_builder: InputsBuilder | None = None,
+    db_backed_builder: MonetaryDbBackedInputsBuilder | None = None,
 ) -> MonetaryPipelineOutcome:
-    """Single ``(country, date)`` pipeline run: build → compute → persist."""
+    """Single ``(country, date)`` pipeline run: build → compute → persist.
+
+    When ``db_backed_builder`` is supplied the pipeline additionally
+    reads persisted NSS forwards + EXPINF rows via
+    :meth:`MonetaryDbBackedInputsBuilder.build_m3_inputs` and routes the
+    computed M3 IndexResult through ``persist_many_monetary_results``'s
+    ``m3=`` kwarg (CAL-108). Missing rows keep ``m3=None`` so the
+    orchestrator reports a clean skip.
+    """
     builder = inputs_builder or default_inputs_builder
     inputs = builder(session, country_code, observation_date)
     results = compute_all_monetary_indices(inputs)
-    persisted = persist_many_monetary_results(session, results)
+
+    m3_result: IndexResult | None = None
+    if db_backed_builder is not None:
+        try:
+            m3_inputs = db_backed_builder.build_m3_inputs(country_code, observation_date)
+        except Exception as exc:
+            log.warning(
+                "monetary_pipeline.db_backed_m3_error",
+                country=country_code,
+                error=str(exc),
+            )
+            m3_inputs = None
+        if m3_inputs is not None:
+            try:
+                m3_result = compute_m3_market_expectations_anchor(m3_inputs)
+            except InsufficientDataError as exc:
+                log.warning(
+                    "monetary_pipeline.m3_insufficient_data",
+                    country=country_code,
+                    error=str(exc),
+                )
+
+    persisted = persist_many_monetary_results(session, results, m3=m3_result)
     log.info(
         "monetary_pipeline.persisted",
         country=country_code,
@@ -285,11 +322,21 @@ def main(
         )
 
     session = SessionLocal()
+    # Always spin up the DB-backed reader so M3 fills when daily_curves
+    # + daily_overlays have persisted the NSS forwards + EXPINF row for
+    # the country/date (CAL-108). Additive over live M1/M2/M4.
+    from sonar.indices.monetary.db_backed_builder import (  # noqa: PLC0415
+        MonetaryDbBackedInputsBuilder as _MonetaryDbBackedInputsBuilder,
+    )
+
+    db_backed = _MonetaryDbBackedInputsBuilder(session)
     exit_code = EXIT_OK
     try:
         for c in targets:
             try:
-                outcome = run_one(session, c, obs_date, inputs_builder=builder)
+                outcome = run_one(
+                    session, c, obs_date, inputs_builder=builder, db_backed_builder=db_backed
+                )
                 if sum(outcome.persisted.values()) == 0:
                     log.warning(
                         "monetary_pipeline.no_inputs",
