@@ -1352,3 +1352,65 @@ class EconomicCycleScore(Base):
 
 
 # === Cycle models end ===
+
+
+# === L5 Regime models ===
+# Spec: docs/specs/regimes/cross-cycle-meta-regimes.md §6. L5 consolidates
+# the four L4 cycle composites into a single meta-regime label per
+# (country, date). FKs to the 4 cycle PKs are nullable to accommodate
+# Policy 1 ≥ 3/4 fail-mode. Migration 017 creates the table.
+
+
+class L5MetaRegime(Base):
+    """Row per spec ``regimes/cross-cycle-meta-regimes.md`` §6."""
+
+    __tablename__ = "l5_meta_regimes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    l5_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    meta_regime: Mapped[str] = mapped_column(String(32), nullable=False)
+    ecs_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("economic_cycle_scores.ecs_id", name="fk_l5_ecs_id"),
+        nullable=True,
+    )
+    cccs_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("credit_cycle_scores.cccs_id", name="fk_l5_cccs_id"),
+        nullable=True,
+    )
+    fcs_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("financial_cycle_scores.fcs_id", name="fk_l5_fcs_id"),
+        nullable=True,
+    )
+    msc_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("monetary_cycle_scores.msc_id", name="fk_l5_msc_id"),
+        nullable=True,
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classification_reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("l5_id", name="uq_l5_id"),
+        CheckConstraint(
+            "meta_regime IN ('overheating','stagflation_risk','late_cycle_bubble',"
+            "'recession_risk','soft_landing','unclassified')",
+            name="ck_l5_meta_regime",
+        ),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_l5_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_l5_cdm"),
+        Index("idx_l5_cd", "country_code", "date"),
+        Index("idx_l5_regime", "country_code", "meta_regime", "date"),
+    )
+
+
+# === L5 Regime models end ===
