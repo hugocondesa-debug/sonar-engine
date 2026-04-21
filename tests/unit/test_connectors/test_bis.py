@@ -246,6 +246,30 @@ async def test_fetch_url_pattern_ws_credit_gap(
     assert str(req.url).startswith(expected_path), str(req.url)
 
 
+def test_parse_series_live_2024h1_shape() -> None:
+    """Parse a freshly captured 2026-04-21 live response (CAL-136 canary).
+
+    Locks in the current-gen BIS SDMX-JSON 1.0 response shape so any
+    future structural drift (e.g. if BIS enables v2.0.0 JSON by default)
+    surfaces here rather than in production. Fixture covers US WS_TC
+    2023-Q4 → 2024-Q2; values cross-validated against the FRED/H.15
+    equivalent public series.
+    """
+    payload = _load_fixture("ws_tc_US_live_2024h1")
+    obs = _parse_series(
+        payload,
+        country="US",
+        source_tag="BIS_WS_TC",
+        series_key="Q.US.P.A.M.770.A",
+    )
+    assert len(obs) == 3
+    by_date = sorted(obs, key=lambda o: o.observation_date)
+    # 2023-Q4 / 2024-Q1 / 2024-Q2 credit-to-GDP — US private non-financial.
+    assert by_date[0].observation_date == date(2023, 12, 31)
+    assert by_date[-1].observation_date == date(2024, 6, 30)
+    assert all(140.0 <= o.value_pct <= 150.0 for o in obs), [o.value_pct for o in obs]
+
+
 @pytest.mark.slow
 async def test_live_canary_ws_dsr_us(tmp_cache_dir: Path) -> None:
     """Live smoke test — skipped in CI; runnable via `pytest -m live`."""
