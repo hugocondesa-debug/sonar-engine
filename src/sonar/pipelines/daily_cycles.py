@@ -40,14 +40,18 @@ import structlog
 import typer
 
 from sonar.cycles.orchestrator import CyclesOrchestrationResult, compute_all_cycles
-from sonar.db.persistence import DuplicatePersistError
+from sonar.db.persistence import DuplicatePersistError, persist_l5_meta_regime_result
 from sonar.db.session import SessionLocal
+from sonar.regimes.assemblers import build_l5_inputs_from_cycles_result
+from sonar.regimes.exceptions import InsufficientL4DataError
+from sonar.regimes.meta_regime_classifier import MetaRegimeClassifier
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from sonar.connectors.fred import FredConnector
     from sonar.cycles.economic_ecs import StagflationInputs
+    from sonar.regimes.types import L5RegimeResult
 
 log = structlog.get_logger()
 
@@ -101,6 +105,8 @@ class CyclesPipelineOutcome:
     observation_date: date
     orchestration: CyclesOrchestrationResult
     persisted: dict[str, int]
+    l5_result: L5RegimeResult | None = None
+    l5_skip_reason: str | None = None
 
 
 def count_persisted(result: CyclesOrchestrationResult) -> dict[str, int]:
@@ -111,6 +117,54 @@ def count_persisted(result: CyclesOrchestrationResult) -> dict[str, int]:
         "msc": 1 if result.msc is not None else 0,
         "ecs": 1 if result.ecs is not None else 0,
     }
+
+
+def _classify_and_persist_l5(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+    orchestration: CyclesOrchestrationResult,
+) -> tuple[L5RegimeResult | None, str | None]:
+    """Run L5 classifier + persist; returns ``(result, skip_reason)`` tuple.
+
+    Either slot is populated; never both. Graceful on
+    :class:`InsufficientL4DataError` (< 3/4 cycles) and
+    :class:`DuplicatePersistError` (re-run idempotent). Any other
+    exception is not swallowed — those are true bugs.
+    """
+    l5_inputs = build_l5_inputs_from_cycles_result(country_code, observation_date, orchestration)
+    try:
+        l5_result = MetaRegimeClassifier().classify(l5_inputs)
+    except InsufficientL4DataError as exc:
+        log.info(
+            "cycles_pipeline.l5_insufficient_l4",
+            country=country_code,
+            date=observation_date.isoformat(),
+            available=l5_inputs.available_count(),
+            reason=str(exc),
+        )
+        return None, str(exc)
+
+    try:
+        persist_l5_meta_regime_result(session, l5_result)
+    except DuplicatePersistError as exc:
+        log.info(
+            "cycles_pipeline.l5_duplicate_skip",
+            country=country_code,
+            date=observation_date.isoformat(),
+            reason=str(exc),
+        )
+        return l5_result, f"duplicate: {exc}"
+
+    log.info(
+        "cycles_pipeline.l5_persisted",
+        country=country_code,
+        date=observation_date.isoformat(),
+        meta_regime=str(l5_result.meta_regime),
+        confidence=l5_result.confidence,
+        classification_reason=l5_result.classification_reason,
+    )
+    return l5_result, None
 
 
 def run_one(
@@ -149,11 +203,16 @@ def run_one(
         persisted=persisted,
         skips=orchestration.skips,
     )
+    l5_result, l5_skip_reason = _classify_and_persist_l5(
+        session, country_code, observation_date, orchestration
+    )
     return CyclesPipelineOutcome(
         country_code=country_code,
         observation_date=observation_date,
         orchestration=orchestration,
         persisted=persisted,
+        l5_result=l5_result,
+        l5_skip_reason=l5_skip_reason,
     )
 
 

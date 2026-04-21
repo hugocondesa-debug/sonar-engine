@@ -16,6 +16,7 @@ from sonar.db.models import (
     CreditCycleScore,
     EconomicCycleScore,
     FinancialCycleScore,
+    L5MetaRegime,
     MonetaryCycleScore,
 )
 from sonar.pipelines.daily_cycles import (
@@ -24,6 +25,7 @@ from sonar.pipelines.daily_cycles import (
     EXIT_OK,
     T1_7_COUNTRIES,
     CyclesPipelineOutcome,
+    _classify_and_persist_l5,
     count_persisted,
     default_stagflation_resolver,
     main,
@@ -199,6 +201,79 @@ class TestRunOne:
         outcome = run_one(db_session, "US", OBS_DATE)
         assert outcome.orchestration.ecs is not None
         assert "STAGFLATION_INPUT_MISSING" in outcome.orchestration.ecs.flags
+
+
+# ---------------------------------------------------------------------------
+# L5 wiring (Sprint K C2)
+# ---------------------------------------------------------------------------
+
+
+class TestL5Wiring:
+    def test_full_stack_classifies_and_persists_l5(self, db_session: Session) -> None:
+        """4/4 L4 cycles → L5 classified + persisted."""
+        _seed_all_four_cycles(db_session)
+        outcome = run_one(
+            db_session,
+            "US",
+            OBS_DATE,
+            stagflation_resolver=lambda *_: StagflationInputs(
+                cpi_yoy=0.025, sahm_triggered=0, unemp_delta=0.001
+            ),
+        )
+        assert outcome.l5_result is not None
+        assert outcome.l5_skip_reason is None
+        assert outcome.l5_result.methodology_version == "L5_META_REGIME_v0.1"
+        # Persisted row exists.
+        rows = db_session.execute(select(L5MetaRegime)).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].country_code == "US"
+        assert rows[0].date == OBS_DATE
+
+    def test_only_ecs_triggers_l5_insufficient_skip(self, db_session: Session) -> None:
+        """1/4 L4 cycle (ECS only) → L5 InsufficientL4DataError → soft skip."""
+        _seed_ecs_e1(db_session, observation_date=OBS_DATE)
+        _seed_ecs_e2(db_session, observation_date=OBS_DATE)
+        _seed_ecs_e3(db_session, observation_date=OBS_DATE)
+        _seed_ecs_e4(db_session, observation_date=OBS_DATE)
+        db_session.commit()
+        outcome = run_one(
+            db_session,
+            "US",
+            OBS_DATE,
+            stagflation_resolver=lambda *_: StagflationInputs(
+                cpi_yoy=0.025, sahm_triggered=0, unemp_delta=0.001
+            ),
+        )
+        # ECS persisted, L5 absent because Policy 1 (>= 3/4) not met.
+        assert outcome.orchestration.ecs is not None
+        assert outcome.l5_result is None
+        assert outcome.l5_skip_reason is not None
+        assert "1/4" in outcome.l5_skip_reason
+        # Zero L5 rows persisted.
+        assert db_session.execute(select(L5MetaRegime)).scalars().all() == []
+
+    def test_rerun_l5_duplicate_handled_gracefully(self, db_session: Session) -> None:
+        """Re-running same (country, date) surfaces DuplicatePersistError as skip."""
+        _seed_all_four_cycles(db_session)
+
+        def _resolver(*_: object) -> StagflationInputs:
+            return StagflationInputs(cpi_yoy=0.025, sahm_triggered=0, unemp_delta=0.001)
+
+        first = run_one(db_session, "US", OBS_DATE, stagflation_resolver=_resolver)
+        assert first.l5_result is not None
+        # A full L4 re-run would raise DuplicatePersistError in the cycles
+        # orchestrator; here we only exercise the L5 duplicate path by
+        # calling the classifier helper directly on a fresh orchestration.
+        l5_retry, skip_reason = _classify_and_persist_l5(
+            db_session, "US", OBS_DATE, first.orchestration
+        )
+        # Result still returned (classifier succeeded); persist raised
+        # DuplicatePersistError which was swallowed into skip_reason.
+        assert l5_retry is not None
+        assert skip_reason is not None
+        assert "duplicate" in skip_reason.lower()
+        # Still exactly one L5 row in the DB.
+        assert len(db_session.execute(select(L5MetaRegime)).scalars().all()) == 1
 
 
 # ---------------------------------------------------------------------------
