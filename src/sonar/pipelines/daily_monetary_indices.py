@@ -83,10 +83,11 @@ __all__ = [
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 
-# Monetary pipeline accepts GB via BoE -> FRED cascade (sprint 8-I).
-# Kept separate from T1_7_COUNTRIES so --all-t1 preserves the historical
-# 7-country semantics; callers opt in to GB via --country GB (or the
-# deprecated "UK" alias — ADR-0007).
+# Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I) and
+# JP via BoJ → FRED cascade (sprint 8-L). Both stay separate from
+# T1_7_COUNTRIES so --all-t1 preserves the historical 7-country
+# semantics; callers opt in via --country GB (or the deprecated "UK"
+# alias — ADR-0007) or --country JP.
 #
 # Backward compat: "UK" preserved as deprecated alias. CLI emits a
 # structlog deprecation warning when ``--country UK`` is passed and
@@ -95,7 +96,7 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # accepted syntactically; end-to-end GB dispatch lands with the
 # post-Sprint-L chore commit that finalises builders.py
 # (CAL-128 closure).
-MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK")
+MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP")
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
 _DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
@@ -282,9 +283,11 @@ def _build_live_connectors(
     """Instantiate live monetary connectors + bundle them for aclose().
 
     TE is optional: when ``te_api_key`` is empty the builder falls
-    through to BoE → FRED (stale-flagged) for the GB cascade.
+    through to BoE → FRED (stale-flagged) for the GB cascade and to
+    BoJ → FRED (stale-flagged) for the JP cascade.
     """
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
+    from sonar.connectors.boj import BoJConnector  # noqa: PLC0415
     from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
     from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
@@ -294,9 +297,10 @@ def _build_live_connectors(
     cbo = CboConnector(fred=fred)
     ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
     boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
+    boj = BoJConnector(cache_dir=f"{cache_dir}/boj")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
-    builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe, te=te)
-    connectors: list[object] = [fred, ecb, boe]
+    builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe, boj=boj, te=te)
+    connectors: list[object] = [fred, ecb, boe, boj]
     if te is not None:
         connectors.append(te)
     return builder, connectors
@@ -351,7 +355,8 @@ def main(
         envvar="TE_API_KEY",
         help=(
             "TradingEconomics API key — unlocks the GB M1 TE-primary cascade "
-            "(Sprint I-patch). Optional; FRED OECD mirror is used when absent."
+            "(Sprint I-patch) and the JP M1 TE-primary cascade (Sprint L). "
+            "Optional; FRED OECD mirror is used when absent."
         ),
     ),
     cache_dir: str = typer.Option(
