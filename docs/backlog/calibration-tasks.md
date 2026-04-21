@@ -1153,9 +1153,25 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   sweep (UK → GB primary + deprecated alias wrappers for
   `build_m1_uk_inputs`, constants). See `docs/planning/retrospectives/week8-sprint-o-gb-uk-rename-report.md`
   §Post-merge for operator runbook.
-- **Status:** PARTIALLY CLOSED via Sprint O — final chore commit on
-  `builders.py` pending post Sprint L merge. Full CLOSED once chore
-  commit lands on main.
+- **Closure commit (2026-04-22):** `178fc6b` swept `builders.py`
+  (`build_m1_gb_inputs` canonical + `build_m1_uk_inputs` deprecated
+  wrapper; `_gb_bank_rate_cascade`; `FRED_GB_BANK_RATE_SERIES` +
+  `FRED_GB_GILT_10Y_SERIES` canonical with `FRED_UK_*` aliases;
+  `GB_BANK_RATE_*` + `GB_BS_GDP_PROXY_ZERO` flag strings; dispatch
+  canonicaliza `"UK"` → `"GB"` silently). Integration test renamed
+  `test_daily_monetary_uk_te_cascade.py` → `test_daily_monetary_gb_te_cascade.py`.
+  Backward-compat surfaces preserved (3 call sites):
+  - `src/sonar/connectors/te.py::fetch_uk_bank_rate` (Sprint O).
+  - `src/sonar/indices/monetary/builders.py::build_m1_uk_inputs`
+    + `FRED_UK_BANK_RATE_SERIES` + `FRED_UK_GILT_10Y_SERIES` (este
+    commit).
+  - `src/sonar/pipelines/daily_monetary_indices.py::_warn_if_deprecated_alias`
+    handles o `--country UK` CLI path (Sprint O).
+  Alias removal scheduled Week 10 Day 1 per ADR-0007 §Review
+  triggers #1.
+- **Status:** CLOSED 2026-04-22 (Week 9 Day 1 chore commit `178fc6b`).
+  Backward compat aliases preserved in builders.py, te.py, and
+  daily_monetary_indices.py; removal Week 10 Day 1.
 
 ### CAL-128-FOLLOWUP — UK → GB rename carve-out files beyond Sprint O strict scope
 
