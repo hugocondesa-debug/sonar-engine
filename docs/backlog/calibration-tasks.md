@@ -1716,6 +1716,196 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CAL-AU-GAP + CAL-AU-CPI closes M2 AU.
 - **Status:** OPEN.
 
+### CAL-NZ — NZ country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint U-NZ — M1 level)
+
+- **Priority:** MEDIUM — M2 T1 Core milestone progression (10 → 11
+  countries monetary M1 live; extends the Sprint I / L / S / T family
+  to New Zealand). Mirrors CAL-118 (UK) / CAL-119 (JP) / CAL-129 (CA)
+  / CAL-AU (AU).
+- **Trigger:** M2 T1 Core milestone listed NZ as the next country
+  after AU. Sprint U-NZ ships NZ as the fifth country in the Sprint
+  I-patch cascade family.
+- **Scope:**
+  - `src/sonar/connectors/rbnz.py` new RBNZ statistical-tables
+    connector (Sprint U-NZ C2) — wire-ready CSV parser for RBNZ
+    B-series tables + perimeter-block detection. Ships raising
+    `DataUnavailableError` against the live host (see
+    CAL-NZ-RBNZ-TABLES).
+  - `src/sonar/connectors/te.py` `fetch_nz_ocr` wrapper with
+    `NZOCRS` source-drift guard (Sprint U-NZ C1).
+  - `src/sonar/indices/monetary/builders.py` `build_m1_nz_inputs` TE
+    → RBNZ → FRED cascade (Sprint U-NZ C4); `build_m2_nz_inputs` +
+    `build_m4_nz_inputs` wire-ready scaffolds (Sprint U-NZ C4).
+  - NZ entries in `r_star_values.yaml` + `bc_targets.yaml` (Sprint
+    U-NZ C3); NZ already present in `country_tiers.yaml` as Tier 1.
+  - `daily_monetary_indices.py` NZ country support + RBNZConnector
+    in `_build_live_connectors` (Sprint U-NZ C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with
+    `IRSTCI01NZM156N` + `IRLTLT01NZM156N` (Sprint U-NZ C5).
+- **Resolution (Week 9 Sprint U-NZ, M1 level):** NZ M1 live via TE
+  primary cascade; persisted row emits `NZ_OCR_TE_PRIMARY` +
+  `R_STAR_PROXY` + `EXPECTED_INFLATION_CB_TARGET` +
+  `NZ_BS_GDP_PROXY_ZERO` flags. RBNZ B2 CSV native path ships as a
+  **wire-ready scaffold raising** (not a live-reachable slot like
+  AU/CA) — the www.rbnz.govt.nz host perimeter-403s the SONAR VPS
+  egress regardless of User-Agent (Sprint U-NZ empirical probe
+  2026-04-21). When TE fails, the cascade records
+  `NZ_OCR_RBNZ_UNAVAILABLE` and falls through to FRED with
+  `NZ_OCR_FRED_FALLBACK_STALE` + `CALIBRATION_STALE`. FRED OECD
+  mirror (`IRSTCI01NZM156N`) is the demoted last-resort slot.
+- **Remaining:** M2/M4/M3 NZ paths via CAL-NZ-M2-OUTPUT-GAP /
+  CAL-NZ-M4-FCI / CAL-NZ-M3; RBNZ host unblock via
+  CAL-NZ-RBNZ-TABLES.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
+  CAL-NZ-M2-OUTPUT-GAP / CAL-NZ-M4-FCI / CAL-NZ-M3 / CAL-NZ-BS-GDP /
+  CAL-NZ-CPI / CAL-NZ-INFL-FORECAST / CAL-NZ-RBNZ-TABLES landing.
+
+### CAL-NZ-RBNZ-TABLES — RBNZ statistics host perimeter block (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** MEDIUM — unblocks NZ native secondary slot (daily
+  RBNZ-sourced OCR + long-maturity yields) that currently delegates
+  to FRED OECD mirror (monthly lag).
+- **Trigger:** Sprint U-NZ pre-flight probe (2026-04-21) found the
+  www.rbnz.govt.nz host returns HTTP 403 `Website unavailable`
+  (Akamai-style perimeter page) for every probed path —
+  `/statistics` index, `/-/media/project/sites/rbnz/files/statistics/...`
+  media paths, `/robots.txt`, root `/` — under both generic
+  `Mozilla/5.0` and descriptive `SONAR/2.0` user-agents. The block
+  is host / IP-scoped, not UA-scoped, so the Sprint T-AU UA-gate fix
+  does not unlock it from the SONAR VPS egress. Likely root cause:
+  geo / ASN-based filtering at the RBNZ edge (historically enforced
+  for a subset of foreign cloud providers).
+- **Scope:**
+  - Retry the perimeter probe periodically (e.g. quarterly) in case
+    the block lifts.
+  - If persistent, investigate SONAR VPS egress IP allowlisting with
+    RBNZ operator contact — or route NZ-native probes through a
+    different egress (Cloudflare worker / NZ-residing proxy).
+  - Once reachable, empirically validate the B2-daily CSV schema
+    (header / Series ID / data-row format) against the connector's
+    parser — the current implementation mirrors the RBA F-table
+    pattern with a `YYYY-MM-DD` date axis, which is the most likely
+    shape but unvalidated against a real payload.
+  - Extend the RBNZ connector with `fetch_government_10y` (B2 weekly
+    long-maturity series) once the host is reachable.
+  - Flip the `test_live_canary_rbnz_ocr_expects_block` pytest canary
+    from "expected DataUnavailable" to a band assertion
+    (OCR ∈ [0.25, 5.50]% historically).
+- **Unblocks:** `NZ_OCR_RBNZ_NATIVE` flag on M1 NZ row when TE fails
+  + future NZ M4 10Y component (CAL-NZ-M4-FCI).
+- **Status:** OPEN (wire-ready; scaffold already raises cleanly).
+
+### CAL-NZ-M2-OUTPUT-GAP — NZ M2 output-gap source (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 NZ Taylor-gap compute.
+- **Trigger:** Sprint U-NZ C4 shipped `build_m2_nz_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`; Stats NZ +
+  the NZ Treasury (HYEFU / BEFU) publish quarterly output-gap
+  estimates but no scriptable endpoint exists at Sprint U-NZ scope.
+- **Scope:**
+  - Probe OECD EO NZ for cadence + coverage (canonical fallback
+    across the cascade family).
+  - Probe Stats NZ `infoshare` + NZ Treasury HYEFU/BEFU HTML for any
+    scriptable series; otherwise consume the OECD EO path.
+  - Wire NZ output-gap connector and populate
+    `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_nz_inputs` once the resolver lands.
+- **Unblocks:** M2 NZ persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-NZ-M4-FCI — NZ M4 FCI 5-component bundle (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 NZ custom-FCI compute.
+- **Trigger:** Sprint U-NZ C4 shipped `build_m4_nz_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`; only policy
+  rate (via M1 cascade) is mappable at Sprint U-NZ scope, below the
+  `MIN_CUSTOM_COMPONENTS == 5` floor. 10Y NZ gov is available via
+  FRED (`IRLTLT01NZM156N`) monthly but not yet wired.
+- **Scope:** connectors/wrappers for the missing components:
+  - NZ credit spread (BBB corp vs NZ gov; RBNZ B5 corporate-yield
+    series candidate once host unblocks, or Bloomberg NZD credit
+    indices).
+  - NZ vol index (no NZX VIX-analog published; proxy from global
+    VIX or `^AXVI` with weighting).
+  - NZ 10Y government stock yield (RBNZ B2 weekly long-maturity
+    series pending CAL-NZ-RBNZ-TABLES; FRED `IRLTLT01NZM156N` OECD
+    mirror available monthly).
+  - NZ NZD NEER (RBNZ B14 trade-weighted index).
+  - NZ mortgage rate (RBNZ B20 lender-rates table).
+- **Unblocks:** M4 NZ persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-NZ-M3 — NZ M3 market-expectations overlays (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per
+  country; analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA) /
+  CAL-AU-M3 (AU).
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
+  rows per country; Sprint U-NZ did not ship NZ NSS or NZ EXPINF
+  overlays (Phase 2+ scope).
+- **Scope:**
+  - NZ NSS overlay persistence (RBNZ B2 yield-curve series family
+    pending host unblock + FRED `IRLTLT01NZM156N` long-end; NSS fit
+    via existing overlay module).
+  - NZ EXPINF overlay persistence (NZ inflation-indexed bond
+    breakeven, or RBNZ 2 % CPI-target midpoint as CB-target
+    fallback — mirroring UK / JP / CA / AU).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` NZ path.
+- **Unblocks:** M3 NZ persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-NZ-BS-GDP — NZ balance-sheet / GDP ratio wiring (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** LOW — closes the `NZ_BS_GDP_PROXY_ZERO` flag on M1 NZ.
+- **Trigger:** Sprint U-NZ C4 zero-seeded NZ balance-sheet ratios
+  because RBNZ balance-sheet aggregates (B5/B6 series candidate) +
+  Stats NZ nominal GDP are not wired at Sprint U-NZ scope. Stats NZ
+  `infoshare` covers NZ GDP; RBNZ balance-sheet pends
+  CAL-NZ-RBNZ-TABLES.
+- **Scope:** RBNZ B5/B6 balance-sheet series combined with Stats NZ
+  nominal GDP (or equivalent FRED mirror).
+- **Unblocks:** M1 NZ BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1 score is
+  null).
+- **Status:** OPEN.
+
+### CAL-NZ-CPI — NZ CPI YoY wrapper (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** MEDIUM — required input for M2 NZ Taylor gap.
+- **Trigger:** Sprint U-NZ C4 `build_m2_nz_inputs` scaffold lists NZ
+  CPI YoY as one of three missing inputs; TE generic
+  `fetch_indicator("NZ", "inflation rate", ...)` should cover but
+  not probed at Sprint U-NZ scope. Stats NZ publishes quarterly CPI.
+- **Scope:**
+  - Probe TE generic indicator for NZ CPI YoY cadence + coverage.
+  - Wire `fetch_nz_cpi_yoy` wrapper on `TEConnector` with
+    source-drift guard (analogous to `fetch_nz_ocr`).
+  - Consume in `build_m2_nz_inputs` output.
+- **Unblocks:** M2 NZ inflation input; combined with
+  CAL-NZ-M2-OUTPUT-GAP + CAL-NZ-INFL-FORECAST closes M2 NZ.
+- **Status:** OPEN.
+
+### CAL-NZ-INFL-FORECAST — NZ inflation-forecast wrapper (Week 9 Sprint U-NZ surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 NZ compute; RBNZ 2 %
+  CPI-target midpoint serves as CB-target proxy until this lands.
+- **Trigger:** RBNZ publishes quarterly Monetary Policy Statement
+  (MPS) forecast tables (HTML / PDF) but unwired at Sprint U-NZ
+  scope. M2 NZ currently treats the 2 % target midpoint as the
+  inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
+- **Scope:**
+  - Probe RBNZ MPS for scriptable forecast series (post host
+    unblock).
+  - Wire `fetch_nz_inflation_forecast` (connector TBD — likely a
+    HTML/PDF-scrape adapter on top of `RBNZConnector`).
+  - Consume in `build_m2_nz_inputs` with new flag
+    `NZ_INFLATION_FORECAST_RBNZ_MPS` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 NZ second-cycle inflation input; combined with
+  CAL-NZ-M2-OUTPUT-GAP + CAL-NZ-CPI closes M2 NZ.
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
