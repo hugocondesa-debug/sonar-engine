@@ -53,7 +53,13 @@ log = structlog.get_logger()
 
 T1_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 DATAFLOWS: tuple[str, ...] = ("WS_TC", "WS_DSR", "WS_CREDIT_GAP")
-DEFAULT_LOOKBACK_DAYS: int = 90
+# BIS credit aggregates publish quarterly with a ~2-quarter lag (e.g. on
+# 2026-04-21 the latest available WS_TC quarter is 2025-Q3). A 90-day
+# window falls entirely inside that publication lag and returns HTTP 404
+# for every (country, dataflow) pair. 540 days ≈ 6 quarters guarantees
+# the window overlaps at least the last 4 published quarters even if BIS
+# stalls a release. CAL-136 (Week 9 Sprint AA) raised this from 90.
+DEFAULT_LOOKBACK_DAYS: int = 540
 
 UNIT_DESCRIPTOR: dict[str, str] = {
     "WS_TC": "pct_gdp",
