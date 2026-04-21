@@ -1367,6 +1367,143 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   M2 JP.
 - **Status:** OPEN.
 
+### CAL-129 — CA country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint S — M1 level)
+
+- **Priority:** MEDIUM — M2 T1 Core milestone progression (8 → 9
+  countries monetary M1 live; symmetric close of the Sprint I / L /
+  S family).
+- **Trigger:** M1/US scorecard flagged CA as a deferred Tier-1
+  country alongside UK + JP. Sprint S ships CA as the third country
+  in the Sprint I-patch cascade family.
+- **Scope:**
+  - `src/sonar/connectors/boc.py` new BoC Valet public API connector
+    (Sprint S C2) — first native connector in the cascade family to
+    land reachable primary-class (contrast BoE / BoJ which are both
+    browser-gated).
+  - `src/sonar/connectors/te.py` `fetch_ca_bank_rate` wrapper with
+    `CCLR` source-drift guard (Sprint S C1).
+  - `src/sonar/indices/monetary/builders.py` `build_m1_ca_inputs`
+    TE → BoC Valet → FRED cascade (Sprint S C4); `build_m2_ca_inputs`
+    + `build_m4_ca_inputs` wire-ready scaffolds (Sprint S C4).
+  - CA entries in `r_star_values.yaml` (Sprint S C3); CA already
+    present in `country_tiers.yaml` + `bc_targets.yaml`.
+  - `daily_monetary_indices.py` CA country support (Sprint S C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with OECD mirror
+    series for CA + GB + JP (Sprint S C5 — also unblocked the JP
+    FRED-fallback live canary which was silently broken).
+- **Resolution (Week 9 Sprint S, M1 level):** CA M1 live via TE
+  primary cascade; persisted row emits `CA_BANK_RATE_TE_PRIMARY` +
+  `R_STAR_PROXY` + `EXPECTED_INFLATION_CB_TARGET` +
+  `CA_BS_GDP_PROXY_ZERO` flags. BoC Valet native path **live** (not a
+  wire-ready scaffold like BoJ) — when TE fails, cascade lands
+  `CA_BANK_RATE_BOC_NATIVE` without staleness. FRED OECD mirror
+  (`IRSTCI01CAM156N`) demoted to last-resort with
+  `CA_BANK_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE` flags.
+- **Remaining:** M2/M4/M3 CA paths via CAL-130 / CAL-131 / CAL-132.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending CAL-130
+  through CAL-133 landing.
+
+### CAL-130 — CA M2 output-gap source (Week 9 Sprint S surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 CA Taylor-gap compute.
+- **Trigger:** Sprint S C4 shipped `build_m2_ca_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; BoC publishes a quarterly
+  output gap via Valet series (`DMREST_SEGP_GAP` candidate) but the
+  wiring is not Sprint S scope.
+- **Scope:**
+  - Probe BoC Valet `DMREST_SEGP_GAP` + OECD EO CA for cadence +
+    coverage.
+  - Wire CA output-gap connector (Valet extension or OECD EO direct)
+    and populate `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_ca_inputs` once the resolver lands.
+- **Unblocks:** M2 CA persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-131 — CA M4 FCI 5-component bundle (Week 9 Sprint S surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 CA custom-FCI compute.
+- **Trigger:** Sprint S C4 shipped `build_m4_ca_inputs` as wire-ready
+  scaffold raising `InsufficientDataError`; only 10Y GoC (Valet
+  `BD.CDN.10YR.DQ.YLD`) and policy rate (via M1 cascade) are mappable
+  at Sprint S scope, below the `MIN_CUSTOM_COMPONENTS == 5` floor.
+- **Scope:** connectors/wrappers for the missing components:
+  - CA credit spread (BBB corp vs GoC; candidate: FRED `BAMLHYCA` or
+    Valet bond-yield curve proxy).
+  - CA vol index (no TSX VIX-analog on FRED; Yahoo `^VIXC` candidate
+    or proxy from `^VIX`).
+  - CA CAD NEER (BoC Valet `CEER_BROADN` is canonical daily
+    nominal-CEER series).
+  - CA mortgage rate (BoC Valet `V80691335` or equivalent).
+- **Unblocks:** M4 CA persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-132 — CA M3 market-expectations overlays (Week 9 Sprint S surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
+  analogous to CAL-105 (UK) / CAL-122 (JP).
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
+  rows per country; Sprint S did not ship CA NSS or CA EXPINF
+  overlays (Phase 2+ scope).
+- **Scope:**
+  - CA NSS overlay persistence (BoC Valet yield-curve series family
+    + FRED `IRLTLT01CAM156N` long-end; NSS fit via existing overlay
+    module).
+  - CA EXPINF overlay persistence (Valet CPI breakeven analog OR BoC
+    2 % CPI target as CB-target fallback, mirroring UK / JP).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` CA path.
+- **Unblocks:** M3 CA persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-133 — CA balance-sheet / GDP ratio wiring (Week 9 Sprint S surfaced)
+
+- **Priority:** LOW — closes the `CA_BS_GDP_PROXY_ZERO` flag on M1 CA.
+- **Trigger:** Sprint S C4 zero-seeded CA balance-sheet ratios because
+  BoC weekly balance-sheet aggregates (Valet `B50000` family candidate)
+  + StatCan nominal GDP are not wired at Sprint S scope.
+- **Scope:** direct BoC Valet fetch for balance-sheet aggregate OR
+  FRED CA M2 series proxy, combined with StatCan CA nominal GDP via
+  FRED `CANRGDPEXP` or equivalent.
+- **Unblocks:** M1 CA BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1 score is
+  null).
+- **Status:** OPEN.
+
+### CAL-134 — CA CPI YoY wrapper (Week 9 Sprint S surfaced)
+
+- **Priority:** MEDIUM — required input for M2 CA Taylor gap.
+- **Trigger:** Sprint S C4 `build_m2_ca_inputs` scaffold lists CA CPI
+  YoY as one of three missing inputs; TE generic `fetch_indicator("CA",
+  "inflation rate", ...)` should cover but not probed at Sprint S
+  scope. StatCan also publishes CPI via Valet-adjacent feeds.
+- **Scope:**
+  - Probe TE generic indicator for CA CPI YoY cadence + coverage.
+  - Wire `fetch_ca_cpi_yoy` wrapper on `TEConnector` with
+    source-drift guard (analogous to `fetch_ca_bank_rate` /
+    `fetch_jp_bank_rate`).
+  - Consume in `build_m2_ca_inputs` output.
+- **Unblocks:** M2 CA inflation input; combined with CAL-130 +
+  CAL-135 closes M2 CA.
+- **Status:** OPEN.
+
+### CAL-135 — CA inflation-forecast wrapper (Week 9 Sprint S surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 CA compute; BoC 2 % CPI
+  target serves as CB-target proxy until this lands.
+- **Trigger:** BoC publishes quarterly Monetary Policy Report forecast
+  series that are Valet-hosted (candidate: `MPR_INFL_EXP_4Q` family)
+  but unwired at Sprint S scope. M2 CA currently treats the 2 % target
+  as the inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
+- **Scope:**
+  - Probe Valet for BoC MPR inflation-forecast series.
+  - Wire `fetch_ca_inflation_forecast` on `BoCConnector`.
+  - Consume in `build_m2_ca_inputs` with new flag
+    `CA_INFLATION_FORECAST_BOC_MPR` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 CA second-cycle inflation input; combined with
+  CAL-130 + CAL-134 closes M2 CA.
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
