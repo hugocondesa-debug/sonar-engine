@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     from sonar.connectors.fred import FredConnector
     from sonar.connectors.rba import RBAConnector
     from sonar.connectors.rbnz import RBNZConnector
+    from sonar.connectors.snb import SNBConnector
     from sonar.connectors.te import TEConnector
 
 
@@ -69,6 +70,7 @@ __all__ = [
     "MonetaryInputsBuilder",
     "build_m1_au_inputs",
     "build_m1_ca_inputs",
+    "build_m1_ch_inputs",
     "build_m1_ea_inputs",
     "build_m1_gb_inputs",
     "build_m1_jp_inputs",
@@ -77,11 +79,13 @@ __all__ = [
     "build_m1_us_inputs",
     "build_m2_au_inputs",
     "build_m2_ca_inputs",
+    "build_m2_ch_inputs",
     "build_m2_jp_inputs",
     "build_m2_nz_inputs",
     "build_m2_us_inputs",
     "build_m4_au_inputs",
     "build_m4_ca_inputs",
+    "build_m4_ch_inputs",
     "build_m4_jp_inputs",
     "build_m4_nz_inputs",
     "build_m4_us_inputs",
@@ -118,6 +122,13 @@ FRED_AU_AGB_10Y_SERIES: str = "IRLTLT01AUM156N"
 # ships as a wire-ready scaffold pending CAL-NZ-RBNZ-TABLES).
 FRED_NZ_OCR_SERIES: str = "IRSTCI01NZM156N"
 FRED_NZ_GOVT_10Y_SERIES: str = "IRLTLT01NZM156N"
+
+# CH OECD-mirror series on FRED — monthly, last-resort backfill when both
+# TE primary and SNB native are unavailable (Sprint V cascade). The
+# IRSTCI01CHM156N mirror is monthly-lagged (Sprint V probe observed the
+# last update on 2024-03) so the stale-flag cost is explicit.
+FRED_CH_POLICY_RATE_SERIES: str = "IRSTCI01CHM156N"
+FRED_CH_CONFED_10Y_SERIES: str = "IRLTLT01CHM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -1546,6 +1557,294 @@ async def build_m4_nz_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — CH (Sprint V TE → SNB → FRED cascade + negative-rate era flag)
+# ---------------------------------------------------------------------------
+
+
+async def _ch_policy_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    snb: SNBConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch CH Policy Rate via TE → SNB → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), and Sprint T (AU) cascades (first success wins). CH
+    joins CA and AU as the third country with a reachable native
+    secondary slot — the SNB data portal is a public unscreened CSV
+    endpoint. Cadence delta versus TE daily primary: SNB is monthly, so
+    the secondary lands ``CH_POLICY_RATE_SNB_NATIVE`` alongside
+    ``CH_POLICY_RATE_SNB_NATIVE_MONTHLY`` to flag the cadence delta
+    explicitly — but **no** ``CALIBRATION_STALE`` flag, since SNB
+    policy-rate changes at a quarterly decision cadence and the monthly
+    aggregation is materially equivalent for M1 purposes.
+
+    1. **TE primary** (``fetch_ch_policy_rate`` — daily, SNB-sourced via
+       ``SZLTTR``). Emits ``CH_POLICY_RATE_TE_PRIMARY`` on success.
+    2. **SNB native** (``fetch_saron`` on ``zimoma`` cube). Emits
+       ``CH_POLICY_RATE_SNB_NATIVE`` + ``CH_POLICY_RATE_SNB_NATIVE_MONTHLY``
+       on success.
+    3. **FRED OECD mirror** (``IRSTCI01CHM156N`` — monthly lag; probe
+       2026-04-21 showed the series stale at 2024-03). Last-resort
+       fallback emitting both ``CH_POLICY_RATE_FRED_FALLBACK_STALE``
+       and ``CALIBRATION_STALE`` so downstream consumers can surface
+       the degradation.
+
+    **Negative-rate era**: when the resolved history contains at least
+    one strictly-negative observation, the cascade additionally emits
+    ``CH_NEGATIVE_RATE_ERA_DATA`` — preserving the signal that the
+    window spans the 2014-2022 SNB negative corridor (minimum policy
+    rate -0.75 %). This is the characteristic CH cascade flag; no
+    other Tier-1 country's cascade needs it at Sprint V scope.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three
+    return empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    hist: list[_DatedValue] | None = None
+    flags: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_ch_policy_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            hist = [_DatedValue(o.observation_date, o.value) for o in te_obs]
+            flags = ("CH_POLICY_RATE_TE_PRIMARY",)
+            sources = ("te",)
+
+    if hist is None and snb is not None:
+        try:
+            snb_obs = await snb.fetch_saron(start, end)
+        except DataUnavailableError:
+            snb_obs = []
+        if snb_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in snb_obs]
+            flags = (
+                "CH_POLICY_RATE_SNB_NATIVE",
+                "CH_POLICY_RATE_SNB_NATIVE_MONTHLY",
+            )
+            sources = ("snb",)
+
+    if hist is None:
+        fred_obs = await fred.fetch_series(FRED_CH_POLICY_RATE_SERIES, start, end)
+        if fred_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs]
+            flags = ("CH_POLICY_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE")
+            sources = ("fred",)
+
+    if hist is None:
+        msg = "CH Policy Rate unavailable from TE, SNB, and FRED"
+        raise ValueError(msg)
+
+    if any(o.value < 0 for o in hist):
+        flags = (*flags, "CH_NEGATIVE_RATE_ERA_DATA")
+    return hist, flags, sources
+
+
+async def build_m1_ch_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    snb: SNBConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 CH inputs via TE → SNB → FRED cascade + YAML r*/target.
+
+    Sprint V introduces the CH country path using the canonical cascade
+    pattern established by Sprint I-patch (GB), Sprint L (JP), Sprint S
+    (CA), and Sprint T (AU). TE's ``interest rate`` indicator for
+    Switzerland back-fills the full SNB policy-rate history (``SZLTTR``)
+    at daily cadence across the 2014-2022 negative-rate corridor and
+    is the empirically preferred source — decisions propagate into TE
+    within hours of the SNB announcement, whereas the FRED OECD mirror
+    (``IRSTCI01CHM156N``) only updates once a month and runs ~12-24
+    months stale at Sprint V probe. SNB ``zimoma`` cube SARON sits in
+    the secondary slot as a first-class reachable public-CSV native
+    (monthly cadence, matching SNB's quarterly decision rhythm).
+
+    CH-specific degradations and Phase-1 proxies:
+
+    - ``r_star_pct`` sourced from SNB WP 2024-09 posterior median
+      (0.25 % real) — Swiss r* is structurally low because CHF
+      safe-haven status compresses the domestic natural rate. Emits
+      ``R_STAR_PROXY`` (mirrors GB / JP / CA / AU pattern).
+    - ``expected_inflation_5y_pct`` defaults to SNB 0-2 % band
+      midpoint (1 %) — SNB does not publish a point target; emits both
+      ``EXPECTED_INFLATION_CB_TARGET`` (proxy-source flag) and
+      ``CH_INFLATION_TARGET_BAND`` (band-midpoint-convention flag) so
+      downstream operators don't misinterpret the 1 % figure as an
+      SNB-published point target.
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with
+      ``CH_BS_GDP_PROXY_ZERO`` flag — SNB balance-sheet is unusual
+      (large forex-intervention-driven assets dating from the
+      2011-2015 CHF floor regime) and requires SNB Monthly Statistical
+      Bulletin (MSB Table B1A) combined with SECO nominal GDP; neither
+      wired at Sprint V scope. Lands when CAL-CH-BS-GDP closes.
+    - **Negative-rate era flag** — when the resolved cascade history
+      contains ≥ 1 strictly-negative observation, the cascade emits
+      ``CH_NEGATIVE_RATE_ERA_DATA`` so downstream M1 / real-shadow
+      computations can branch on negative-policy-rate regimes (e.g.
+      the shadow-rate formula is unchanged, but regime classifiers may
+      need to handle ZLB breaches differently for CH than for
+      positive-rate-only cascades).
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _ch_policy_rate_cascade(
+        start, observation_date, te=te, snb=snb, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "CH Policy Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("CH")  # is_proxy always True for CH
+    # SNB 0-2 % band midpoint used as the 5Y inflation-expectation anchor;
+    # the central-bank target loader (bc_targets.yaml) returns 0.01 for CH.
+    expected_inflation_5y_pct = resolve_inflation_target("CH")
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "CH_INFLATION_TARGET_BAND",
+        "CH_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="CH",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — CH (Sprint V — wire-ready scaffold, raises pending CPI + gap)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_ch_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD CH gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    snb: SNBConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 CH inputs (scaffold — raises until CH sources land).
+
+    Sprint V ships the dispatch wire-ready so the pipeline can route
+    ``--country CH`` without crashing. The CH Taylor-gap inputs require
+    three sources that are not yet connected at this scope:
+
+    - **CH CPI YoY**: no ``fetch_ch_cpi_yoy`` wrapper on either TE or
+      FRED within Sprint V scope (CAL-CH-CPI). SNB publishes CPI on
+      the ``cpikern`` cube but the parse path needs its own wrapper.
+    - **Output gap**: Switzerland-specific — SECO publishes the
+      quarterly KOF-SECO output gap but no scriptable endpoint exists
+      at Sprint V scope (CAL-CH-GAP). OECD EO CH also maps through the
+      same connector family.
+    - **Inflation forecast**: SNB publishes quarterly Monetary Policy
+      Assessment forecasts — HTML-hosted but unwired Sprint V
+      (CAL-CH-INFL-FORECAST).
+
+    Once any of those sources lands, this function resolves the
+    cascade like :func:`build_m2_us_inputs` does for the CBO output-
+    gap path. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (caught by
+    :func:`daily_monetary_indices.build_live_monetary_inputs` which
+    logs a structured ``monetary_pipeline.builder_skipped`` warning
+    rather than crashing).
+    """
+    msg = (
+        "M2 CH builder scaffold shipped Sprint V but requires CPI YoY, "
+        "output-gap, and inflation-forecast CH connectors that are not "
+        "yet wired (see CAL-CH-CPI / CAL-CH-GAP / CAL-CH-INFL-FORECAST). "
+        "Raises so the pipeline skips M2 CH cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — CH (Sprint V — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_ch_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future CH FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    snb: SNBConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 CH inputs (scaffold — raises until ≥5 FCI components).
+
+    CH lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so CH must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    V close the reachable components are:
+
+    - 10Y Confederation yield via SNB ``rendoblim`` cube / 10J tenor
+      (wired C2)
+    - Policy rate via the M1 cascade (wired C4)
+
+    Pending components (bundled into CAL-CH-M4-FCI):
+
+    - CH credit spread (CHF corp vs Confederation; candidate: SNB
+      ``rendopa`` — Pfandbrief yields; no FRED mirror known)
+    - CH vol index (no SMI vol index readily on FRED; candidate: Yahoo
+      ^VSMI which SIX/UBS co-publish; or a realised-vol proxy from
+      ^SSMI returns)
+    - CHF NEER (SNB ``capaerenexch`` or BIS Trade-Weighted indices; the
+      BIS CHF TWI via ``connectors/bis.py`` is a candidate)
+    - CH mortgage rate (SNB ``zihypch`` table; no wrapper at Sprint V
+      scope)
+
+    Once ≥5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (mirrors M2 CH / M4 AU / CA skip behaviour).
+    """
+    msg = (
+        "M4 CH builder scaffold shipped Sprint V but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + CHF "
+        "NEER + mortgage; see CAL-CH-M4-FCI). Raises so the pipeline "
+        "skips M4 CH cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -1711,6 +2010,7 @@ class MonetaryInputsBuilder:
         boj: BoJConnector | None = None,
         rba: RBAConnector | None = None,
         rbnz: RBNZConnector | None = None,
+        snb: SNBConnector | None = None,
         te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
@@ -1721,6 +2021,7 @@ class MonetaryInputsBuilder:
         self.boj = boj
         self.rba = rba
         self.rbnz = rbnz
+        self.snb = snb
         self.te = te
 
     async def build_m1_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
@@ -1774,6 +2075,14 @@ class MonetaryInputsBuilder:
                 rbnz=self.rbnz,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "CH":
+            return await build_m1_ch_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                snb=self.snb,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
@@ -1814,6 +2123,14 @@ class MonetaryInputsBuilder:
                 rbnz=self.rbnz,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "CH":
+            return await build_m2_ch_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                snb=self.snb,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -1851,6 +2168,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 rbnz=self.rbnz,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "CH":
+            return await build_m4_ch_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                snb=self.snb,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"

@@ -11,6 +11,7 @@ from sonar.connectors.base import Observation
 from sonar.indices.monetary.builders import (
     FRED_AU_CASH_RATE_SERIES,
     FRED_CA_BANK_RATE_SERIES,
+    FRED_CH_POLICY_RATE_SERIES,
     FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
     FRED_NZ_OCR_SERIES,
@@ -21,6 +22,7 @@ from sonar.indices.monetary.builders import (
     _to_dated,
     build_m1_au_inputs,
     build_m1_ca_inputs,
+    build_m1_ch_inputs,
     build_m1_ea_inputs,
     build_m1_gb_inputs,
     build_m1_jp_inputs,
@@ -29,11 +31,13 @@ from sonar.indices.monetary.builders import (
     build_m1_us_inputs,
     build_m2_au_inputs,
     build_m2_ca_inputs,
+    build_m2_ch_inputs,
     build_m2_jp_inputs,
     build_m2_nz_inputs,
     build_m2_us_inputs,
     build_m4_au_inputs,
     build_m4_ca_inputs,
+    build_m4_ch_inputs,
     build_m4_jp_inputs,
     build_m4_nz_inputs,
     build_m4_us_inputs,
@@ -158,6 +162,9 @@ class _FakeFredConnector:
         elif series_id == FRED_NZ_OCR_SERIES:
             country_code = "NZ"
             yield_bps_val = 375  # 3.75 %
+        elif series_id == FRED_CH_POLICY_RATE_SERIES:
+            country_code = "CH"
+            yield_bps_val = -25  # -0.25 % — negative-rate-era fixture value
         else:
             return []
         out: list[Observation] = []
@@ -473,6 +480,71 @@ class _FakeRBNZUnavailable:
     async def fetch_ocr(self, start: date, end: date) -> list[Observation]:
         _ = start, end
         msg = "RBNZ host returned HTML perimeter page (test-fake, CAL-NZ-RBNZ-TABLES)"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTEChSuccess:
+    """TE primary path for CH — returns daily SNB policy-rate obs (pct)."""
+
+    def __init__(self, *, pct: float = 1.5) -> None:
+        self.pct = pct
+
+    async def fetch_ch_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="SZLTTR"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTEChUnavailable:
+    """TE primary fails for CH — cascade fails over to SNB native."""
+
+    async def fetch_ch_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='CH' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeSNBSuccess:
+    """SNB native — zimoma cube SARON row. Monthly cadence, yield_bps signed."""
+
+    def __init__(self, *, yield_bps: int = 125) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_saron(self, start: date, end: date) -> list[Observation]:
+        # Monthly observations anchored to the 1st of each month.
+        out: list[Observation] = []
+        year, month = start.year, start.month
+        while date(year, month, 1) <= end:
+            out.append(
+                Observation(
+                    country_code="CH",
+                    observation_date=date(year, month, 1),
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,
+                    source="SNB",
+                    source_series_id="zimoma:SARON",
+                )
+            )
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+        return out
+
+
+class _FakeSNBUnavailable:
+    """Simulates an SNB host outage / schema drift."""
+
+    async def fetch_saron(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "SNB zimoma unreachable (test-fake)"
         raise DataUnavailableError(msg)
 
 
@@ -1527,6 +1599,242 @@ class TestBuildM4Nz:
             )
 
 
+# M1 CH (Sprint V — TE primary → SNB native → FRED stale-flagged; negatives)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Ch:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily SNB-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        snb = _FakeSNBSuccess()  # present but skipped (TE wins priority)
+        te = _FakeTEChSuccess(pct=1.5)
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            snb=snb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "CH"
+        assert inputs.policy_rate_pct == pytest.approx(0.015)  # TE 1.50 %
+        assert "CH_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_SNB_NATIVE" not in inputs.upstream_flags
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "CH_INFLATION_TARGET_BAND" in inputs.upstream_flags
+        assert "CH_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0025)
+        # 1.5 % policy, all positive → no negative-rate-era flag.
+        assert "CH_NEGATIVE_RATE_ERA_DATA" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_te_primary_negative_rate_era_flag(self) -> None:
+        """Negative-rate window surfaces CH_NEGATIVE_RATE_ERA_DATA downstream.
+
+        Pinning TE to -0.75 % across the lookback window mirrors the
+        2020 SNB policy-rate regime; the cascade must propagate the
+        sign into ``policy_rate_pct`` **and** add the negative-era
+        flag so regime classifiers can branch appropriately.
+        """
+        fred = _FakeFredConnector()
+        te = _FakeTEChSuccess(pct=-0.75)
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.0075)  # -0.75 %
+        assert "CH_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        # Real-shadow history must preserve signs — pre-conversion
+        # policy is -0.75 %, inflation target 1 %, so real shadow =
+        # -0.0075 - 0.01 = -0.0175. Every monthly sample should match.
+        for r in inputs.real_shadow_rate_history:
+            assert r == pytest.approx(-0.0175, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_snb_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → SNB SARON native takes over."""
+        fred = _FakeFredConnector()
+        snb = _FakeSNBSuccess(yield_bps=125)  # 1.25 %
+        te = _FakeTEChUnavailable()
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            snb=snb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0125)  # SNB 1.25 %
+        assert "CH_POLICY_RATE_SNB_NATIVE" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_SNB_NATIVE_MONTHLY" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        # Critically: SNB native does NOT carry CALIBRATION_STALE.
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("snb",)
+
+    @pytest.mark.asyncio
+    async def test_snb_native_preserves_negative_values(self) -> None:
+        """Negative SNB SARON observations surface correctly on the secondary path."""
+        fred = _FakeFredConnector()
+        snb = _FakeSNBSuccess(yield_bps=-75)  # -0.75 % SNB corridor
+        te = _FakeTEChUnavailable()
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            snb=snb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.0075)
+        assert "CH_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_SNB_NATIVE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + SNB both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        snb = _FakeSNBUnavailable()
+        te = _FakeTEChUnavailable()
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            snb=snb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.0025)  # FRED -0.25 %
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "CH_POLICY_RATE_SNB_NATIVE" not in inputs.upstream_flags
+        # FRED fixture returns -0.25 %, so the negative-era flag still
+        # fires — proves the flag attaches to the value, not the source.
+        assert "CH_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_snb_absent(self) -> None:
+        """te=None + snb=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "CH"
+        assert inputs.source_connector == ("fred",)
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + SNB unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, SNB, and FRED"):
+            await build_m1_ch_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTEChUnavailable(),  # type: ignore[arg-type]
+                snb=_FakeSNBUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_ch_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """CH BS/GDP ratio is placeholder — always emits CH_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTEChSuccess(pct=1.5)
+        inputs = await build_m1_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "CH_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 CH (Sprint V — scaffold raises until CH gap + CPI connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Ch:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 CH scaffold is wire-ready but raises until CH gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTEChSuccess(pct=1.5)
+        with pytest.raises(InsufficientDataError, match="CAL-CH"):
+            await build_m2_ch_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_ch_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 CH (Sprint V — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Ch:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 CH scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTEChSuccess(pct=1.5)
+        snb = _FakeSNBSuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-CH-M4-FCI"):
+            await build_m4_ch_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                snb=snb,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_ch_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
@@ -1634,9 +1942,10 @@ class TestMonetaryInputsBuilderFacade:
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        # NZ wired Sprint U-NZ; CH remains unsupported until Sprint V-CH.
-        with pytest.raises(NotImplementedError, match="CH"):
-            await builder.build_m1_inputs("CH", date(2024, 12, 31))
+        # NZ + CH both wired (Sprint U-NZ + Sprint V-CH); NO / SE remain
+        # Phase 2+ — probe with one of those.
+        with pytest.raises(NotImplementedError, match="NO"):
+            await builder.build_m1_inputs("NO", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_build_m1_ca_via_facade_te_primary(self) -> None:
@@ -1814,6 +2123,73 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(InsufficientDataError, match="CAL-NZ-M4-FCI"):
             await builder.build_m4_inputs("NZ", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_ch_via_facade_te_primary(self) -> None:
+        """CH M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEChSuccess(pct=1.5),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("CH", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "CH"
+        assert "CH_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_ch_via_facade_snb_secondary(self) -> None:
+        """CH M1 dispatch — TE absent, SNB handle present → native path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            snb=_FakeSNBSuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("CH", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "CH"
+        assert "CH_POLICY_RATE_SNB_NATIVE" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_SNB_NATIVE_MONTHLY" in inputs.upstream_flags
+        assert inputs.source_connector == ("snb",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_ch_via_facade_fred_fallback(self) -> None:
+        """CH M1 dispatch — FRED-only path (no TE/SNB handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("CH", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "CH"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "CH_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_ch_dispatches_to_ch_builder(self) -> None:
+        """CH M2 dispatch routes to the CH scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEChSuccess(pct=1.5),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-CH"):
+            await builder.build_m2_inputs("CH", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_ch_dispatches_to_ch_builder(self) -> None:
+        """CH M4 dispatch routes to the CH scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEChSuccess(pct=1.5),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-CH-M4-FCI"):
+            await builder.build_m4_inputs("CH", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
