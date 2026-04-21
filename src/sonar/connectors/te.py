@@ -77,6 +77,7 @@ TE_INDICATOR_IFO_HEADLINE = "business confidence"
 TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT = "zew economic sentiment index"
 TE_INDICATOR_CONSUMER_CONFIDENCE = "consumer confidence"
 TE_INDICATOR_MICHIGAN_5Y_INFLATION = "michigan 5 year inflation expectations"
+TE_INDICATOR_INTEREST_RATE = "interest rate"
 
 # Expected HistoricalDataSymbol values for the wrappers. Used as a
 # source-identity guard: when TE reshuffles its catalogue, confirming
@@ -85,6 +86,7 @@ TE_INDICATOR_MICHIGAN_5Y_INFLATION = "michigan 5 year inflation expectations"
 # incorrect premise for lack of this guard).
 TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC = "CONCCONF"
 TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION = "USAM5YIE"
+TE_EXPECTED_SYMBOL_UK_BANK_RATE = "UKBRBASE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +417,37 @@ class TEConnector:
             err = (
                 "TE michigan-5y source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """UK Bank Rate — BoE policy-rate series, TE-sourced.
+
+        TE ``interest rate`` indicator for ``united kingdom`` returns
+        the BoE Bank Rate directly (HistoricalDataSymbol
+        ``UKBRBASE``). Daily cadence with observations for every
+        rate-change announcement — the series back-fills forward so a
+        single query returns the full decision history.
+
+        Chosen as the **primary** source for UK M1 policy-rate inputs
+        (Sprint I-patch) because the FRED OECD mirror shipped Sprint I
+        Day 1 is monthly-lagged vs BoE's daily-cadence decisions.
+        Guards source identity via the ``UKBRBASE`` symbol check
+        mirroring the Conference Board / Michigan-5Y wrappers; on
+        drift raises :class:`DataUnavailableError` so the UK cascade
+        can fall back cleanly.
+        """
+        obs = await self.fetch_indicator("UK", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_UK_BANK_RATE)
+        ):
+            err = (
+                "TE UK-bank-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_UK_BANK_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
