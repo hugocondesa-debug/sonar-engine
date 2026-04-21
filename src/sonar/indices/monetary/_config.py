@@ -60,11 +60,15 @@ def resolve_r_star(country_code: str) -> tuple[float, bool]:
     """Return ``(r_star_pct, is_proxy)`` for the country.
 
     EA periphery countries (PT/IT/ES/FR/NL/DE/IE) get the EA r* with
-    ``is_proxy=True`` so callers can emit ``R_STAR_PROXY`` flag.
+    ``is_proxy=True`` so callers can emit ``R_STAR_PROXY`` flag. An
+    explicit ``proxy: true`` marker on a country entry (e.g. UK) also
+    flags the return tuple; consumers treat both paths identically.
     """
     values = load_r_star_values()
     if country_code in values:
-        return float(values[country_code]["r_star_pct"]), False  # type: ignore[arg-type]
+        entry = values[country_code]
+        is_proxy = bool(entry.get("proxy", False))
+        return float(entry["r_star_pct"]), is_proxy  # type: ignore[arg-type]
     if country_code in EA_PROXY_COUNTRIES:
         return float(values["EA"]["r_star_pct"]), True  # type: ignore[arg-type]
     msg = f"No r* value or EA-proxy mapping for country={country_code}"

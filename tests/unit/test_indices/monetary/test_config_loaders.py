@@ -39,6 +39,12 @@ class TestRStarLoader:
         assert "EA" in values
         assert "r_star_pct" in values["US"]
 
+    def test_uk_direct_with_proxy_flag(self) -> None:
+        """UK has its own entry marked ``proxy: true`` (no HLW-UK series)."""
+        r_star, is_proxy = resolve_r_star("UK")
+        assert r_star == pytest.approx(0.005)
+        assert is_proxy is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
