@@ -41,4 +41,18 @@ GB:
   source: "BoE MPR 2023 + DMP Q4 2024 (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
 
-# JP / CA / AU: pending Phase 2+ manual entry (no HLW at present).
+JP:
+  # BoJ does not publish an HLW-equivalent neutral rate. Value anchored
+  # to BoJ Research & Studies staff work during the QQE / YCC era (2013+)
+  # which consistently estimated the natural rate around 0 % in real
+  # terms. The 2024-2025 normalisation preserves that centre — short-rate
+  # liftoff from -0.10 % (Jan 2024) through 0.50 % (Dec 2024) to 0.75 %
+  # (Jan 2026) is a policy move, not an r* move. Downstream emits
+  # R_STAR_PROXY on every JP M1/M2 call per spec §4 until BoJ (or an
+  # academic HLW-JP series) publishes a canonical figure.
+  r_star_pct: 0.000       # 0.0 % — BoJ Research & Studies synthesis (QQE legacy)
+  last_updated: "2025-01-15"
+  source: "BoJ Research & Studies (QQE/YCC era staff work; SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+# CA / AU: pending Phase 2+ manual entry (no HLW at present).

@@ -52,6 +52,19 @@ class TestRStarLoader:
         assert r_star == pytest.approx(0.005)
         assert is_proxy is True
 
+    def test_jp_direct_with_proxy_flag(self) -> None:
+        """JP has its own entry marked ``proxy: true`` (BoJ QQE-era estimate)."""
+        r_star, is_proxy = resolve_r_star("JP")
+        assert r_star == pytest.approx(0.000)
+        assert is_proxy is True
+
+    def test_jp_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        jp = values["JP"]
+        assert "source" in jp
+        assert "BoJ" in str(jp["source"])
+        assert jp.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -78,6 +91,11 @@ class TestBcTargetsLoader:
 
     def test_gb_canonical_resolves_to_boe(self) -> None:
         assert resolve_inflation_target("GB") == pytest.approx(0.02)
+
+    def test_jp_resolves_to_boj_target(self) -> None:
+        """JP monetary inputs resolve to BoJ 2 % CPI target (post-2013)."""
+        assert resolve_inflation_target("JP") == pytest.approx(0.02)
+        assert load_country_to_target()["JP"] == "BoJ"
 
     def test_targets_dict_six_central_banks(self) -> None:
         targets = load_bc_targets()
