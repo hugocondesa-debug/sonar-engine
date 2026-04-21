@@ -78,6 +78,19 @@ class TestRStarLoader:
         assert "BoC" in str(ca["source"])
         assert ca.get("proxy") is True
 
+    def test_au_direct_with_proxy_flag(self) -> None:
+        """AU has its own entry marked ``proxy: true`` (RBA SMP Feb 2025 estimate)."""
+        r_star, is_proxy = resolve_r_star("AU")
+        assert r_star == pytest.approx(0.0075)
+        assert is_proxy is True
+
+    def test_au_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        au = values["AU"]
+        assert "source" in au
+        assert "RBA" in str(au["source"])
+        assert au.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:

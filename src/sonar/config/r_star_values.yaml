@@ -69,4 +69,15 @@ CA:
   source: "BoC Staff Discussion Paper 2024 — neutral-rate refresh (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
 
-# AU: pending Phase 2+ manual entry (no HLW at present).
+AU:
+  # Reserve Bank of Australia does not publish an HLW-equivalent natural
+  # rate. Value anchored to the RBA Statement on Monetary Policy
+  # February 2025 discussion of the neutral-cash-rate range
+  # ([2.75, 3.75] % nominal, midpoint 3.25 %) minus the 2.5 % inflation
+  # target midpoint of RBA's 2-3 % band → ~0.75 % real. Downstream emits
+  # R_STAR_PROXY on every AU M1/M2 call per spec §4 until an academic
+  # HLW-AU series or an RBA publication with a point estimate lands.
+  r_star_pct: 0.0075      # 0.75 % — RBA SMP Feb 2025 neutral-range midpoint (SONAR Phase 1 proxy)
+  last_updated: "2025-02-18"
+  source: "RBA Statement on Monetary Policy Feb 2025 — neutral-rate range synthesis (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4
