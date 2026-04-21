@@ -407,3 +407,20 @@ class TestLiveInputsBuilder:
         bundle = builder(db_session, "US", OBS_DATE)
         # Resolver raised → rf_tuple stays None → ERP is not built.
         assert bundle.erp is None
+
+    def test_builder_uk_alias_normalises_to_gb(
+        self, db_session: Session, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ADR-0007: LiveInputsBuilder accepts legacy "UK" and persists bundle as "GB"."""
+        suite = LiveConnectorSuite(
+            fmp=_FakeFMP(),  # type: ignore[arg-type]
+            shiller=_make_shiller(),
+            te=MagicMock(),
+        )
+        builder = LiveInputsBuilder(suite)
+        bundle = builder(db_session, "UK", OBS_DATE)
+        assert bundle.country_code == "GB"
+        captured = capsys.readouterr()
+        assert "deprecated_country_alias" in captured.out
+        assert "alias=UK" in captured.out
+        assert "canonical=GB" in captured.out

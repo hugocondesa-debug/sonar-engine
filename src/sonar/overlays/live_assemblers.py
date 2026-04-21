@@ -72,9 +72,33 @@ __all__ = [
 BENCHMARK_BY_CURRENCY: dict[str, str] = {
     "EUR": "DE",
     "USD": "US",
-    "GBP": "UK",
+    "GBP": "GB",
     "JPY": "JP",
 }
+
+# ADR-0007 deprecated country aliases — preserved during CAL-128-FOLLOWUP
+# transition window. Removal scheduled Week 10 Day 1
+# (deprecation_target="CAL-128-alias-removal-week10").
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
+
+
+def _normalize_country_code(country_code: str) -> str:
+    """Normalise deprecated ISO aliases to canonical codes (ADR-0007).
+
+    Emits a structlog deprecation warning when an alias is resolved. Canonical
+    codes are returned unchanged. Removal scheduled Week 10 Day 1.
+    """
+    canonical = _DEPRECATED_COUNTRY_ALIASES.get(country_code)
+    if canonical is None:
+        return country_code
+    log.warning(
+        "live_assemblers.deprecated_country_alias",
+        alias=country_code,
+        canonical=canonical,
+        adr="ADR-0007",
+        deprecation_target="CAL-128-alias-removal-week10",
+    )
+    return canonical
 
 
 # Connector-boundary exception set — anything we catch in live builders
@@ -221,10 +245,15 @@ async def build_crp_from_live(
        provided) and fall back to that method when SOV_SPREAD fails.
     3. ``None`` — orchestrator reports ``crp: no inputs`` skip.
 
-    Benchmark countries (DE for EUR, US for USD, UK for GBP, JP for
+    Benchmark countries (DE for EUR, US for USD, GB for GBP, JP for
     JPY) short-circuit to a dedicated empty-kwargs path because
     :func:`build_canonical` handles them via the ``BENCHMARK`` shortcut.
+
+    Deprecated ISO aliases (e.g. "UK") are normalised to canonical ("GB")
+    at entry and emit a structlog deprecation warning. Removal Week 10
+    Day 1 per ADR-0007.
     """
+    country_code = _normalize_country_code(country_code)
     # Benchmark short-circuit — caller still routes through
     # build_canonical which will return method_selected="BENCHMARK".
     if BENCHMARK_BY_CURRENCY.get(currency) == country_code:
@@ -520,6 +549,11 @@ class LiveInputsBuilder:
         country_code: str,
         observation_date: date,
     ) -> OverlayBundle:
+        # ADR-0007: normalise legacy ISO aliases (e.g. "UK" → "GB") at
+        # assembler entry so downstream CRP / rating / ERP paths always see
+        # canonical codes. Emits a structlog deprecation warning on alias
+        # use; removal Week 10 Day 1.
+        country_code = _normalize_country_code(country_code)
         currency = self._currency_by_country.get(country_code, "EUR")
         rf_tuple = None
         if self._risk_free_resolver is not None and country_code == "US":
@@ -593,6 +627,9 @@ class LiveInputsBuilder:
 
 
 # Default currency mapping for the 7 T1 countries + common extensions.
+# Keys are ISO 3166-1 alpha-2 canonical (ADR-0007); legacy "UK" input is
+# normalised to "GB" at assembler entry via
+# :func:`_normalize_country_code`. Removal Week 10 Day 1.
 _DEFAULT_CURRENCY_BY_COUNTRY: dict[str, str] = {
     "US": "USD",
     "DE": "EUR",
@@ -601,7 +638,7 @@ _DEFAULT_CURRENCY_BY_COUNTRY: dict[str, str] = {
     "ES": "EUR",
     "NL": "EUR",
     "PT": "EUR",
-    "UK": "GBP",
+    "GB": "GBP",
     "JP": "JPY",
 }
 
