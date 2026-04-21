@@ -51,6 +51,7 @@ from sonar.overlays.exceptions import InsufficientDataError
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from sonar.connectors.boc import BoCConnector
     from sonar.connectors.boe_database import BoEDatabaseConnector
     from sonar.connectors.boj import BoJConnector
     from sonar.connectors.cbo import CboConnector
@@ -64,13 +65,16 @@ log = structlog.get_logger()
 
 __all__ = [
     "MonetaryInputsBuilder",
+    "build_m1_ca_inputs",
     "build_m1_ea_inputs",
     "build_m1_gb_inputs",
     "build_m1_jp_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
+    "build_m2_ca_inputs",
     "build_m2_jp_inputs",
     "build_m2_us_inputs",
+    "build_m4_ca_inputs",
     "build_m4_jp_inputs",
     "build_m4_us_inputs",
 ]
@@ -90,6 +94,11 @@ FRED_UK_GILT_10Y_SERIES: str = FRED_GB_GILT_10Y_SERIES
 # TE primary + BoJ native paths are both unavailable (Sprint L cascade).
 FRED_JP_BANK_RATE_SERIES: str = "IRSTCI01JPM156N"
 FRED_JP_JGB_10Y_SERIES: str = "IRLTLT01JPM156N"
+
+# CA OECD-mirror series on FRED — monthly, last-resort backfill when both
+# TE primary and BoC Valet native are unavailable (Sprint S cascade).
+FRED_CA_BANK_RATE_SERIES: str = "IRSTCI01CAM156N"
+FRED_CA_GOC_10Y_SERIES: str = "IRLTLT01CAM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -760,6 +769,253 @@ async def build_m4_jp_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — CA (Sprint S — TE primary → BoC Valet native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+async def _ca_bank_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    boc: BoCConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch CA Bank Rate via TE → BoC → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch GB + Sprint L JP
+    cascades (first success wins); the material difference for CA is
+    that the **secondary** slot (BoC Valet V39079) is a first-class
+    reachable public API — empirical probe 2026-04-21 confirmed
+    scriptable JSON REST with no auth, no anti-bot gate. The cascade
+    therefore sits mostly on TE primary with BoC Valet as a robust,
+    widely-usable fallback (unlike GB/JP where the native slot is a
+    wire-ready scaffold pending a browser-gate bypass).
+
+    1. **TE primary** (``fetch_ca_bank_rate`` — daily, BoC-sourced via
+       ``CCLR``). Emits ``CA_BANK_RATE_TE_PRIMARY`` on success.
+    2. **BoC Valet native** (``fetch_bank_rate`` on V39079 — Target
+       for the overnight rate). Emits ``CA_BANK_RATE_BOC_NATIVE`` on
+       success.
+    3. **FRED OECD mirror** (``IRSTCI01CAM156N`` — monthly lag).
+       Last-resort fallback emitting both
+       ``CA_BANK_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so downstream consumers can surface the degradation.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three
+    return empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_ca_bank_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            return (
+                [_DatedValue(o.observation_date, o.value) for o in te_obs],
+                ("CA_BANK_RATE_TE_PRIMARY",),
+                ("te",),
+            )
+
+    if boc is not None:
+        try:
+            boc_obs = await boc.fetch_bank_rate(start, end)
+        except DataUnavailableError:
+            boc_obs = []
+        if boc_obs:
+            return (
+                [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boc_obs],
+                ("CA_BANK_RATE_BOC_NATIVE",),
+                ("boc",),
+            )
+
+    fred_obs = await fred.fetch_series(FRED_CA_BANK_RATE_SERIES, start, end)
+    if fred_obs:
+        return (
+            [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
+            ("CA_BANK_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
+            ("fred",),
+        )
+
+    msg = "CA Bank Rate unavailable from TE, BoC, and FRED"
+    raise ValueError(msg)
+
+
+async def build_m1_ca_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    boc: BoCConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 CA inputs via TE → BoC → FRED cascade + YAML r*/target.
+
+    Sprint S introduces the CA country path using the canonical cascade
+    pattern established by Sprint I-patch (GB) and Sprint L (JP). TE's
+    ``interest rate`` indicator for Canada back-fills the full BoC
+    policy-rate history (``CCLR``) at daily cadence and is the
+    empirically preferred source — decisions propagate into TE within
+    hours of the BoC press conference, whereas the FRED OECD mirror
+    (``IRSTCI01CAM156N``) only updates once a month. BoC Valet V39079
+    ("Target for the overnight rate") sits in the secondary slot as a
+    first-class reachable public API (contrast BoE IADB / BoJ TSD
+    which ship as wire-ready scaffolds).
+
+    CA-specific degradations (Phase 1):
+
+    - ``expected_inflation_5y_pct`` defaults to BoC's 2 % CPI target —
+      no BoC breakeven-inflation mirror exists at this scope; emits
+      ``EXPECTED_INFLATION_CB_TARGET`` flag (mirrors GB + JP pattern).
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with
+      ``CA_BS_GDP_PROXY_ZERO`` flag — CA balance-sheet ratios require
+      BoC weekly balance-sheet (Valet series `B50000` family) combined
+      with StatCan nominal GDP, neither wired at Sprint S scope. Lands
+      when CAL-133 (CA BS/GDP ratio wiring) closes.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _ca_bank_rate_cascade(
+        start, observation_date, te=te, boc=boc, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "CA Bank Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("CA")  # is_proxy always True for CA
+    expected_inflation_5y_pct = 0.02  # BoC CPI target; proxy
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "CA_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="CA",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — CA (Sprint S — wire-ready scaffold, raises pending CA gap + CPI)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_ca_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD CA gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    boc: BoCConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 CA inputs (scaffold — raises until CA gap source lands).
+
+    Sprint S ships the dispatch wire-ready so the pipeline can route
+    ``--country CA`` without crashing. The CA Taylor-gap inputs require
+    three sources that are not yet connected at this scope:
+
+    - **CA CPI YoY**: no ``fetch_ca_cpi_yoy`` wrapper on either TE or
+      FRED within Sprint S scope (CAL-134).
+    - **Output gap**: Canada-specific — the BoC itself publishes a
+      quarterly output gap via Valet series (``DMREST_SEGP_GAP``
+      candidate) but the wiring is not Sprint S scope (CAL-130).
+      OECD EO CA also maps through the same connector family.
+    - **Inflation forecast**: BoC publishes quarterly Monetary Policy
+      Report forecasts — Valet-hosted but unwired Sprint S (CAL-135).
+
+    Once any of those sources lands, this function resolves the
+    cascade like :func:`build_m2_us_inputs` does for the CBO output-
+    gap path. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (caught by
+    :func:`daily_monetary_indices.build_live_monetary_inputs` which
+    logs a structured ``monetary_pipeline.builder_skipped`` warning
+    rather than crashing).
+    """
+    msg = (
+        "M2 CA builder scaffold shipped Sprint S but requires CPI YoY, "
+        "output-gap, and inflation-forecast CA connectors that are not "
+        "yet wired (see CAL-130 / CAL-134 / CAL-135). Raises so the "
+        "pipeline skips M2 CA cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — CA (Sprint S — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_ca_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future CA FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    boc: BoCConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 CA inputs (scaffold — raises until ≥5 FCI components).
+
+    CA lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so CA must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    S close the reachable components are:
+
+    - 10Y GoC yield via BoC Valet ``BD.CDN.10YR.DQ.YLD`` (wired C2)
+    - Policy rate via the M1 cascade (wired C4)
+
+    Pending components (bundled into CAL-131):
+
+    - CA credit spread (BBB corp vs GoC; candidate: FRED
+      ``BAMLHYCA`` or Valet bond-yield curve proxy)
+    - CA vol index (no S&P/TSX VIX-analog readily on FRED; Yahoo
+      ^VIXC or proxy from ^VIX)
+    - CA CAD NEER (BoC Valet ``CEER_BROADN`` is the canonical daily
+      nominal-CEER series)
+    - CA mortgage rate (BoC Valet ``V80691335`` or equivalent)
+
+    Once ≥5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (mirrors M2 CA skip behaviour).
+    """
+    msg = (
+        "M4 CA builder scaffold shipped Sprint S but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + CAD "
+        "NEER + mortgage; see CAL-131). Raises so the pipeline skips "
+        "M4 CA cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -920,6 +1176,7 @@ class MonetaryInputsBuilder:
         fred: FredConnector,
         cbo: CboConnector,
         ecb_sdw: EcbSdwConnector,
+        boc: BoCConnector | None = None,
         boe: BoEDatabaseConnector | None = None,
         boj: BoJConnector | None = None,
         te: TEConnector | None = None,
@@ -927,6 +1184,7 @@ class MonetaryInputsBuilder:
         self.fred = fred
         self.cbo = cbo
         self.ecb_sdw = ecb_sdw
+        self.boc = boc
         self.boe = boe
         self.boj = boj
         self.te = te
@@ -958,6 +1216,14 @@ class MonetaryInputsBuilder:
                 boj=self.boj,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "CA":
+            return await build_m1_ca_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boc=self.boc,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
@@ -974,6 +1240,14 @@ class MonetaryInputsBuilder:
                 boj=self.boj,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "CA":
+            return await build_m2_ca_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boc=self.boc,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -987,6 +1261,14 @@ class MonetaryInputsBuilder:
                 self.fred,
                 observation_date,
                 te=self.te,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "CA":
+            return await build_m4_ca_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boc=self.boc,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"
