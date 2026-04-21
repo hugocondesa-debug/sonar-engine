@@ -20,10 +20,12 @@ from sonar.indices.monetary.builders import (
     build_m1_jp_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
+    build_m2_jp_inputs,
     build_m2_us_inputs,
+    build_m4_jp_inputs,
     build_m4_us_inputs,
 )
-from sonar.overlays.exceptions import DataUnavailableError
+from sonar.overlays.exceptions import DataUnavailableError, InsufficientDataError
 
 # ---------------------------------------------------------------------------
 # Helpers + fakes
@@ -696,6 +698,68 @@ class TestBuildM4Us:
 
 
 # ---------------------------------------------------------------------------
+# M2 JP (Sprint L — scaffold raises until JP gap + CPI connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Jp:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 JP scaffold is wire-ready but raises until JP gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTEJpSuccess(pct=0.50)
+        with pytest.raises(InsufficientDataError, match="CAL-JP-OUTPUT-GAP"):
+            await build_m2_jp_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_jp_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 JP (Sprint L — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Jp:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 JP scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTEJpSuccess(pct=0.50)
+        with pytest.raises(InsufficientDataError, match="CAL-JP-M4-FCI"):
+            await build_m4_jp_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_te(self) -> None:
+        """Scaffold raises regardless of TE handle presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_jp_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -785,6 +849,30 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(NotImplementedError, match="CA"):
             await builder.build_m1_inputs("CA", date(2024, 12, 31))
+
+    @pytest.mark.asyncio
+    async def test_m2_jp_dispatches_to_jp_builder(self) -> None:
+        """JP M2 dispatch routes to the JP scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-JP"):
+            await builder.build_m2_inputs("JP", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_jp_dispatches_to_jp_builder(self) -> None:
+        """JP M4 dispatch routes to the JP scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-JP-M4-FCI"):
+            await builder.build_m4_inputs("JP", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ea_raises(self) -> None:

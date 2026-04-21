@@ -44,6 +44,7 @@ from sonar.indices.monetary.m4_fci import (
     DEFAULT_LOOKBACK_YEARS as M4_DEFAULT_LOOKBACK_YEARS,
     M4FciInputs,
 )
+from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -62,7 +63,9 @@ __all__ = [
     "build_m1_jp_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
+    "build_m2_jp_inputs",
     "build_m2_us_inputs",
+    "build_m4_jp_inputs",
     "build_m4_us_inputs",
 ]
 
@@ -655,6 +658,96 @@ async def build_m1_jp_inputs(
     )
 
 
+# ---------------------------------------------------------------------------
+# M2 — JP (Sprint L — wire-ready scaffold, raises pending connector gaps)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_jp_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD JP gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    boj: BoJConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 JP inputs (scaffold — raises until JP gap source lands).
+
+    Sprint L ships the dispatch wire-ready so the pipeline can route
+    ``--country JP`` without crashing. The JP Taylor-gap inputs require
+    three sources that are not yet connected at this scope:
+
+    - **JP CPI YoY**: no ``fetch_jp_cpi_yoy`` wrapper on either TE or
+      FRED within Sprint L scope (brief §1 defers CPI/unemployment to
+      generic TE ``fetch_indicator`` probes).
+    - **Output gap**: Japan has no CBO equivalent; OECD EO + BoJ Tankan
+      are both outside L0 coverage today (CAL-JP-OUTPUT-GAP).
+    - **Inflation forecast**: BoJ does not publish a UMich-analog 5Y
+      breakeven series, and the TE ``inflation expectations`` feed lags
+      at quarterly cadence (CAL-JP-M2-INFL-FORECAST).
+
+    Once any of those sources lands, this function resolves the cascade
+    like :func:`build_m2_us_inputs` does for the CBO output-gap path —
+    mirroring the Sprint I-patch cascade shape so the pattern stays
+    consistent across Tier-1 countries. Until then,
+    :class:`InsufficientDataError` keeps the pipeline clean (caught by
+    :func:`daily_monetary_indices.build_live_monetary_inputs` which logs
+    a structured ``monetary_pipeline.builder_skipped`` warning rather
+    than crashing).
+    """
+    msg = (
+        "M2 JP builder scaffold shipped Sprint L but requires CPI YoY, "
+        "output-gap, and inflation-forecast JP connectors that are not "
+        "yet wired (see CAL-JP-OUTPUT-GAP, CAL-JP-M2-CPI, "
+        "CAL-JP-M2-INFL-FORECAST). Raises so the pipeline skips M2 JP "
+        "cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — JP (Sprint L — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_jp_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future JP FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 JP inputs (scaffold — raises until ≥5 FCI components).
+
+    JP lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so JP must walk the spec §4 custom path, which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs (credit
+    spread, vol index, 10Y gov yield, FX NEER, mortgage rate). At Sprint
+    L close only the 10Y JGB yield is mappable via TE
+    (``GJGB10:IND``) — below the 5-component floor.
+
+    Pending components (open CAL-JP-M4-FCI bundle):
+
+    - JP credit spread (BBB corp vs JGB; TE / BoJ J-REIT proxy)
+    - JP vol index (Nikkei VI via TE ``NKYVOLX:IND`` or OSE direct)
+    - JP JPY NEER (BIS narrow / broad; wrapper not yet shipped)
+    - JP mortgage rate (FRED ``INTDSRJPM193N`` candidate; probe pending)
+
+    Once the 5-component bar is met this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes over.
+    Until then, :class:`InsufficientDataError` keeps the pipeline clean
+    (mirrors M2 JP skip behaviour).
+    """
+    msg = (
+        "M4 JP builder scaffold shipped Sprint L but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + FX NEER "
+        "+ mortgage; see CAL-JP-M4-FCI). Raises so the pipeline skips "
+        "M4 JP cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -857,6 +950,14 @@ class MonetaryInputsBuilder:
     ) -> M2TaylorGapsInputs:
         if country == "US":
             return await build_m2_us_inputs(self.fred, self.cbo, observation_date, **kwargs)  # type: ignore[arg-type]
+        if country == "JP":
+            return await build_m2_jp_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boj=self.boj,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -865,6 +966,13 @@ class MonetaryInputsBuilder:
     ) -> M4FciInputs:
         if country == "US":
             return await build_m4_us_inputs(self.fred, observation_date, **kwargs)  # type: ignore[arg-type]
+        if country == "JP":
+            return await build_m4_jp_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"
         raise NotImplementedError(msg)
 
