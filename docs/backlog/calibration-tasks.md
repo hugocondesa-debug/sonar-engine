@@ -1504,7 +1504,76 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CAL-130 + CAL-134 closes M2 CA.
 - **Status:** OPEN.
 
-### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
+### CAL-136 — BIS SDMX v2 API migration (CLOSED 2026-04-21 via Sprint AA)
+
+- **Priority:** URGENT — resolved.
+- **Trigger:** Sprint S-CA discovery Week 9 Day 1 evening that
+  `sonar-daily-bis-ingestion.timer` was disabled and manual triggers
+  produced 0 rows in `bis_credit_raw`. Initial hypothesis was a BIS
+  URL path retirement / jsondata format removal.
+- **Scope:** src/sonar/connectors/bis.py URL + Accept header + version
+  map tightening; tests/fixtures/bis/*.json cassette refresh;
+  src/sonar/pipelines/daily_bis_ingestion.py lookback window fix;
+  live-canary teardown bug; systemd timer re-enable preparation.
+- **Resolution:**
+  1. URL migration already landed in commit 7abded7 (credit c2/10,
+     2026-04-20). Sprint AA c2 formalised three residual gaps: strict
+     Accept header (drop ``, application/json`` alternate),
+     `format=jsondata` param drop, `DATAFLOW_VERSIONS: Final[dict[str,
+     str]]` single-source-of-truth dict.
+  2. Parser regression-locked against live 2026-04-21 response
+     (`tests/fixtures/bis/ws_tc_US_live_2024h1.json`) — no code change
+     needed.
+  3. Cassette refresh scope: 3 representative fixtures (HALT-3
+     pragmatic budget) covering all orthogonal parser paths.
+  4. **Root cause of actual production outage: DEFAULT_LOOKBACK_DAYS
+     = 90 vs. BIS ~2-quarter publication lag**. On 2026-04-21 the
+     90-day window mapped to startPeriod=2026-Q1 which returns HTTP
+     404 because no 2026 observations are published yet. Raised to
+     540 days (6 quarters) — window always overlaps ≥ 4 published
+     quarters.
+  5. Live-canary asyncio teardown fix — single `asyncio.run()` wrap,
+     `httpx.AsyncClient` lifecycle confined to one event loop.
+- **Validation:** Manual ingestion 21/21 fetches succeeded, 147 rows
+  in `bis_credit_raw` spanning 7 T1 × 3 dataflows. Historical WS_TC
+  backfill 2000-2025-Q3 landed 103 × 7 = 721 rows. Credit-indices
+  manual trigger persisted L1 + L2 for all 7 T1 countries on
+  2025-09-30.
+- **Status:** CLOSED 2026-04-21.
+- **Commits:** `36d3c9f` / `13ac228` / `7e7d70d` / `eb41608` /
+  `750c224` / c6 (this file) on branch
+  `sprint-aa-bis-v2-migration`.
+- **Report:**
+  [`../planning/retrospectives/week9-sprint-aa-bis-v2-migration-report.md`](../planning/retrospectives/week9-sprint-aa-bis-v2-migration-report.md).
+- **Post-merge operator action:** `sudo systemctl enable --now
+  sonar-daily-{bis-ingestion,credit-indices}.timer` —- deferred
+  from Sprint AA because the CC session lacked passwordless sudo.
+
+### CAL-137 — Weekly BIS live-canary surveillance (Week 9 Sprint AA)
+
+- **Priority:** MEDIUM — prevents the same silent-failure class as
+  the CAL-136 incident.
+- **Trigger:** The 2026-04-14..2026-04-21 outage went undetected for
+  ~7 days because only mocked tests ran on every push while the live
+  canary was `@pytest.mark.slow`-gated and therefore skipped by
+  default. Weekly live canaries are the minimum nightly-enough
+  cadence that catches API drift / publication-lag bugs before the
+  downstream credit indices go stale for multiple quarters.
+- **Scope:**
+  - New `deploy/systemd/sonar-weekly-bis-canary.service` +
+    `.timer` unit pair.
+  - Service command: `uv run pytest tests/integration/test_bis_ingestion.py
+    -m slow -k bis --tb=line` with `StandardOutput=journal`.
+  - Timer `OnCalendar=Mon 04:00` (UTC) — runs before the 05:00 BIS
+    ingestion timer so an API drift surfaces before the main daily
+    pipeline hits it.
+  - Failure handler: `OnFailure=sonar-canary-alert@%n.service`
+    (systemd dropin) that emails operator with journal tail + exit
+    code.
+- **Unblocks:** Ongoing BIS drift detection + provides a template
+  for weekly live canaries on other connectors (FRED, ECB, BIS-SPP,
+  BoE, BoJ, BoC, RBA).
+- **Status:** OPEN.
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
   history still recent); not critical path.
