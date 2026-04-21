@@ -1,0 +1,11 @@
+[Unit]
+Description=SONAR Daily BIS Ingestion Timer (05:00 UTC)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+Unit=sonar-daily-bis-ingestion.service
+
+[Install]
+WantedBy=timers.target

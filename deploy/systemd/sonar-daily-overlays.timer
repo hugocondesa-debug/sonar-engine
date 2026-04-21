@@ -1,0 +1,11 @@
+[Unit]
+Description=SONAR Daily Overlays Timer (06:30 UTC)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+Unit=sonar-daily-overlays.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=SONAR Daily Curves (NSS sovereign yields)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=2
+StartLimitIntervalSec=3600
+
+[Service]
+Type=oneshot
+User=macro
+Group=macro
+WorkingDirectory=/home/macro/projects/sonar-engine
+EnvironmentFile=/home/macro/projects/sonar-engine/.env
+# Phase 1 ships US only; daily_curves requires a single --country and --date.
+# Anchor on yesterday so EOD FRED data is settled.
+ExecStart=/bin/bash -lc '/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_curves --country US --date $(date -u -I -d yesterday)'
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=600
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=SONAR Daily BIS Ingestion (foundation)
+Documentation=file:///home/macro/projects/sonar-engine/docs/ops/systemd-deployment.md
+After=network-online.target
+Wants=network-online.target
+# Single retry pass on transient failure (BIS SDMX endpoint occasionally 503s).
+StartLimitBurst=2
+StartLimitIntervalSec=3600
+
+[Service]
+Type=oneshot
+User=macro
+Group=macro
+WorkingDirectory=/home/macro/projects/sonar-engine
+EnvironmentFile=/home/macro/projects/sonar-engine/.env
+# BIS connector defaults: --countries=all 7 T1; --start-date=today-90d; --end-date=today.
+ExecStart=/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_bis_ingestion
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=1800
+Restart=on-failure
+RestartSec=600
+
+[Install]
+WantedBy=multi-user.target
