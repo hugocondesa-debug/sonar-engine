@@ -10,6 +10,7 @@ targets:
   BoJ: 0.02      # 2 % CPI (JP, post-2013)
   RBA: 0.025     # 2-3 % midpoint (AU)
   BoC: 0.02      # 2 % CPI (CA)
+  RBNZ: 0.02     # 2 % midpoint of 1-3 % band (NZ) — RBNZ Remit Policy Targets Agreement
 
 # Country keys use ISO 3166-1 alpha-2 canonical codes (GB not UK per
 # ADR-0007). Legacy "UK" input still resolves via the loader alias
@@ -27,6 +28,7 @@ country_to_target:
   JP: BoJ
   AU: RBA
   CA: BoC
+  NZ: RBNZ
 
 # EM countries without stable target → NO_TARGET flag (spec §4 step 2):
 # CN, IN, BR, TR, AR, MX, ZA, ID — compute skips M2 for those.

@@ -91,6 +91,19 @@ class TestRStarLoader:
         assert "RBA" in str(au["source"])
         assert au.get("proxy") is True
 
+    def test_nz_direct_with_proxy_flag(self) -> None:
+        """NZ has its own entry marked ``proxy: true`` (RBNZ Bulletin 2023-2024 estimate)."""
+        r_star, is_proxy = resolve_r_star("NZ")
+        assert r_star == pytest.approx(0.0175)
+        assert is_proxy is True
+
+    def test_nz_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        nz = values["NZ"]
+        assert "source" in nz
+        assert "RBNZ" in str(nz["source"])
+        assert nz.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -128,9 +141,14 @@ class TestBcTargetsLoader:
         assert resolve_inflation_target("CA") == pytest.approx(0.02)
         assert load_country_to_target()["CA"] == "BoC"
 
-    def test_targets_dict_six_central_banks(self) -> None:
+    def test_nz_resolves_to_rbnz_target(self) -> None:
+        """NZ monetary inputs resolve to RBNZ 2 % midpoint of 1-3 % band."""
+        assert resolve_inflation_target("NZ") == pytest.approx(0.02)
+        assert load_country_to_target()["NZ"] == "RBNZ"
+
+    def test_targets_dict_seven_central_banks(self) -> None:
         targets = load_bc_targets()
-        assert {"Fed", "ECB", "BoE", "BoJ", "RBA", "BoC"} <= set(targets.keys())
+        assert {"Fed", "ECB", "BoE", "BoJ", "RBA", "BoC", "RBNZ"} <= set(targets.keys())
 
 
 class TestStaleness:
