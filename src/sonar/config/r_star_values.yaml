@@ -26,13 +26,16 @@ EA:
 # PT / IT / ES / FR / NL: use EA proxy — consumers emit R_STAR_PROXY flag
 # per spec. No separate entry required; loader falls back to EA.
 
-UK:
+# GB (United Kingdom) — ISO 3166-1 alpha-2 canonical. Legacy "UK"
+# lookups continue to resolve via the loader alias in _config.py
+# (ADR-0007; deprecation warning emitted).
+GB:
   # BoE MPC does not publish an r* equivalent. Value anchored to the
   # Bank's "low-for-long" 2023 MPR neutral-rate discussion (~0.5 pp
   # in real terms) and DMP Q4 2024 "expected Bank Rate in the long
   # run" of ~3.5 % nominal minus CPI target 2 % = 1.5 % real upper
-  # bound. Empirical centre stays at 0.5 % pending an academic HLW-UK
-  # series. Downstream emits R_STAR_PROXY on every UK M1/M2 call.
+  # bound. Empirical centre stays at 0.5 % pending an academic HLW-GB
+  # series. Downstream emits R_STAR_PROXY on every GB M1/M2 call.
   r_star_pct: 0.005       # 0.5 % — BoE MPR 2023 + DMP Q4 2024 synthesis
   last_updated: "2025-01-15"
   source: "BoE MPR 2023 + DMP Q4 2024 (SONAR Phase 1 proxy)"

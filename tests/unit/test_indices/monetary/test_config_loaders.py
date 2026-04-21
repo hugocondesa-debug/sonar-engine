@@ -37,10 +37,17 @@ class TestRStarLoader:
         values = load_r_star_values()
         assert "US" in values
         assert "EA" in values
+        assert "GB" in values
         assert "r_star_pct" in values["US"]
 
-    def test_uk_direct_with_proxy_flag(self) -> None:
-        """UK has its own entry marked ``proxy: true`` (no HLW-UK series)."""
+    def test_gb_direct_with_proxy_flag(self) -> None:
+        """GB has its own entry marked ``proxy: true`` (no HLW-GB series)."""
+        r_star, is_proxy = resolve_r_star("GB")
+        assert r_star == pytest.approx(0.005)
+        assert is_proxy is True
+
+    def test_uk_alias_resolves_to_gb(self) -> None:
+        """Legacy ``"UK"`` input routes to GB entry per ADR-0007 alias."""
         r_star, is_proxy = resolve_r_star("UK")
         assert r_star == pytest.approx(0.005)
         assert is_proxy is True
@@ -62,8 +69,15 @@ class TestBcTargetsLoader:
 
     def test_country_to_target_includes_t1(self) -> None:
         mapping = load_country_to_target()
-        for c in ("US", "DE", "PT", "IT", "ES", "FR", "NL"):
+        for c in ("US", "DE", "PT", "IT", "ES", "FR", "NL", "GB"):
             assert c in mapping
+
+    def test_uk_alias_resolves_to_boe(self) -> None:
+        """Legacy ``"UK"`` input routes to the GB → BoE entry."""
+        assert resolve_inflation_target("UK") == pytest.approx(0.02)
+
+    def test_gb_canonical_resolves_to_boe(self) -> None:
+        assert resolve_inflation_target("GB") == pytest.approx(0.02)
 
     def test_targets_dict_six_central_banks(self) -> None:
         targets = load_bc_targets()

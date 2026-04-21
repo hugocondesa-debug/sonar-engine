@@ -16,10 +16,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import structlog
 import yaml
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+log = structlog.get_logger()
 
 CONFIG_DIR: Path = Path(__file__).resolve().parents[2] / "config"
 R_STAR_PATH: Path = CONFIG_DIR / "r_star_values.yaml"
@@ -27,6 +30,26 @@ BC_TARGETS_PATH: Path = CONFIG_DIR / "bc_targets.yaml"
 
 R_STAR_STALENESS_DAYS: int = 95
 EA_PROXY_COUNTRIES: frozenset[str] = frozenset({"PT", "IT", "ES", "FR", "NL", "DE", "IE"})
+
+# Deprecated country-code aliases → canonical ISO 3166-1 alpha-2 per
+# ADR-0007. Lookups for the alias succeed but emit a structlog
+# deprecation warning so operators can migrate call sites before the
+# Week 10 removal window.
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
+
+
+def _canonicalize_country_code(country_code: str) -> str:
+    """Return canonical ISO alpha-2 code; warn on deprecated alias."""
+    if country_code in _DEPRECATED_COUNTRY_ALIASES:
+        canonical = _DEPRECATED_COUNTRY_ALIASES[country_code]
+        log.warning(
+            "config.country_alias_deprecated",
+            input=country_code,
+            canonical=canonical,
+            source="sonar.indices.monetary._config",
+        )
+        return canonical
+    return country_code
 
 
 @lru_cache(maxsize=1)
@@ -61,35 +84,45 @@ def resolve_r_star(country_code: str) -> tuple[float, bool]:
 
     EA periphery countries (PT/IT/ES/FR/NL/DE/IE) get the EA r* with
     ``is_proxy=True`` so callers can emit ``R_STAR_PROXY`` flag. An
-    explicit ``proxy: true`` marker on a country entry (e.g. UK) also
+    explicit ``proxy: true`` marker on a country entry (e.g. GB) also
     flags the return tuple; consumers treat both paths identically.
+
+    Legacy input ``"UK"`` aliases to ``"GB"`` per ADR-0007 and emits a
+    deprecation warning.
     """
+    canonical = _canonicalize_country_code(country_code)
     values = load_r_star_values()
-    if country_code in values:
-        entry = values[country_code]
+    if canonical in values:
+        entry = values[canonical]
         is_proxy = bool(entry.get("proxy", False))
         return float(entry["r_star_pct"]), is_proxy  # type: ignore[arg-type]
-    if country_code in EA_PROXY_COUNTRIES:
+    if canonical in EA_PROXY_COUNTRIES:
         return float(values["EA"]["r_star_pct"]), True  # type: ignore[arg-type]
     msg = f"No r* value or EA-proxy mapping for country={country_code}"
     raise KeyError(msg)
 
 
 def resolve_inflation_target(country_code: str) -> float:
-    """Return the central-bank inflation target for the country."""
+    """Return the central-bank inflation target for the country.
+
+    Legacy input ``"UK"`` aliases to ``"GB"`` per ADR-0007 and emits a
+    deprecation warning.
+    """
+    canonical = _canonicalize_country_code(country_code)
     mapping = load_country_to_target()
-    if country_code not in mapping:
+    if canonical not in mapping:
         msg = f"No inflation-target mapping for country={country_code}"
         raise KeyError(msg)
-    cb_name = mapping[country_code]
+    cb_name = mapping[canonical]
     targets = load_bc_targets()
     return float(targets[cb_name])
 
 
 def is_r_star_stale(country_code: str, today: date) -> bool:
     """``True`` when ``last_updated`` for ``country_code``'s r* is over the staleness window."""
+    canonical = _canonicalize_country_code(country_code)
     values = load_r_star_values()
-    src = country_code if country_code in values else "EA"
+    src = canonical if canonical in values else "EA"
     last_updated_raw = values[src]["last_updated"]
     if isinstance(last_updated_raw, date):
         last_updated = last_updated_raw
