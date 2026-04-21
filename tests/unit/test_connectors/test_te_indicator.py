@@ -544,6 +544,123 @@ def test_michigan_5y_indicator_constant() -> None:
     assert TE_INDICATOR_MICHIGAN_5Y_INFLATION == "michigan 5 year inflation expectations"
 
 
+async def test_wrapper_jp_bank_rate_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``interest rate`` for JP returns ``BOJDTR`` (BoJ policy rate)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Japan",
+                "Category": "Interest Rate",
+                "DateTime": "2024-03-19T00:00:00",
+                "Value": 0.10,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "BOJDTR",
+                "LastUpdate": "2024-03-19T03:00:00",
+            },
+            {
+                "Country": "Japan",
+                "Category": "Interest Rate",
+                "DateTime": "2024-07-31T00:00:00",
+                "Value": 0.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "BOJDTR",
+                "LastUpdate": "2024-07-31T03:00:00",
+            },
+            {
+                "Country": "Japan",
+                "Category": "Interest Rate",
+                "DateTime": "2026-01-23T00:00:00",
+                "Value": 0.75,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "BOJDTR",
+                "LastUpdate": "2026-01-23T03:00:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_jp_bank_rate(date(2024, 1, 1), date(2026, 3, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "JP"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "BOJDTR"
+    # Post-1990 BoJ policy rate bounded in [-0.1, 6.0]%.
+    for o in obs:
+        assert -0.5 <= o.value <= 10.0
+
+
+async def test_wrapper_jp_bank_rate_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-BOJDTR symbol, raise — catches mis-attribution."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Japan",
+                "Category": "Interest Rate",
+                "DateTime": "2024-07-31T00:00:00",
+                "Value": 0.25,
+                "HistoricalDataSymbol": "JPINTR",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="JP-bank-rate source drift"):
+        await te_connector.fetch_jp_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_jp_bank_rate_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → fetch_indicator raises; cascade callers treat as
+    TE-unavailable and fall through to the next source."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_jp_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_jp_bank_rate_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 690+ BOJDTR daily observations."""
+    payload = _load_cassette("te_jp_bank_rate_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_jp_bank_rate(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) >= 600
+    assert obs[0].historical_data_symbol == "BOJDTR"
+    assert obs[0].country == "JP"
+    # Every row on this feed is the BoJ policy rate series.
+    for o in obs[-24:]:
+        assert -0.5 <= o.value <= 15.0
+
+
+@pytest.mark.slow
+async def test_live_canary_jp_bank_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE JP Bank Rate — confirms BOJDTR symbol + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. Series back-fills the full
+    history; filter client-side to the recent window before asserting
+    the band (BoJ hiked Dec 2024 → 0.25 %; Jan 2026 → 0.75 %).
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_jp_bank_rate(start, today)
+        assert len(obs) >= 3
+        assert obs[0].historical_data_symbol == "BOJDTR"
+        assert obs[0].country == "JP"
+        recent = [o for o in obs if o.observation_date >= start]
+        for o in recent:
+            assert -0.5 <= o.value <= 5.0
+    finally:
+        await conn.aclose()
+
+
 @pytest.mark.slow
 async def test_live_canary_gb_bank_rate(tmp_cache_dir: Path) -> None:
     """Live probe of TE GB Bank Rate — confirms UKBRBASE symbol + daily cadence.

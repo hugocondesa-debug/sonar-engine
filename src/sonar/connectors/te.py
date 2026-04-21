@@ -94,6 +94,7 @@ TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
 # Deprecated alias for :data:`TE_EXPECTED_SYMBOL_GB_BANK_RATE` per
 # ADR-0007 (UK → GB canonical rename). Removed Week 10 Day 1.
 TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
+TE_EXPECTED_SYMBOL_JP_BANK_RATE = "BOJDTR"
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,6 +427,42 @@ class TEConnector:
             err = (
                 "TE michigan-5y source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_jp_bank_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """JP Bank Rate — BoJ policy-rate series, TE-sourced.
+
+        TE ``interest rate`` indicator for ``japan`` returns the BoJ
+        uncollateralized overnight call rate (HistoricalDataSymbol
+        ``BOJDTR`` — Bank of Japan Discount & Target Rate feed). Daily
+        cadence, one row per rate-change announcement; the series
+        back-fills the full decision history regardless of ``d1``/``d2``.
+
+        Chosen as the **primary** source for JP M1 policy-rate inputs
+        (Sprint L) per the Sprint I-patch cascade pattern — TE is daily
+        and BoJ-sourced, while the FRED OECD mirror ``IRSTCI01JPM156N``
+        is monthly-lagged. The native BoJ TSD probe during Sprint L
+        pre-flight found the portal form-based (Shift_JIS) with no
+        documented JSON/CSV endpoint, so the BoJ connector ships as a
+        wire-ready scaffold and TE primary carries JP.
+
+        Guards source identity via the ``BOJDTR`` symbol check
+        mirroring the Conference Board / Michigan-5Y / GB-Bank-Rate
+        wrappers; on drift raises :class:`DataUnavailableError` so the
+        JP cascade can fall back cleanly.
+        """
+        obs = await self.fetch_indicator("JP", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_JP_BANK_RATE)
+        ):
+            err = (
+                "TE JP-bank-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_JP_BANK_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
