@@ -1101,6 +1101,62 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   DB-backed reader.
 - **Status:** CLOSED 2026-04-21 via Sprint M Commits 3 + 4.
 
+### CAL-128 — GB vs UK canonical country code rename (Sprint O — Week 8 Day 4)
+
+- **Priority:** MEDIUM — ISO 3166-1 alpha-2 compliance + internal
+  consistency debt. Non-critical path; backward compat preserves
+  operator workflows during transition.
+- **Trigger:** Sprint I retro §Deviations (2026-04-21). SONAR internal
+  code uses `"UK"` for United Kingdom; canonical ISO 3166-1 alpha-2
+  is `"GB"`. Inconsistent with all other T1 countries
+  (US/DE/PT/IT/ES/FR/NL) which use canonical alpha-2. Affects TE
+  mappings, config YAML, connector constants, pipeline dispatch,
+  tier resolution, currency lookups.
+- **Scope (Sprint O — partial closure):**
+  - `docs/data_sources/country_tiers.yaml` iso_code: already `GB`
+    (corrected pre-Sprint) with `aliases: [UK]` preserved.
+  - `src/sonar/config/r_star_values.yaml` + `bc_targets.yaml`:
+    top-level key `UK` → `GB`; loader adds `"UK"` alias normalization
+    with deprecation log.
+  - `src/sonar/connectors/te.py`: `TE_COUNTRY_NAME_MAP` +
+    `TE_10Y_SYMBOLS` → `GB` primary; `UK` alias entries preserved.
+    `TE_EXPECTED_SYMBOL_UK_BANK_RATE` renamed to
+    `TE_EXPECTED_SYMBOL_GB_BANK_RATE` (alias `UK_*` re-export).
+    `fetch_uk_bank_rate` → primary `fetch_gb_bank_rate`; UK wrapper
+    emits deprecation warning.
+  - `src/sonar/pipelines/daily_monetary_indices.py`:
+    `MONETARY_SUPPORTED_COUNTRIES` → `("US", "EA", "GB")`;
+    `--country UK` accepted as deprecated alias with structlog
+    warning; internal dispatch translates `GB → UK` at
+    builders.py boundary until final chore.
+  - `src/sonar/cycles/financial_fcs.py`: `TIER_1_STRICT_COUNTRIES`
+    frozenset includes both `GB` (canonical) + `UK` (transitional
+    alias; removed post final chore).
+  - `src/sonar/overlays/live_assemblers.py`, `overlays/crp.py`,
+    `pipelines/daily_cost_of_capital.py`: benchmark/currency dicts
+    rename `"UK"` → `"GB"`.
+  - Tests sweep `tests/unit/` + `tests/integration/` country_code
+    strings and expected values.
+  - `docs/adr/ADR-0007-iso-country-codes.md` NEW — canonical
+    decision + deprecation timeline.
+  - **EXCLUDED (Sprint L carve-out)**: `src/sonar/indices/monetary/builders.py`
+    UK builder references → post-both-merges chore commit sweeps
+    `builders.py` (JP additions from Sprint L + pre-existing UK
+    references) in one atomic change.
+  - **EXCLUDED (archival)**: historical retrospectives referencing
+    `UK` preserved verbatim.
+- **Implementation:** Sprint O Week 8 Day 4 — isolated worktree
+  `/home/macro/projects/sonar-wt-sprint-o` on branch
+  `sprint-o-gb-uk-rename`. ~5-7 commits.
+- **Closure action:** post both Sprint L + Sprint O merges, operator
+  runs consolidated chore commit on main covering `builders.py`
+  sweep (UK → GB primary + deprecated alias wrappers for
+  `build_m1_uk_inputs`, constants). See `docs/planning/retrospectives/week8-sprint-o-gb-uk-rename-report.md`
+  §Post-merge for operator runbook.
+- **Status:** PARTIALLY CLOSED via Sprint O — final chore commit on
+  `builders.py` pending post Sprint L merge. Full CLOSED once chore
+  commit lands on main.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
