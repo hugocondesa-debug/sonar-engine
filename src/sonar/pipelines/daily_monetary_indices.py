@@ -237,6 +237,35 @@ def run_one(
     )
 
 
+def _build_live_connectors(
+    *,
+    fred_api_key: str,
+    te_api_key: str,
+    cache_dir: str,
+) -> tuple[MonetaryInputsBuilder, list[object]]:
+    """Instantiate live monetary connectors + bundle them for aclose().
+
+    TE is optional: when ``te_api_key`` is empty the builder falls
+    through to BoE → FRED (stale-flagged) for the UK cascade.
+    """
+    from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
+    from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
+    from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
+    from sonar.connectors.fred import FredConnector  # noqa: PLC0415
+    from sonar.connectors.te import TEConnector  # noqa: PLC0415
+
+    fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
+    cbo = CboConnector(fred=fred)
+    ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
+    boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
+    te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
+    builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe, te=te)
+    connectors: list[object] = [fred, ecb, boe]
+    if te is not None:
+        connectors.append(te)
+    return builder, connectors
+
+
 def _live_inputs_builder_factory(
     *,
     builder: MonetaryInputsBuilder,
@@ -280,6 +309,15 @@ def main(
         envvar="FRED_API_KEY",
         help="FRED API key for live backend.",
     ),
+    te_api_key: str = typer.Option(
+        "",
+        "--te-api-key",
+        envvar="TE_API_KEY",
+        help=(
+            "TradingEconomics API key — unlocks the UK M1 TE-primary cascade "
+            "(Sprint I-patch). Optional; FRED OECD mirror is used when absent."
+        ),
+    ),
     cache_dir: str = typer.Option(
         ".cache/daily_monetary",
         "--cache-dir",
@@ -312,19 +350,9 @@ def main(
         if not fred_api_key:
             typer.echo("FRED_API_KEY required for --backend=live", err=True)
             sys.exit(EXIT_IO)
-        # Local imports — connectors only instantiated on live backend so the
-        # default path keeps a zero-dependency CLI footprint.
-        from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
-        from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
-        from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
-        from sonar.connectors.fred import FredConnector  # noqa: PLC0415
-
-        fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
-        cbo = CboConnector(fred=fred)
-        ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
-        boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
-        monetary_builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe)
-        connectors_to_close.extend([fred, ecb, boe])
+        monetary_builder, connectors_to_close = _build_live_connectors(
+            fred_api_key=fred_api_key, te_api_key=te_api_key, cache_dir=cache_dir
+        )
         builder = _live_inputs_builder_factory(
             builder=monetary_builder, history_years=history_years
         )
