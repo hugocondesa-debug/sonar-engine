@@ -5,7 +5,7 @@
 > Motor analítico de quatro ciclos macro + cinco sub-modelos quantitativos, com cobertura cross-country e foco em aplicação editorial e de investimento.
 
 **Maintainer**: Hugo · 7365 Capital
-**Status**: v2.0 bootstrap · greenfield rewrite
+**Status**: Phase 1 Week 7 CLOSED — **M1 US milestone ~95 %** (implementation scope complete)
 **License**: Proprietary (to be determined)
 
 ---
@@ -60,6 +60,51 @@ Cinco princípios não-negociáveis:
 4. **Cross-border coherence** — framework cost-of-capital funciona para Portuguese equity, Brazilian bank cross-border DCF, emerging market valuation, com currency handling rigoroso (Fisher equation + PPP).
 
 5. **Honest calibration** — confidence intervals explícitos, claims vs non-claims documentados, failure modes reconhecidos. Framework é probabilistic, não deterministic.
+
+## Estado — Phase 1 Week 7 (M1 US)
+
+Phase 1 encerra com **M1 US = single-country end-to-end**:
+
+- **L0 connectors**: 22+ operacionais (FRED, Eurostat, BIS, ECB SDW,
+  IGCP, Bundesbank, BoE, Shiller, Damodaran, FMP, Multpl, CBOE, CFTC,
+  FINRA, Chicago Fed NFCI, Moody's, Yahoo, TE, AAII, Factset Insight,
+  ICE BofA, MOVE, CBO, SPDJI Buyback, Yardeni).
+- **L1 persistence**: 16 migrations Alembic; SQLite MVP (Postgres Phase 2+).
+- **L2 overlays**: 5/5 shipped (NSS curves, ERP US, CRP, rating-spread v0.2,
+  expected-inflation canonical).
+- **L3 indices**: 16/16 compute; 14-16 real-data (E2 + M3 landam via
+  DB-backed readers quando daily_curves + daily_overlays têm upstream rows).
+- **L4 cycles**: 4/4 operacionais (CCCS, FCS, MSC, ECS) com overlays
+  (boom, bubble, dilemma, stagflation).
+- **L5 regimes**: Phase 2+ scope — spec stub apenas.
+- **L6 integration**: ERP composition live via `daily_cost_of_capital`.
+- **L8 pipelines**: 9 daily pipelines operacionais com graceful
+  degradation + structured logs + exit codes tipados.
+
+Ver [`docs/milestones/m1-us.md`](docs/milestones/m1-us.md) para
+scorecard completo + coverage matrix por país + CLI quickstart.
+Deltas spec-vs-implementação em
+[`docs/milestones/m1-us-gap-analysis.md`](docs/milestones/m1-us-gap-analysis.md).
+
+### Quickstart operacional
+
+```bash
+uv sync
+cp .env.example .env   # populate API keys
+
+# Pipeline diário (US example)
+uv run python -m sonar.pipelines.daily_curves   --country US --date 2024-12-31
+uv run python -m sonar.pipelines.daily_overlays --country US --date 2024-12-31
+uv run python -m sonar.pipelines.daily_cycles   --country US --date 2024-12-31
+
+# CLI operacional
+uv run sonar status --country US
+uv run sonar health
+uv run sonar retention run --dry-run
+```
+
+Cobertura cross-country: US (primário) + DE/PT/IT/ES/FR/NL (parcial via
+Eurostat + ECB SDW + BIS). UK + JP no próximo milestone (M2 T1 Core).
 
 ## Estado documentacional (v1)
 

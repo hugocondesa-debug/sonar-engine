@@ -69,7 +69,32 @@ Contexto conversacional detalhado (log de sessões Claude chat, decisões histó
 
 ## 9. Estado actual
 
-Phase 1 Week 3.5 em curso. Live em `main` (2026-04-20): 5 overlays L2 (NSS/rating-spread/expected-inflation/CRP/ERP), L3 indices scaffold + E2 leading subset + M3 market-expectations subset, pipeline L6 `daily_cost_of_capital` (live ERP canonical for US, `MATURE_ERP_PROXY_US` for EA/UK/JP). Briefs fechados: ERP US (8 commits, `98fbe2e`..`6f3f9f0`), L3 indices (6 commits parallel), 5 sub-sprints Week 3.5 (A/C/F shipped; B/D/E deferred → CAL-048/049/050 — 048 já CLOSED pelo brief ERP). Retrospectives em `docs/planning/retrospectives/` (index aí mesmo). Próximos: Credit indices brief v3 (tmux `sonar-l3`), `daily_erp_us` L8 pipeline (CAL-057), EA/UK/JP per-country ERP overlays (Week 4+).
+**Phase 1 Week 7 CLOSED — M1 US milestone ~95 %** (implementation 100 %;
+spec 70-75 %, deltas em `docs/milestones/m1-us-gap-analysis.md`).
+
+Component status (Week 7 Sprint G, 2026-04-21):
+
+- **L0 connectors**: 22+ operacionais.
+- **L1 persistence**: 16 migrations; SQLite MVP (Postgres = Phase 2+).
+- **L2 overlays**: 5/5 (NSS, ERP US, CRP, rating-spread v0.2, expinf).
+- **L3 indices**: 16/16 compute + 14-16 real-data (E2 + M3 via
+  DB-backed readers — Sprint E CAL-108).
+- **L4 cycles**: 4/4 (CCCS + FCS + MSC + ECS).
+- **L5 regimes**: Phase 2+ (spec pendente).
+- **L6 integration**: ERP composition live.
+- **L7 outputs**: Phase 2+ (sem dashboards / PDFs).
+- **L8 pipelines**: 9 daily pipelines operacionais.
+- **CLI operacional**: `sonar status` + `sonar health` + `sonar retention`
+  shipped em Sprint G.
+
+Cobertura: US primário + DE/PT/IT/ES/FR/NL parcial (via Eurostat + ECB
+SDW + BIS). UK + JP = M2 T1 Core (Week 8+). Retrospectives em
+`docs/planning/retrospectives/` (~16 files cobrindo Weeks 1-7). Ver
+`docs/milestones/m1-us.md` para scorecard + quickstart.
+
+Próximos (M2 T1 Core / Phase 2+ transição): UK + JP connectors, per-country
+ERP (EA + UK + JP), agency scrape forward (CAL-115), L5 regime
+classifier spec, Postgres migration, systemd timer/cron ops.
 
 ## 10. Regra-resumo
 
