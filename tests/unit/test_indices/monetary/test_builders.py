@@ -7,17 +7,21 @@ from datetime import date
 
 import pytest
 
+from sonar.connectors.base import Observation
 from sonar.indices.monetary.builders import (
+    FRED_UK_BANK_RATE_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
     _latest_on_or_before,
     _resample_monthly,
     _to_dated,
     build_m1_ea_inputs,
+    build_m1_uk_inputs,
     build_m1_us_inputs,
     build_m2_us_inputs,
     build_m4_us_inputs,
 )
+from sonar.overlays.exceptions import DataUnavailableError
 
 # ---------------------------------------------------------------------------
 # Helpers + fakes
@@ -114,6 +118,58 @@ class _FakeFredConnector:
             out.append(_Obs(observation_date=d, value=self.nfci_level))
             d = date.fromordinal(d.toordinal() + 7)
         return out
+
+    async def fetch_series(self, series_id: str, start: date, end: date) -> list[Observation]:
+        # Used by build_m1_uk_inputs cascade. Returns monthly OECD-mirror
+        # policy rate (e.g. 4.70 %) as Observations with yield_bps in int.
+        if series_id != FRED_UK_BANK_RATE_SERIES:
+            return []
+        out: list[Observation] = []
+        year, month = start.year, start.month
+        while date(year, month, 1) <= end:
+            out.append(
+                Observation(
+                    country_code="UK",
+                    observation_date=date(year, month, 1),
+                    tenor_years=0.01,
+                    yield_bps=470,  # 4.70 %
+                    source="FRED",
+                    source_series_id=series_id,
+                )
+            )
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+        return out
+
+
+class _FakeBoESuccess:
+    async def fetch_bank_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="GB",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=475,  # 4.75 % — BoE native value differs from FRED to prove cascade
+                    source="BOE",
+                    source_series_id="IUDBEDR",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeBoEAkamai:
+    """Simulates the Akamai anti-bot ErrorPage behaviour."""
+
+    async def fetch_bank_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "BoE IADB ErrorPage — Akamai anti-bot gated"
+        raise DataUnavailableError(msg)
 
 
 class _FakeCboConnector:
@@ -273,6 +329,79 @@ class TestBuildM1Ea:
 
 
 # ---------------------------------------------------------------------------
+# M1 UK (Sprint I — BoE → FRED cascade)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Uk:
+    @pytest.mark.asyncio
+    async def test_boe_primary_path(self) -> None:
+        fred = _FakeFredConnector()
+        boe = _FakeBoESuccess()
+        inputs = await build_m1_uk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            boe=boe,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "UK"
+        # BoE returned 4.75 % — cascade flag absent when BoE succeeds.
+        assert inputs.policy_rate_pct == pytest.approx(0.0475)
+        assert "UK_BANK_RATE_BOE_FALLBACK" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "UK_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.r_star_pct == pytest.approx(0.005)
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.source_connector == ("boe", "fred")
+
+    @pytest.mark.asyncio
+    async def test_fred_fallback_when_boe_gated(self) -> None:
+        """BoE IADB ErrorPage → cascade to FRED OECD mirror."""
+        fred = _FakeFredConnector()
+        boe = _FakeBoEAkamai()
+        inputs = await build_m1_uk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            boe=boe,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "UK"
+        # FRED mirror returned 4.70 %.
+        assert inputs.policy_rate_pct == pytest.approx(0.047)
+        assert "UK_BANK_RATE_BOE_FALLBACK" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_boe_absent(self) -> None:
+        """boe=None (default) → FRED path without cascade flag."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_uk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "UK"
+        assert inputs.source_connector == ("fred",)
+        assert "UK_BANK_RATE_BOE_FALLBACK" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_empty_sources_raises(self) -> None:
+        class _Empty:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="both returned empty"):
+            await build_m1_uk_inputs(
+                _Empty(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=1,
+            )
+
+
+# ---------------------------------------------------------------------------
 # M2 US
 # ---------------------------------------------------------------------------
 
@@ -344,14 +473,26 @@ class TestMonetaryInputsBuilderFacade:
         assert inputs.country_code == "EA"
 
     @pytest.mark.asyncio
+    async def test_build_m1_uk_via_facade(self) -> None:
+        """UK M1 dispatch — FRED-only path (no BoE handle)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("UK", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "UK"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
     async def test_m1_unsupported_country_raises(self) -> None:
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        with pytest.raises(NotImplementedError, match="UK"):
-            await builder.build_m1_inputs("UK", date(2024, 12, 31))
+        with pytest.raises(NotImplementedError, match="JP"):
+            await builder.build_m1_inputs("JP", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_m2_ea_raises(self) -> None:

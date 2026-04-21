@@ -48,6 +48,7 @@ from sonar.indices.monetary.m4_fci import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from sonar.connectors.boe_database import BoEDatabaseConnector
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
@@ -56,10 +57,16 @@ if TYPE_CHECKING:
 __all__ = [
     "MonetaryInputsBuilder",
     "build_m1_ea_inputs",
+    "build_m1_uk_inputs",
     "build_m1_us_inputs",
     "build_m2_us_inputs",
     "build_m4_us_inputs",
 ]
+
+# UK OECD-mirror series on FRED — monthly, reliable backfill for BoE IADB
+# which is currently gated by Akamai anti-bot (Sprint I empirical probe).
+FRED_UK_BANK_RATE_SERIES: str = "IRSTCI01GBM156N"
+FRED_UK_GILT_10Y_SERIES: str = "IRLTLT01GBM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +356,117 @@ async def build_m1_ea_inputs(
     )
 
 
+# ---------------------------------------------------------------------------
+# M1 — UK (Sprint I CAL — BoE → TE → FRED cascade)
+# ---------------------------------------------------------------------------
+
+
+async def _uk_bank_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    boe: BoEDatabaseConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...]]:
+    """Fetch UK Bank Rate history with BoE → FRED fallback.
+
+    Returns the series + any `upstream_flags` describing which source
+    answered. BoE is preferred (daily, authoritative); FRED's
+    ``IRSTCI01GBM156N`` OECD mirror is monthly but reliably reachable
+    from any IP (BoE IADB is currently behind Akamai anti-bot — see
+    :mod:`sonar.connectors.boe_database`).
+    """
+    flags: list[str] = []
+    if boe is not None:
+        from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+        try:
+            boe_obs = await boe.fetch_bank_rate(start, end)
+        except DataUnavailableError:
+            flags.append("UK_BANK_RATE_BOE_FALLBACK")
+        else:
+            if boe_obs:
+                return (
+                    [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boe_obs],
+                    (),
+                )
+            flags.append("UK_BANK_RATE_BOE_EMPTY")
+    fred_obs = await fred.fetch_series(FRED_UK_BANK_RATE_SERIES, start, end)
+    if not fred_obs:
+        msg = "UK Bank Rate: BoE + FRED both returned empty"
+        raise ValueError(msg)
+    return (
+        [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
+        tuple(flags),
+    )
+
+
+async def build_m1_uk_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    boe: BoEDatabaseConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 UK inputs via BoE → FRED cascade + YAML r*/target.
+
+    BoE IADB is preferred when reachable. When the CSV endpoint returns
+    the Akamai anti-bot ErrorPage (or ``boe`` is omitted), the builder
+    falls back to FRED's OECD-mirror series.
+
+    UK-specific degradations (Phase 1):
+
+    - ``expected_inflation_5y_pct`` defaults to the BoE CPI target (2 %)
+      because no BoE breakeven-inflation mirror exists at this scope;
+      emits ``EXPECTED_INFLATION_CB_TARGET`` flag.
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with ``UK_BS_GDP_PROXY_ZERO``
+      flag — UK balance-sheet ratios require the BoE weekly bank-return
+      aggregate which is not FRED-mirrored. Lands when IADB becomes
+      reachable or when we wire an ONS-sourced GDP+APF composite.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags = await _uk_bank_rate_cascade(
+        start, observation_date, boe=boe, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "UK Bank Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("UK")  # is_proxy always True for UK
+    expected_inflation_5y_pct = 0.02  # BoE CPI target; proxy
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = list(cascade_flags)
+    flags.append("R_STAR_PROXY")
+    flags.append("EXPECTED_INFLATION_CB_TARGET")
+    flags.append("UK_BS_GDP_PROXY_ZERO")
+
+    source: tuple[str, ...] = ("boe", "fred") if boe is not None else ("fred",)
+    return M1EffectiveRatesInputs(
+        country_code="UK",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=source,
+        upstream_flags=tuple(flags),
+    )
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -509,10 +627,12 @@ class MonetaryInputsBuilder:
         fred: FredConnector,
         cbo: CboConnector,
         ecb_sdw: EcbSdwConnector,
+        boe: BoEDatabaseConnector | None = None,
     ) -> None:
         self.fred = fred
         self.cbo = cbo
         self.ecb_sdw = ecb_sdw
+        self.boe = boe
 
     async def build_m1_inputs(
         self, country: str, observation_date: date, **kwargs: object
@@ -521,6 +641,13 @@ class MonetaryInputsBuilder:
             return await build_m1_us_inputs(self.fred, observation_date, **kwargs)  # type: ignore[arg-type]
         if country == "EA":
             return await build_m1_ea_inputs(self.ecb_sdw, observation_date, **kwargs)  # type: ignore[arg-type]
+        if country == "UK":
+            return await build_m1_uk_inputs(
+                self.fred,
+                observation_date,
+                boe=self.boe,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
