@@ -83,11 +83,12 @@ __all__ = [
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 
-# Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I) and
-# JP via BoJ → FRED cascade (sprint 8-L). Both stay separate from
-# T1_7_COUNTRIES so --all-t1 preserves the historical 7-country
-# semantics; callers opt in via --country GB (or the deprecated "UK"
-# alias — ADR-0007) or --country JP.
+# Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I),
+# JP via BoJ → FRED cascade (sprint 8-L) and CA via BoC Valet → FRED
+# cascade (sprint 9-S). All stay separate from T1_7_COUNTRIES so
+# --all-t1 preserves the historical 7-country semantics; callers opt
+# in via --country GB (or the deprecated "UK" alias — ADR-0007),
+# --country JP, or --country CA.
 #
 # Backward compat: "UK" preserved as deprecated alias per ADR-0007.
 # CLI emits a structlog deprecation warning when ``--country UK`` is
@@ -96,7 +97,7 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # "GB" and invokes :func:`build_m1_gb_inputs` (CAL-128 closure — post-
 # Sprint-L chore commit). End-to-end GB dispatch is live; alias path
 # scheduled for removal Week 10 Day 1.
-MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP")
+MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP", "CA")
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
 _DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
@@ -284,9 +285,14 @@ def _build_live_connectors(
     """Instantiate live monetary connectors + bundle them for aclose().
 
     TE is optional: when ``te_api_key`` is empty the builder falls
-    through to BoE → FRED (stale-flagged) for the GB cascade and to
-    BoJ → FRED (stale-flagged) for the JP cascade.
+    through to BoE → FRED (stale-flagged) for the GB cascade, BoJ →
+    FRED (stale-flagged) for the JP cascade, and BoC Valet → FRED
+    (stale-flagged) for the CA cascade. Note the CA secondary slot
+    (BoC Valet) is a reachable public API so --te-api-key="" still
+    delivers a daily-fresh CA M1 row when Valet is up — unlike GB/JP
+    where the native fallback is itself gated.
     """
+    from sonar.connectors.boc import BoCConnector  # noqa: PLC0415
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
     from sonar.connectors.boj import BoJConnector  # noqa: PLC0415
     from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
@@ -297,11 +303,14 @@ def _build_live_connectors(
     fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
     cbo = CboConnector(fred=fred)
     ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
+    boc = BoCConnector(cache_dir=f"{cache_dir}/boc")
     boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
     boj = BoJConnector(cache_dir=f"{cache_dir}/boj")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
-    builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe, boj=boj, te=te)
-    connectors: list[object] = [fred, ecb, boe, boj]
+    builder = MonetaryInputsBuilder(
+        fred=fred, cbo=cbo, ecb_sdw=ecb, boc=boc, boe=boe, boj=boj, te=te
+    )
+    connectors: list[object] = [fred, ecb, boc, boe, boj]
     if te is not None:
         connectors.append(te)
     return builder, connectors
@@ -355,9 +364,11 @@ def main(
         "--te-api-key",
         envvar="TE_API_KEY",
         help=(
-            "TradingEconomics API key — unlocks the GB M1 TE-primary cascade "
-            "(Sprint I-patch) and the JP M1 TE-primary cascade (Sprint L). "
-            "Optional; FRED OECD mirror is used when absent."
+            "TradingEconomics API key — unlocks the GB M1 TE-primary "
+            "cascade (Sprint I-patch), JP M1 TE-primary cascade (Sprint "
+            "L), and CA M1 TE-primary cascade (Sprint S). Optional; "
+            "country-native fallbacks (BoE / BoJ / BoC Valet) and the "
+            "FRED OECD mirror remain available when absent."
         ),
     ),
     cache_dir: str = typer.Option(
