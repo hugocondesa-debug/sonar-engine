@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
+import structlog
+
 from sonar.indices.monetary._config import (
     resolve_inflation_target,
     resolve_r_star,
@@ -57,9 +59,13 @@ if TYPE_CHECKING:
     from sonar.connectors.te import TEConnector
 
 
+log = structlog.get_logger()
+
+
 __all__ = [
     "MonetaryInputsBuilder",
     "build_m1_ea_inputs",
+    "build_m1_gb_inputs",
     "build_m1_jp_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
@@ -69,10 +75,16 @@ __all__ = [
     "build_m4_us_inputs",
 ]
 
-# UK OECD-mirror series on FRED — monthly, reliable backfill for BoE IADB
+# GB OECD-mirror series on FRED — monthly, reliable backfill for BoE IADB
 # which is currently gated by Akamai anti-bot (Sprint I empirical probe).
-FRED_UK_BANK_RATE_SERIES: str = "IRSTCI01GBM156N"
-FRED_UK_GILT_10Y_SERIES: str = "IRLTLT01GBM156N"
+FRED_GB_BANK_RATE_SERIES: str = "IRSTCI01GBM156N"
+FRED_GB_GILT_10Y_SERIES: str = "IRLTLT01GBM156N"
+
+# Deprecated UK-named aliases per ADR-0007. Preserved so external callers
+# (and test fakes) that still import the UK names keep functioning during
+# the transition window. Removal planned Week 10 Day 1.
+FRED_UK_BANK_RATE_SERIES: str = FRED_GB_BANK_RATE_SERIES
+FRED_UK_GILT_10Y_SERIES: str = FRED_GB_GILT_10Y_SERIES
 
 # JP OECD-mirror series on FRED — monthly, last-resort backfill when the
 # TE primary + BoJ native paths are both unavailable (Sprint L cascade).
@@ -368,11 +380,11 @@ async def build_m1_ea_inputs(
 
 
 # ---------------------------------------------------------------------------
-# M1 — UK (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
+# M1 — GB (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
 # ---------------------------------------------------------------------------
 
 
-async def _uk_bank_rate_cascade(
+async def _gb_bank_rate_cascade(
     start: date,
     end: date,
     *,
@@ -380,20 +392,20 @@ async def _uk_bank_rate_cascade(
     boe: BoEDatabaseConnector | None,
     fred: FredConnector,
 ) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
-    """Fetch UK Bank Rate via TE → BoE → FRED priority-first-wins cascade.
+    """Fetch GB Bank Rate via TE → BoE → FRED priority-first-wins cascade.
 
     Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
 
     Priority ordering (first success wins):
 
-    1. **TE primary** (``fetch_uk_bank_rate`` — daily, BoE-sourced via
-       ``UKBRBASE``). Emits ``UK_BANK_RATE_TE_PRIMARY`` on success.
+    1. **TE primary** (``fetch_gb_bank_rate`` — daily, BoE-sourced via
+       ``UKBRBASE``). Emits ``GB_BANK_RATE_TE_PRIMARY`` on success.
     2. **BoE native** (``fetch_bank_rate`` on the IADB CSV endpoint).
        Currently gated by Akamai anti-bot — wire-ready for future
-       bypass. Emits ``UK_BANK_RATE_BOE_NATIVE`` on success.
+       bypass. Emits ``GB_BANK_RATE_BOE_NATIVE`` on success.
     3. **FRED OECD mirror** (``IRSTCI01GBM156N`` — monthly lag).
        Last-resort fallback emitting both
-       ``UK_BANK_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE`` to
+       ``GB_BANK_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE`` to
        make the degradation auditable downstream.
 
     All three branches fail-open to the next source on
@@ -404,13 +416,13 @@ async def _uk_bank_rate_cascade(
 
     if te is not None:
         try:
-            te_obs = await te.fetch_uk_bank_rate(start, end)
+            te_obs = await te.fetch_gb_bank_rate(start, end)
         except DataUnavailableError:
             te_obs = []
         if te_obs:
             return (
                 [_DatedValue(o.observation_date, o.value) for o in te_obs],
-                ("UK_BANK_RATE_TE_PRIMARY",),
+                ("GB_BANK_RATE_TE_PRIMARY",),
                 ("te",),
             )
 
@@ -422,23 +434,23 @@ async def _uk_bank_rate_cascade(
         if boe_obs:
             return (
                 [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in boe_obs],
-                ("UK_BANK_RATE_BOE_NATIVE",),
+                ("GB_BANK_RATE_BOE_NATIVE",),
                 ("boe",),
             )
 
-    fred_obs = await fred.fetch_series(FRED_UK_BANK_RATE_SERIES, start, end)
+    fred_obs = await fred.fetch_series(FRED_GB_BANK_RATE_SERIES, start, end)
     if fred_obs:
         return (
             [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs],
-            ("UK_BANK_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
+            ("GB_BANK_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE"),
             ("fred",),
         )
 
-    msg = "UK Bank Rate unavailable from TE, BoE, and FRED"
+    msg = "GB Bank Rate unavailable from TE, BoE, and FRED"
     raise ValueError(msg)
 
 
-async def build_m1_uk_inputs(
+async def build_m1_gb_inputs(
     fred: FredConnector,
     observation_date: date,
     *,
@@ -446,39 +458,39 @@ async def build_m1_uk_inputs(
     boe: BoEDatabaseConnector | None = None,
     history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
 ) -> M1EffectiveRatesInputs:
-    """Assemble M1 UK inputs via TE → BoE → FRED cascade + YAML r*/target.
+    """Assemble M1 GB inputs via TE → BoE → FRED cascade + YAML r*/target.
 
     Sprint I-patch re-prioritised the cascade: TE primary (daily
     BoE-sourced via ``UKBRBASE``) fixes the signal-quality regression
     introduced by Sprint I Day 1 — where the FRED OECD mirror's monthly
     cadence lagged BoE's daily policy decisions. BoE IADB stays as the
     wire-ready secondary for post-Akamai unblock; FRED is the
-    last-resort fallback that emits ``UK_BANK_RATE_FRED_FALLBACK_STALE``
+    last-resort fallback that emits ``GB_BANK_RATE_FRED_FALLBACK_STALE``
     + ``CALIBRATION_STALE`` so downstream consumers can surface the
     degradation.
 
-    UK-specific degradations (Phase 1):
+    GB-specific degradations (Phase 1):
 
     - ``expected_inflation_5y_pct`` defaults to the BoE CPI target (2 %)
       because no BoE breakeven-inflation mirror exists at this scope;
       emits ``EXPECTED_INFLATION_CB_TARGET`` flag.
-    - ``balance_sheet_pct_gdp_*`` zero-seeded with ``UK_BS_GDP_PROXY_ZERO``
-      flag — UK balance-sheet ratios require the BoE weekly bank-return
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with ``GB_BS_GDP_PROXY_ZERO``
+      flag — GB balance-sheet ratios require the BoE weekly bank-return
       aggregate which is not FRED-mirrored. Lands when IADB becomes
       reachable or when we wire an ONS-sourced GDP+APF composite.
     """
     start = observation_date - timedelta(days=history_years * 366)
 
-    policy_hist, cascade_flags, cascade_sources = await _uk_bank_rate_cascade(
+    policy_hist, cascade_flags, cascade_sources = await _gb_bank_rate_cascade(
         start, observation_date, te=te, boe=boe, fred=fred
     )
     latest_policy = _latest_on_or_before(policy_hist, observation_date)
     if latest_policy is None:
-        msg = "UK Bank Rate: no observation at or before anchor"
+        msg = "GB Bank Rate: no observation at or before anchor"
         raise ValueError(msg)
     policy_rate_pct = latest_policy.value / 100.0
 
-    r_star_pct, _is_proxy = resolve_r_star("UK")  # is_proxy always True for UK
+    r_star_pct, _is_proxy = resolve_r_star("GB")  # is_proxy always True for GB
     expected_inflation_5y_pct = 0.02  # BoE CPI target; proxy
 
     policy_monthly_pct = _resample_monthly(
@@ -491,11 +503,11 @@ async def build_m1_uk_inputs(
         *cascade_flags,
         "R_STAR_PROXY",
         "EXPECTED_INFLATION_CB_TARGET",
-        "UK_BS_GDP_PROXY_ZERO",
+        "GB_BS_GDP_PROXY_ZERO",
     ]
 
     return M1EffectiveRatesInputs(
-        country_code="UK",
+        country_code="GB",
         observation_date=observation_date,
         policy_rate_pct=policy_rate_pct,
         expected_inflation_5y_pct=expected_inflation_5y_pct,
@@ -528,7 +540,7 @@ async def _jp_bank_rate_cascade(
 
     Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
 
-    Priority ordering mirrors the Sprint I-patch UK cascade (first
+    Priority ordering mirrors the Sprint I-patch GB cascade (first
     success wins):
 
     1. **TE primary** (``fetch_jp_bank_rate`` — daily, BoJ-sourced via
@@ -594,7 +606,7 @@ async def build_m1_jp_inputs(
     """Assemble M1 JP inputs via TE → BoJ → FRED cascade + YAML r*/target.
 
     Sprint L introduces the JP country path using the canonical cascade
-    pattern established by Sprint I-patch for UK. TE's ``interest rate``
+    pattern established by Sprint I-patch for GB. TE's ``interest rate``
     indicator for Japan back-fills the full BoJ policy-rate history
     (``BOJDTR``) at daily cadence and is the empirically preferred
     source — Bank rate decisions propagate into TE within hours of the
@@ -607,7 +619,7 @@ async def build_m1_jp_inputs(
 
     - ``expected_inflation_5y_pct`` defaults to BoJ's 2 % CPI target —
       no BoJ breakeven-inflation mirror exists at this scope; emits
-      ``EXPECTED_INFLATION_CB_TARGET`` flag (mirrors UK pattern).
+      ``EXPECTED_INFLATION_CB_TARGET`` flag (mirrors GB pattern).
     - ``balance_sheet_pct_gdp_*`` zero-seeded with ``JP_BS_GDP_PROXY_ZERO``
       flag — JP balance-sheet ratios require BoJ Monetary Base (BoJ
       TSD ``BS01'MABJMTA``) combined with Cabinet Office JP nominal
@@ -926,8 +938,12 @@ class MonetaryInputsBuilder:
             return await build_m1_us_inputs(self.fred, observation_date, **kwargs)  # type: ignore[arg-type]
         if country == "EA":
             return await build_m1_ea_inputs(self.ecb_sdw, observation_date, **kwargs)  # type: ignore[arg-type]
-        if country == "UK":
-            return await build_m1_uk_inputs(
+        if country in ("GB", "UK"):
+            # ADR-0007: "GB" canonical; "UK" alias silently normalised at
+            # dispatch. CLI entry (`daily_monetary_indices._warn_if_deprecated_alias`)
+            # emits the operator-facing deprecation warning; re-warning
+            # here would double-log and obscure the trace.
+            return await build_m1_gb_inputs(
                 self.fred,
                 observation_date,
                 te=self.te,
@@ -980,3 +996,38 @@ class MonetaryInputsBuilder:
 # Sanity: keep ZLB threshold import-accessible for callers that want to
 # early-flag SHADOW_RATE_UNAVAILABLE.
 _ = ZLB_THRESHOLD_PCT
+
+
+# ---------------------------------------------------------------------------
+# Deprecated aliases (ADR-0007) — removal planned Week 10 Day 1
+# ---------------------------------------------------------------------------
+
+
+async def build_m1_uk_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    boe: BoEDatabaseConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Deprecated alias for :func:`build_m1_gb_inputs` (ADR-0007).
+
+    Preserved so external callers that still import the UK-named
+    function keep functioning during the transition window. Emits a
+    structlog ``builders.build_m1_uk_inputs.deprecated`` warning on
+    every invocation. Removal planned Week 10 Day 1.
+    """
+    log.warning(
+        "builders.build_m1_uk_inputs.deprecated",
+        replacement="build_m1_gb_inputs",
+        adr="ADR-0007",
+        removal="week10-day1",
+    )
+    return await build_m1_gb_inputs(
+        fred,
+        observation_date,
+        te=te,
+        boe=boe,
+        history_years=history_years,
+    )

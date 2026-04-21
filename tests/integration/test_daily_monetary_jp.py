@@ -15,7 +15,7 @@ Two @slow canaries that prove the JP BoJ-connector cascade end-to-end:
 Both are gated behind ``pytest -m slow`` and skipped when
 ``FRED_API_KEY`` is not set. The TE-primary test additionally skips
 when ``TE_API_KEY`` is not set. Pattern mirrors
-``test_daily_monetary_uk_te_cascade.py`` so regressions are easy to
+``test_daily_monetary_gb_te_cascade.py`` so regressions are easy to
 spot across the two cascades.
 """
 

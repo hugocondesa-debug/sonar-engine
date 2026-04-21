@@ -9,14 +9,15 @@ import pytest
 
 from sonar.connectors.base import Observation
 from sonar.indices.monetary.builders import (
+    FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
-    FRED_UK_BANK_RATE_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
     _latest_on_or_before,
     _resample_monthly,
     _to_dated,
     build_m1_ea_inputs,
+    build_m1_gb_inputs,
     build_m1_jp_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
@@ -124,13 +125,13 @@ class _FakeFredConnector:
         return out
 
     async def fetch_series(self, series_id: str, start: date, end: date) -> list[Observation]:
-        # Used by build_m1_uk_inputs + build_m1_jp_inputs cascades. Returns
-        # monthly OECD-mirror policy rate values. UK pins at 4.70 %, JP at
+        # Used by build_m1_gb_inputs + build_m1_jp_inputs cascades. Returns
+        # monthly OECD-mirror policy rate values. GB pins at 4.70 %, JP at
         # 0.40 % (reflecting the 2024 normalisation band).
         country_code: str
         yield_bps_val: int
-        if series_id == FRED_UK_BANK_RATE_SERIES:
-            country_code = "UK"
+        if series_id == FRED_GB_BANK_RATE_SERIES:
+            country_code = "GB"
             yield_bps_val = 470  # 4.70 %
         elif series_id == FRED_JP_BANK_RATE_SERIES:
             country_code = "JP"
@@ -195,12 +196,12 @@ class _FakeTEIndicatorObs:
 
 
 class _FakeTESuccess:
-    """TE primary path — returns daily UK Bank Rate observations in pct."""
+    """TE primary path — returns daily GB Bank Rate observations in pct."""
 
     def __init__(self, *, pct: float = 4.80) -> None:
         self.pct = pct
 
-    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+    async def fetch_gb_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
         out: list[_FakeTEIndicatorObs] = []
         d = start
         while d <= end:
@@ -212,9 +213,9 @@ class _FakeTESuccess:
 class _FakeTEUnavailable:
     """TE primary fails with DataUnavailableError — cascade fails over."""
 
-    async def fetch_uk_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+    async def fetch_gb_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
         _ = start, end
-        msg = "TE returned empty series: country='UK' indicator='interest rate'"
+        msg = "TE returned empty series: country='GB' indicator='interest rate'"
         raise DataUnavailableError(msg)
 
     async def fetch_jp_bank_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
@@ -427,34 +428,34 @@ class TestBuildM1Ea:
 
 
 # ---------------------------------------------------------------------------
-# M1 UK (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
+# M1 GB (Sprint I-patch — TE primary → BoE native → FRED stale-flagged)
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM1Uk:
+class TestBuildM1Gb:
     @pytest.mark.asyncio
     async def test_te_primary_path(self) -> None:
         """TE succeeds → canonical daily series, no staleness flags."""
         fred = _FakeFredConnector()
         boe = _FakeBoESuccess()  # present but skipped (TE wins priority)
         te = _FakeTESuccess(pct=4.80)
-        inputs = await build_m1_uk_inputs(
+        inputs = await build_m1_gb_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
             te=te,  # type: ignore[arg-type]
             boe=boe,  # type: ignore[arg-type]
             history_years=2,
         )
-        assert inputs.country_code == "UK"
+        assert inputs.country_code == "GB"
         # TE returned 4.80 % — priority-first-wins over BoE fake's 4.75 %.
         assert inputs.policy_rate_pct == pytest.approx(0.048)
-        assert "UK_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
-        assert "UK_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "GB_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
         assert "CALIBRATION_STALE" not in inputs.upstream_flags
         assert "R_STAR_PROXY" in inputs.upstream_flags
         assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
-        assert "UK_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert "GB_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
         assert inputs.source_connector == ("te",)
 
     @pytest.mark.asyncio
@@ -463,7 +464,7 @@ class TestBuildM1Uk:
         fred = _FakeFredConnector()
         boe = _FakeBoESuccess()
         te = _FakeTEUnavailable()
-        inputs = await build_m1_uk_inputs(
+        inputs = await build_m1_gb_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
             te=te,  # type: ignore[arg-type]
@@ -471,9 +472,9 @@ class TestBuildM1Uk:
             history_years=2,
         )
         assert inputs.policy_rate_pct == pytest.approx(0.0475)  # BoE 4.75 %
-        assert "UK_BANK_RATE_BOE_NATIVE" in inputs.upstream_flags
-        assert "UK_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_BOE_NATIVE" in inputs.upstream_flags
+        assert "GB_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
         assert inputs.source_connector == ("boe",)
 
     @pytest.mark.asyncio
@@ -482,7 +483,7 @@ class TestBuildM1Uk:
         fred = _FakeFredConnector()
         boe = _FakeBoEAkamai()
         te = _FakeTEUnavailable()
-        inputs = await build_m1_uk_inputs(
+        inputs = await build_m1_gb_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
             te=te,  # type: ignore[arg-type]
@@ -490,24 +491,24 @@ class TestBuildM1Uk:
             history_years=2,
         )
         assert inputs.policy_rate_pct == pytest.approx(0.047)  # FRED 4.70 %
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
         assert "CALIBRATION_STALE" in inputs.upstream_flags
-        assert "UK_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
-        assert "UK_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "GB_BANK_RATE_BOE_NATIVE" not in inputs.upstream_flags
         assert inputs.source_connector == ("fred",)
 
     @pytest.mark.asyncio
     async def test_fred_only_when_te_and_boe_absent(self) -> None:
         """te=None + boe=None → FRED path still emits staleness flags."""
         fred = _FakeFredConnector()
-        inputs = await build_m1_uk_inputs(
+        inputs = await build_m1_gb_inputs(
             fred,  # type: ignore[arg-type]
             date(2024, 12, 31),
             history_years=2,
         )
-        assert inputs.country_code == "UK"
+        assert inputs.country_code == "GB"
         assert inputs.source_connector == ("fred",)
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
         assert "CALIBRATION_STALE" in inputs.upstream_flags
 
     @pytest.mark.asyncio
@@ -522,7 +523,7 @@ class TestBuildM1Uk:
                 return []
 
         with pytest.raises(ValueError, match="TE, BoE, and FRED"):
-            await build_m1_uk_inputs(
+            await build_m1_gb_inputs(
                 _EmptyFred(),  # type: ignore[arg-type]
                 date(2024, 12, 31),
                 te=_FakeTEUnavailable(),  # type: ignore[arg-type]
@@ -786,21 +787,40 @@ class TestMonetaryInputsBuilderFacade:
         assert inputs.country_code == "EA"
 
     @pytest.mark.asyncio
-    async def test_build_m1_uk_via_facade(self) -> None:
-        """UK M1 dispatch — FRED-only path (no TE/BoE handles) → stale flags."""
+    async def test_build_m1_gb_via_facade(self) -> None:
+        """GB M1 dispatch — FRED-only path (no TE/BoE handles) → stale flags."""
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        inputs = await builder.build_m1_inputs("UK", date(2024, 12, 31), history_years=2)
-        assert inputs.country_code == "UK"
+        inputs = await builder.build_m1_inputs("GB", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "GB"
         assert "R_STAR_PROXY" in inputs.upstream_flags
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
 
     @pytest.mark.asyncio
-    async def test_build_m1_uk_via_facade_te_primary(self) -> None:
-        """UK M1 dispatch — TE handle present → canonical TE primary path."""
+    async def test_build_m1_gb_via_facade_te_primary(self) -> None:
+        """GB M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTESuccess(pct=4.80),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("GB", date(2024, 12, 31), history_years=2)
+        assert "GB_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "GB_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_via_facade_uk_alias_normalises_to_gb(self) -> None:
+        """UK alias passed to dispatch → delegates to GB cascade silently.
+
+        ADR-0007 / CAL-128: the CLI entry layer emits the operator-facing
+        deprecation warning; ``MonetaryInputsBuilder`` normalises silently
+        so the trace stays clean for direct library consumers.
+        """
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
@@ -808,9 +828,9 @@ class TestMonetaryInputsBuilderFacade:
             te=_FakeTESuccess(pct=4.80),  # type: ignore[arg-type]
         )
         inputs = await builder.build_m1_inputs("UK", date(2024, 12, 31), history_years=2)
-        assert "UK_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
-        assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
-        assert inputs.source_connector == ("te",)
+        # Row persists under the canonical code regardless of alias input.
+        assert inputs.country_code == "GB"
+        assert "GB_BANK_RATE_TE_PRIMARY" in inputs.upstream_flags
 
     @pytest.mark.asyncio
     async def test_build_m1_jp_via_facade_te_primary(self) -> None:
@@ -893,3 +913,61 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(NotImplementedError, match="EA"):
             await builder.build_m4_inputs("EA", date(2024, 12, 31))
+
+
+# ---------------------------------------------------------------------------
+# Backward compat alias (ADR-0007 / CAL-128) — removal Week 10 Day 1
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1UkDeprecatedAlias:
+    @pytest.mark.asyncio
+    async def test_build_m1_uk_inputs_alias_emits_deprecation_warning(self) -> None:
+        """Calling the deprecated wrapper emits a structlog warning."""
+        import structlog.testing  # noqa: PLC0415 — fixture-style import
+
+        fred = _FakeFredConnector()
+        te = _FakeTESuccess(pct=4.80)
+
+        with structlog.testing.capture_logs() as captured:
+            await build_m1_uk_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+        deprecation_events = [
+            e for e in captured if e.get("event") == "builders.build_m1_uk_inputs.deprecated"
+        ]
+        assert len(deprecation_events) == 1
+        event = deprecation_events[0]
+        assert event["log_level"] == "warning"
+        assert event["replacement"] == "build_m1_gb_inputs"
+        assert event["adr"] == "ADR-0007"
+
+    @pytest.mark.asyncio
+    async def test_build_m1_uk_inputs_alias_returns_same_as_gb_inputs(self) -> None:
+        """The deprecated wrapper returns the same inputs as the canonical."""
+        fred_uk = _FakeFredConnector()
+        te_uk = _FakeTESuccess(pct=4.80)
+        uk_inputs = await build_m1_uk_inputs(
+            fred_uk,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te_uk,  # type: ignore[arg-type]
+            history_years=2,
+        )
+
+        fred_gb = _FakeFredConnector()
+        te_gb = _FakeTESuccess(pct=4.80)
+        gb_inputs = await build_m1_gb_inputs(
+            fred_gb,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te_gb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+
+        # Structural equality — the alias is a pure delegation wrapper.
+        assert uk_inputs == gb_inputs
+        assert uk_inputs.country_code == "GB"
+        assert "GB_BANK_RATE_TE_PRIMARY" in uk_inputs.upstream_flags

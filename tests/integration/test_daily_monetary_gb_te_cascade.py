@@ -1,18 +1,23 @@
-"""Live integration — UK M1 TE-primary cascade (Sprint I-patch c4/5).
+"""Live integration — GB M1 TE-primary cascade (Sprint I-patch c4/5).
 
 Two @slow canaries that prove the new cascade end-to-end:
 
-- ``test_daily_monetary_uk_te_primary`` — TE key set, full builder
-  instantiation; verifies ``UK_BANK_RATE_TE_PRIMARY`` flag lands on the
+- ``test_daily_monetary_gb_te_primary`` — TE key set, full builder
+  instantiation; verifies ``GB_BANK_RATE_TE_PRIMARY`` flag lands on the
   persisted M1 row and no staleness flag is present.
-- ``test_daily_monetary_uk_fred_fallback_when_te_absent`` — TE handle
+- ``test_daily_monetary_gb_fred_fallback_when_te_absent`` — TE handle
   omitted (simulates TE outage / no-key); pipeline falls through to
   FRED OECD mirror and raises the explicit
-  ``UK_BANK_RATE_FRED_FALLBACK_STALE`` + ``CALIBRATION_STALE`` flags.
+  ``GB_BANK_RATE_FRED_FALLBACK_STALE`` + ``CALIBRATION_STALE`` flags.
 
 Both are gated behind ``pytest -m slow`` and skipped when
 ``FRED_API_KEY`` is not set. The TE-primary test additionally skips
 when ``TE_API_KEY`` is not set.
+
+Renamed from ``test_daily_monetary_uk_te_cascade.py`` during CAL-128
+closure (ADR-0007 canonicalisation). The CLI still accepts
+``--country UK`` as a deprecated alias with a structlog warning until
+Week 10 Day 1.
 """
 
 from __future__ import annotations
@@ -73,14 +78,14 @@ def mem_session() -> Session:
     return Session(engine)
 
 
-async def test_daily_monetary_uk_te_primary(
+async def test_daily_monetary_gb_te_primary(
     mem_session: Session,
     fred_api_key: str,
     te_api_key: str,
     anchor: date,
     tmp_path: Path,
 ) -> None:
-    """UK M1 pipeline with TE enabled — canonical daily-fresh path."""
+    """GB M1 pipeline with TE enabled — canonical daily-fresh path."""
     fred = FredConnector(api_key=fred_api_key, cache_dir=str(tmp_path / "fred"))
     cbo = CboConnector(fred=fred)
     ecb = EcbSdwConnector(cache_dir=str(tmp_path / "ecb"))
@@ -89,7 +94,7 @@ async def test_daily_monetary_uk_te_primary(
     try:
         monetary_builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb, boe=boe, te=te)
         inputs: MonetaryIndicesInputs = await build_live_monetary_inputs(
-            "UK", anchor, builder=monetary_builder, history_years=2
+            "GB", anchor, builder=monetary_builder, history_years=2
         )
         results = compute_all_monetary_indices(inputs)
         persisted = persist_many_monetary_results(mem_session, results)
@@ -100,16 +105,16 @@ async def test_daily_monetary_uk_te_primary(
         await te.aclose()
 
     assert persisted["m1"] == 1
-    row = mem_session.query(M1Row).filter(M1Row.country_code == "UK").one()
+    row = mem_session.query(M1Row).filter(M1Row.country_code == "GB").one()
     flags = (row.flags or "").split(",")
-    # TE-primary path — UK_BANK_RATE_TE_PRIMARY must be present.
-    assert "UK_BANK_RATE_TE_PRIMARY" in flags
+    # TE-primary path — GB_BANK_RATE_TE_PRIMARY must be present.
+    assert "GB_BANK_RATE_TE_PRIMARY" in flags
     # FRED fallback flags must be absent on the happy path.
-    assert "UK_BANK_RATE_FRED_FALLBACK_STALE" not in flags
+    assert "GB_BANK_RATE_FRED_FALLBACK_STALE" not in flags
     assert "CALIBRATION_STALE" not in flags
 
 
-async def test_daily_monetary_uk_fred_fallback_when_te_absent(
+async def test_daily_monetary_gb_fred_fallback_when_te_absent(
     mem_session: Session,
     fred_api_key: str,
     anchor: date,
@@ -124,7 +129,7 @@ async def test_daily_monetary_uk_fred_fallback_when_te_absent(
     try:
         monetary_builder = MonetaryInputsBuilder(fred=fred, cbo=cbo, ecb_sdw=ecb)
         inputs: MonetaryIndicesInputs = await build_live_monetary_inputs(
-            "UK", anchor, builder=monetary_builder, history_years=2
+            "GB", anchor, builder=monetary_builder, history_years=2
         )
         results = compute_all_monetary_indices(inputs)
         persisted = persist_many_monetary_results(mem_session, results)
@@ -133,8 +138,8 @@ async def test_daily_monetary_uk_fred_fallback_when_te_absent(
         await ecb.aclose()
 
     assert persisted["m1"] == 1
-    row = mem_session.query(M1Row).filter(M1Row.country_code == "UK").one()
+    row = mem_session.query(M1Row).filter(M1Row.country_code == "GB").one()
     flags = (row.flags or "").split(",")
-    assert "UK_BANK_RATE_FRED_FALLBACK_STALE" in flags
+    assert "GB_BANK_RATE_FRED_FALLBACK_STALE" in flags
     assert "CALIBRATION_STALE" in flags
-    assert "UK_BANK_RATE_TE_PRIMARY" not in flags
+    assert "GB_BANK_RATE_TE_PRIMARY" not in flags

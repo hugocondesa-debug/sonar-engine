@@ -89,13 +89,13 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # semantics; callers opt in via --country GB (or the deprecated "UK"
 # alias — ADR-0007) or --country JP.
 #
-# Backward compat: "UK" preserved as deprecated alias. CLI emits a
-# structlog deprecation warning when ``--country UK`` is passed and
-# forwards the code verbatim — builders.py still dispatches on "UK"
-# during Sprint O due to carve-out. The canonical ``GB`` entry is
-# accepted syntactically; end-to-end GB dispatch lands with the
-# post-Sprint-L chore commit that finalises builders.py
-# (CAL-128 closure).
+# Backward compat: "UK" preserved as deprecated alias per ADR-0007.
+# CLI emits a structlog deprecation warning when ``--country UK`` is
+# passed and forwards the code verbatim; builders.py's
+# :class:`MonetaryInputsBuilder` dispatch silently normalises "UK" →
+# "GB" and invokes :func:`build_m1_gb_inputs` (CAL-128 closure — post-
+# Sprint-L chore commit). End-to-end GB dispatch is live; alias path
+# scheduled for removal Week 10 Day 1.
 MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK", "JP")
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
@@ -107,8 +107,9 @@ def _warn_if_deprecated_alias(country_code: str) -> None:
 
     Canonical codes are silent. Used at CLI entry to signal migration to
     operators still passing ``--country UK``. The alias value is passed
-    through verbatim to downstream builders during Sprint O (carve-out
-    preserves ``builders.py`` UK dispatch).
+    through verbatim to downstream builders; :class:`MonetaryInputsBuilder`
+    normalises "UK" → "GB" at dispatch and persists rows under the
+    canonical "GB" country_code (ADR-0007, CAL-128).
     """
     upper = country_code.upper()
     canonical = _DEPRECATED_COUNTRY_ALIASES.get(upper)
