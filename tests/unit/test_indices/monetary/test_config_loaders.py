@@ -65,6 +65,19 @@ class TestRStarLoader:
         assert "BoJ" in str(jp["source"])
         assert jp.get("proxy") is True
 
+    def test_ca_direct_with_proxy_flag(self) -> None:
+        """CA has its own entry marked ``proxy: true`` (BoC Staff 2024 estimate)."""
+        r_star, is_proxy = resolve_r_star("CA")
+        assert r_star == pytest.approx(0.0075)
+        assert is_proxy is True
+
+    def test_ca_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        ca = values["CA"]
+        assert "source" in ca
+        assert "BoC" in str(ca["source"])
+        assert ca.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -96,6 +109,11 @@ class TestBcTargetsLoader:
         """JP monetary inputs resolve to BoJ 2 % CPI target (post-2013)."""
         assert resolve_inflation_target("JP") == pytest.approx(0.02)
         assert load_country_to_target()["JP"] == "BoJ"
+
+    def test_ca_resolves_to_boc_target(self) -> None:
+        """CA monetary inputs resolve to BoC 2 % CPI target."""
+        assert resolve_inflation_target("CA") == pytest.approx(0.02)
+        assert load_country_to_target()["CA"] == "BoC"
 
     def test_targets_dict_six_central_banks(self) -> None:
         targets = load_bc_targets()

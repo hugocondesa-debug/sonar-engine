@@ -55,4 +55,18 @@ JP:
   source: "BoJ Research & Studies (QQE/YCC era staff work; SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
 
-# CA / AU: pending Phase 2+ manual entry (no HLW at present).
+CA:
+  # Bank of Canada does not publish an HLW-equivalent natural rate.
+  # Value anchored to BoC Staff Discussion Paper "Assessing the
+  # Neutral Rate of Interest" (2024 refresh) which placed the
+  # CA nominal neutral rate in the [2.25, 3.25] % range, midpoint
+  # 2.75 %, translating to roughly 0.75 % real after the 2 % CPI
+  # target. SONAR proxies at 0.75 % pending an academic HLW-CA
+  # series; downstream emits R_STAR_PROXY on every CA M1/M2 call
+  # per spec §4.
+  r_star_pct: 0.0075      # 0.75 % — BoC Staff 2024 neutral-rate midpoint (SONAR Phase 1 proxy)
+  last_updated: "2025-01-15"
+  source: "BoC Staff Discussion Paper 2024 — neutral-rate refresh (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+# AU: pending Phase 2+ manual entry (no HLW at present).
