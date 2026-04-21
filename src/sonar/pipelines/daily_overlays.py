@@ -620,11 +620,87 @@ def run_one(
 
 
 # ---------------------------------------------------------------------------
+# Live backend factory (Sprint 7F)
+# ---------------------------------------------------------------------------
+
+
+def _us_risk_free_resolver_factory(fred: Any) -> Any:
+    """Return a resolver that reads 10Y nominal + TIPS real from FRED.
+
+    The resolver signature is ``(session, country_code, observation_date)
+    -> (nominal_pct, real_pct, confidence) | None`` — consumed by
+    :class:`sonar.overlays.live_assemblers.LiveInputsBuilder`. Non-US
+    countries return ``None`` (no TIPS available); a country's ERP
+    then skips cleanly.
+    """
+
+    def _resolver(
+        session: Session,  # noqa: ARG001 — signature compatibility
+        country_code: str,
+        observation_date: date,
+    ) -> tuple[float, float, float] | None:
+        if country_code != "US":
+            return None
+        nominal = asyncio.run(fred.fetch_yield_curve_nominal(country_code, observation_date))
+        linker = asyncio.run(fred.fetch_yield_curve_linker(country_code, observation_date))
+        nom_obs = nominal.get("10Y") if nominal else None
+        real_obs = linker.get("10Y") if linker else None
+        if nom_obs is None or real_obs is None:
+            return None
+        return (float(nom_obs.yield_bps) / 10_000.0, float(real_obs.yield_bps) / 10_000.0, 0.95)
+
+    return _resolver
+
+
+def _live_inputs_builder_factory(
+    *,
+    fmp_api_key: str,
+    te_api_key: str,
+    fred_api_key: str,
+    cache_dir: str,
+) -> tuple[InputsBuilder, list[Any]]:
+    """Instantiate connector suite + :class:`LiveInputsBuilder`.
+
+    Returns a tuple ``(builder, connectors_to_close)`` — the caller is
+    responsible for closing each connector via ``aclose()`` after the
+    run completes.
+    """
+    from sonar.connectors.damodaran import DamodaranConnector  # noqa: PLC0415
+    from sonar.connectors.fmp import FMPConnector  # noqa: PLC0415
+    from sonar.connectors.fred import FredConnector  # noqa: PLC0415
+    from sonar.connectors.multpl import MultplConnector  # noqa: PLC0415
+    from sonar.connectors.shiller import ShillerConnector  # noqa: PLC0415
+    from sonar.connectors.te import TEConnector  # noqa: PLC0415
+    from sonar.overlays.live_assemblers import (  # noqa: PLC0415
+        LiveConnectorSuite,
+        LiveInputsBuilder,
+    )
+
+    fmp = FMPConnector(api_key=fmp_api_key, cache_dir=f"{cache_dir}/fmp")
+    shiller = ShillerConnector(cache_dir=f"{cache_dir}/shiller")
+    multpl = MultplConnector(cache_dir=f"{cache_dir}/multpl")
+    damodaran = DamodaranConnector(cache_dir=f"{cache_dir}/damodaran")
+    te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te")
+    fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
+
+    suite = LiveConnectorSuite(
+        fmp=fmp,
+        shiller=shiller,
+        te=te,
+        multpl=multpl,
+        damodaran=damodaran,
+    )
+    resolver = _us_risk_free_resolver_factory(fred)
+    builder = LiveInputsBuilder(suite, risk_free_resolver=resolver)
+    return builder, [fmp, shiller, multpl, damodaran, te, fred]
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 
-def main(
+def main(  # noqa: PLR0912 — CLI dispatch branches are inherent, not refactor-bait
     country: str = typer.Option("", "--country", help="ISO 3166-1 alpha-2 (omit with --all-t1)."),
     target_date: str = typer.Option(..., "--date", help="ISO date (e.g. 2024-12-31)."),
     all_t1: bool = typer.Option(
@@ -632,8 +708,36 @@ def main(
         "--all-t1",
         help="Iterate over all 7 T1 countries (US/DE/PT/IT/ES/FR/NL).",
     ),
+    backend: str = typer.Option(
+        "default",
+        "--backend",
+        help="Inputs source: 'default' (empty bundle, orchestrator skips) or 'live'.",
+    ),
+    fmp_api_key: str = typer.Option(
+        "",
+        "--fmp-api-key",
+        envvar="FMP_API_KEY",
+        help="FMP API key (required for --backend=live).",
+    ),
+    te_api_key: str = typer.Option(
+        "",
+        "--te-api-key",
+        envvar="TE_API_KEY",
+        help="Trading Economics API key (required for --backend=live).",
+    ),
+    fred_api_key: str = typer.Option(
+        "",
+        "--fred-api-key",
+        envvar="FRED_API_KEY",
+        help="FRED API key (required for --backend=live; sources US risk-free).",
+    ),
+    cache_dir: str = typer.Option(
+        ".cache/daily_overlays",
+        "--cache-dir",
+        help="Connector cache root directory (live backend only).",
+    ),
 ) -> None:
-    """Run the daily overlays pipeline (skeleton — helpers wire in subsequent commits)."""
+    """Run the daily overlays pipeline."""
     try:
         obs_date = date.fromisoformat(target_date)
     except ValueError:
@@ -644,13 +748,32 @@ def main(
     if not targets or targets == [""]:
         typer.echo("Must pass --country or --all-t1", err=True)
         sys.exit(EXIT_IO)
+    if backend not in {"default", "live"}:
+        typer.echo(f"Unknown --backend={backend!r}; expected 'default' or 'live'", err=True)
+        sys.exit(EXIT_IO)
+
+    inputs_builder: InputsBuilder | None = None
+    connectors_to_close: list[Any] = []
+    if backend == "live":
+        if not fmp_api_key or not te_api_key or not fred_api_key:
+            typer.echo(
+                "--backend=live requires FMP_API_KEY, TE_API_KEY, and FRED_API_KEY",
+                err=True,
+            )
+            sys.exit(EXIT_IO)
+        inputs_builder, connectors_to_close = _live_inputs_builder_factory(
+            fmp_api_key=fmp_api_key,
+            te_api_key=te_api_key,
+            fred_api_key=fred_api_key,
+            cache_dir=cache_dir,
+        )
 
     session = SessionLocal()
     exit_code = EXIT_OK
     try:
         for c in targets:
             try:
-                run_one(session, c, obs_date)
+                run_one(session, c, obs_date, inputs_builder=inputs_builder)
             except InsufficientDataError as exc:
                 log.error("daily_overlays.insufficient_data", country=c, error=str(exc))
                 exit_code = exit_code or EXIT_INSUFFICIENT_DATA
@@ -662,6 +785,15 @@ def main(
                 exit_code = EXIT_DUPLICATE
     finally:
         session.close()
+        for conn in connectors_to_close:
+            close = getattr(conn, "aclose", None)
+            if close is not None:
+                try:
+                    asyncio.run(close())
+                except RuntimeError:
+                    log.warning(
+                        "daily_overlays.connector_close_error", connector=type(conn).__name__
+                    )
     sys.exit(exit_code)
 
 

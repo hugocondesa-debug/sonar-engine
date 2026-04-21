@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from datetime import date
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine
@@ -20,11 +23,13 @@ from sonar.pipelines.daily_overlays import (
     T1_7_COUNTRIES,
     OverlayBundle,
     StaticInputsBuilder,
+    _live_inputs_builder_factory,
     build_erp_us_bundle,
     build_expected_inflation_bundle,
     build_rating_bundle,
     build_sov_spread_crp_bundle,
     default_inputs_builder,
+    main,
     nss_spot_exists,
     run_one,
 )
@@ -313,3 +318,78 @@ def test_static_builder_unknown_country_returns_empty() -> None:
     bundle = builder(session=None, country_code="XX", observation_date=ANCHOR)  # type: ignore[arg-type]
     assert bundle.erp is None
     assert bundle.crp is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint 7F — --backend live CLI dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestBackendLiveCLI:
+    def test_invalid_backend_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(country="US", target_date="2024-12-31", backend="bogus")
+        assert exc.value.code == EXIT_IO
+
+    def test_live_without_fmp_key_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(
+                country="US",
+                target_date="2024-12-31",
+                backend="live",
+                fmp_api_key="",
+                te_api_key="x",  # pragma: allowlist secret
+                fred_api_key="x",  # pragma: allowlist secret
+            )
+        assert exc.value.code == EXIT_IO
+
+    def test_live_without_te_key_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(
+                country="US",
+                target_date="2024-12-31",
+                backend="live",
+                fmp_api_key="x",  # pragma: allowlist secret
+                te_api_key="",
+                fred_api_key="x",  # pragma: allowlist secret
+            )
+        assert exc.value.code == EXIT_IO
+
+    def test_live_without_fred_key_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(
+                country="US",
+                target_date="2024-12-31",
+                backend="live",
+                fmp_api_key="x",  # pragma: allowlist secret
+                te_api_key="x",  # pragma: allowlist secret
+                fred_api_key="",
+            )
+        assert exc.value.code == EXIT_IO
+
+    def test_invalid_date_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(country="US", target_date="not-a-date")
+        assert exc.value.code == EXIT_IO
+
+    def test_no_country_no_all_t1_exits_io(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            main(country="", target_date="2024-12-31", all_t1=False)
+        assert exc.value.code == EXIT_IO
+
+
+class TestLiveInputsBuilderFactory:
+    def test_factory_returns_builder_and_close_list(self, tmp_path: Any) -> None:
+        builder, connectors = _live_inputs_builder_factory(
+            fmp_api_key="x",  # pragma: allowlist secret
+            te_api_key="x",  # pragma: allowlist secret
+            fred_api_key="x",  # pragma: allowlist secret
+            cache_dir=str(tmp_path / "overlays-cache"),
+        )
+        assert callable(builder)
+        assert len(connectors) == 6  # fmp + shiller + multpl + damodaran + te + fred
+        for conn in connectors:
+            close = getattr(conn, "aclose", None)
+            if close is not None:
+                with contextlib.suppress(RuntimeError):
+                    asyncio.run(close())
