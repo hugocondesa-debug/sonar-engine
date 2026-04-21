@@ -7,7 +7,7 @@ headers, referer + cookie jar — returned HTTP 302 →
 ``ErrorPage.asp?ei=1809``. The canonical series IDs below remain
 correct (confirmed against BoE's IADB documentation); the connector
 is wire-ready and will work from any IP that the BoE session logic
-accepts. For production the MSC UK pipeline uses a FRED / TE
+accepts. For production the MSC GB pipeline uses a FRED / TE
 fallback cascade (see :mod:`sonar.indices.monetary.builders`).
 
 Canonical series codes (IADB public catalogue):
@@ -15,7 +15,7 @@ Canonical series codes (IADB public catalogue):
 * **IUDBEDR** — Bank Rate (policy rate; daily since 1694).
 * **IUDSOIA** — SONIA (overnight sterling index average).
 * **IUDMNPY** — 10Y gilt nominal yield (daily).
-* **LPMVWYR** — UK M4 money supply (monthly; balance-sheet proxy).
+* **LPMVWYR** — GB M4 money supply (monthly; balance-sheet proxy).
 
 All series returned as ``list[Observation]`` with
 ``yield_bps = int(round(close_pct * 100))`` per
@@ -72,7 +72,7 @@ class BoEDatabaseConnector:
 
     Methods raise :class:`sonar.overlays.exceptions.DataUnavailableError`
     when the endpoint returns the ``ErrorPage.asp`` redirect (ei=1809).
-    Callers in the UK monetary-indices cascade treat this as a soft
+    Callers in the GB monetary-indices cascade treat this as a soft
     fail and fall back to FRED / TE mirrors.
     """
 
@@ -168,7 +168,7 @@ class BoEDatabaseConnector:
         return await self.fetch_series(BOE_GILT_10Y, start, end, tenor_years=10.0)
 
     async def fetch_balance_sheet(self, start: date, end: date) -> list[Observation]:
-        """UK M4 money stock (balance-sheet proxy) — series :data:`BOE_BALANCE_SHEET_M4`.
+        """GB M4 money stock (balance-sheet proxy) — series :data:`BOE_BALANCE_SHEET_M4`.
 
         M4 is in ``£ million`` and is **not** a yield; ``yield_bps`` is
         re-purposed per the existing Observation contract (same pattern

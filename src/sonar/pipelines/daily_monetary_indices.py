@@ -78,12 +78,48 @@ __all__ = [
     "run_one",
 ]
 
+# Kept module-private — public surface guarded via __all__. Tests import
+# directly via module path.
+
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 
-# Monetary pipeline now accepts UK via BoE -> FRED cascade (sprint 8-I).
+# Monetary pipeline accepts GB via BoE -> FRED cascade (sprint 8-I).
 # Kept separate from T1_7_COUNTRIES so --all-t1 preserves the historical
-# 7-country semantics; callers opt in to UK via --country UK.
-MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "UK")
+# 7-country semantics; callers opt in to GB via --country GB (or the
+# deprecated "UK" alias — ADR-0007).
+#
+# Backward compat: "UK" preserved as deprecated alias. CLI emits a
+# structlog deprecation warning when ``--country UK`` is passed and
+# forwards the code verbatim — builders.py still dispatches on "UK"
+# during Sprint O due to carve-out. The canonical ``GB`` entry is
+# accepted syntactically; end-to-end GB dispatch lands with the
+# post-Sprint-L chore commit that finalises builders.py
+# (CAL-128 closure).
+MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = ("US", "EA", "GB", "UK")
+
+# ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
+_DEPRECATED_COUNTRY_ALIASES: dict[str, str] = {"UK": "GB"}
+
+
+def _warn_if_deprecated_alias(country_code: str) -> None:
+    """Emit a structlog deprecation warning when ``country_code`` is an alias.
+
+    Canonical codes are silent. Used at CLI entry to signal migration to
+    operators still passing ``--country UK``. The alias value is passed
+    through verbatim to downstream builders during Sprint O (carve-out
+    preserves ``builders.py`` UK dispatch).
+    """
+    upper = country_code.upper()
+    canonical = _DEPRECATED_COUNTRY_ALIASES.get(upper)
+    if canonical is None:
+        return
+    log.warning(
+        "monetary_pipeline.deprecated_country_alias",
+        alias=upper,
+        canonical=canonical,
+        adr="ADR-0007",
+    )
+
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1
@@ -246,7 +282,7 @@ def _build_live_connectors(
     """Instantiate live monetary connectors + bundle them for aclose().
 
     TE is optional: when ``te_api_key`` is empty the builder falls
-    through to BoE → FRED (stale-flagged) for the UK cascade.
+    through to BoE → FRED (stale-flagged) for the GB cascade.
     """
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
     from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
@@ -314,7 +350,7 @@ def main(
         "--te-api-key",
         envvar="TE_API_KEY",
         help=(
-            "TradingEconomics API key — unlocks the UK M1 TE-primary cascade "
+            "TradingEconomics API key — unlocks the GB M1 TE-primary cascade "
             "(Sprint I-patch). Optional; FRED OECD mirror is used when absent."
         ),
     ),
@@ -340,6 +376,8 @@ def main(
     if not targets or targets == [""]:
         typer.echo("Must pass --country or --all-t1", err=True)
         sys.exit(EXIT_IO)
+    for t in targets:
+        _warn_if_deprecated_alias(t)
     if backend not in {"default", "live"}:
         typer.echo(f"Unknown --backend={backend!r}; expected 'default' or 'live'", err=True)
         sys.exit(EXIT_IO)
