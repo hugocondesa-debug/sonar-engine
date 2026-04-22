@@ -2258,6 +2258,213 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CAL-NO-M2-OUTPUT-GAP + CAL-NO-CPI closes M2 NO.
 - **Status:** OPEN.
 
+
+### CAL-SE — SE country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint W-SE — M1 level)
+
+- **Priority:** CLOSED at M1; remaining M2/M3/M4 levels tracked as
+  separate CAL-SE-* items. Mirrors CAL-CH (Sprint V) / CAL-AU
+  (Sprint T) / CAL-129 (CA) / CAL-119 (JP) / CAL-118 (GB).
+- **Trigger:** SE was the fifth G10 country after the CH Sprint V
+  close that still lacked M1 live, and the **second Nordic country**
+  after NO (Sprint X-NO runs in parallel Week 9). Sprint W-SE ships
+  SE as the seventh country in the Sprint I-patch TE-primary cascade
+  expansion — and the **second negative-rate era cascade** after CH.
+  Unlike CH whose corridor reached -0.75 %, Riksbank's corridor
+  bottomed at -0.50 % (Feb 2016 → Dec 2018) across the 2015-02-12 →
+  2019-11-30 era — roughly two-thirds the depth. Same sign-
+  preservation contract across all three cascade layers (TE wrapper
+  + Riksbank native + cascade aggregation).
+- **Scope delivered:**
+  - `RiksbankConnector` for the Riksbank Swea JSON REST API (Sprint
+    W-SE C2) — public + scriptable at `api.riksbank.se/swea/v1/`;
+    first Nordic-native connector in the monetary cascade family.
+    Three series wired: `SECBREPOEFF` (policy rate / styrränta —
+    SE M1 cascade secondary), `SECBDEPOEFF` (deposit rate — M4
+    corridor floor, reserved), `SECBLENDEFF` (lending rate — M4
+    corridor ceiling, reserved).
+  - `TEConnector.fetch_se_policy_rate` wrapper with `SWRRATEI`
+    source-drift guard (Sprint W-SE C1). The SWRRATEI symbol is
+    TE's legacy "Swedish Repo Rate Indicator" identifier preserved
+    across the 2022-06-08 Riksbank rename from "repo rate"
+    (reporänta) to "policy rate" (styrränta) — the underlying
+    7-day instrument is unchanged.
+  - `build_m1_se_inputs` + `_se_policy_rate_cascade` with TE →
+    Riksbank → FRED cascade (Sprint W-SE C4) including
+    `SE_NEGATIVE_RATE_ERA_DATA` flag whenever the resolved window
+    contains ≥ 1 strictly-negative observation; `build_m2_se_inputs`
+    + `build_m4_se_inputs` wire-ready scaffolds (Sprint W-SE C4).
+  - SE entries in `r_star_values.yaml` (0.75 % proxy per Riksbank
+    MPR March 2026 neutral-rate range midpoint; Nordic low-r*
+    cluster but above CH because SE lacks CHF safe-haven
+    compression) + `bc_targets.yaml` (Riksbank 2 % CPIF explicit
+    point target — no band flag needed, contrast CH's 0-2 % SNB
+    band) (Sprint W-SE C3).
+  - `daily_monetary_indices.py` SE country support + Riksbank
+    connector instantiation (Sprint W-SE C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with
+    `IRSTCI01SEM156N` + `IRLTLT01SEM156N` (Sprint W-SE C5).
+- **Resolution (Week 9 Sprint W-SE, M1 level):** SE M1 live via TE
+  primary cascade; persisted row emits `SE_POLICY_RATE_TE_PRIMARY` +
+  `R_STAR_PROXY` + `EXPECTED_INFLATION_CB_TARGET` +
+  `SE_BS_GDP_PROXY_ZERO` flags (no band flag — Riksbank's 2 % CPIF
+  is a clean point target). Riksbank Swea native path **live**
+  (daily cadence; no `CALIBRATION_STALE`; no `*_MONTHLY` flag —
+  contrast CH where SNB SARON is monthly). FRED OECD mirror
+  (`IRSTCI01SEM156N`) demoted to last-resort with
+  `SE_POLICY_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE` flags.
+  When any cascade-resolved observation is strictly-negative
+  (e.g. 2015-02 → 2019-11 window), cascade additionally emits
+  `SE_NEGATIVE_RATE_ERA_DATA`.
+- **Known gap — FRED mirror discontinuation:** the FRED OECD SE
+  short-rate mirror (`IRSTCI01SEM156N`) was **discontinued at
+  2020-10-01** per the Sprint W-SE probe 2026-04-22 — frozen for
+  ~5.5 years, substantially more severe than CH (~2y), AU / NZ / CA
+  / JP (a few months). The full FRED-live window is also entirely
+  inside the sub-ZLB regime for the Riksbank (rate ≤ 0.25 % through
+  all of 2020), so there is no SE anchor where both (a) the FRED
+  mirror has data and (b) the Riksbank rate is above the spec-§4
+  ZLB threshold (0.5 %). The FRED-fallback live canary therefore
+  asserts on `inputs.m1` pre-compute rather than a persisted row,
+  mirroring the Sprint V-CH negative-rate canary pattern. This is a
+  surface-level reporting gap, not a contract violation — the
+  cascade resolves + flags fire correctly; the persistence skip is
+  the spec-§4 ZLB gate working as intended.
+- **Known gap (spec §4 step 2 ZLB gate):** at negative / sub-ZLB
+  policy rates, M1 compute raises `InsufficientDataError` because
+  no Krippner shadow-rate connector is wired at Sprint W-SE scope —
+  same spec-correct behaviour as Sprint V-CH. Surfaced during the
+  C5 negative-rate canary with a 2017 anchor. Krippner integration
+  is Phase 2+ scope (CAL-KRIPPNER — not opened Sprint W-SE; bundled
+  with L5 regime-classifier enhancements).
+- **Remaining:** M2/M4/M3 SE paths via CAL-SE-GAP / CAL-SE-M4-FCI /
+  CAL-SE-M3.
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
+  CAL-SE-GAP / CAL-SE-M4-FCI / CAL-SE-M3 / CAL-SE-BS-GDP /
+  CAL-SE-CPI / CAL-SE-INFL-FORECAST landing.
+
+### CAL-SE-GAP — SE M2 output-gap source (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 SE Taylor-gap compute.
+- **Trigger:** Sprint W-SE C4 shipped `build_m2_se_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`;
+  Konjunkturinstitutet (NIER) publishes the quarterly Swedish
+  output gap but no scriptable endpoint exists at Sprint W-SE scope.
+- **Scope:**
+  - Probe OECD EO SE for cadence + coverage (canonical fallback
+    across the cascade family).
+  - Probe NIER Konjunkturläget forecast PDFs / HTML tables for any
+    structured output-gap series; otherwise consume the OECD EO
+    path.
+  - Wire SE output-gap connector and populate
+    `M2TaylorGapsInputs.output_gap_pct`.
+  - Remove the scaffold `raise InsufficientDataError` in
+    `build_m2_se_inputs` once the resolver lands.
+- **Unblocks:** M2 SE persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-SE-M4-FCI — SE M4 FCI 5-component bundle (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 SE custom-FCI compute.
+- **Trigger:** Sprint W-SE C4 shipped `build_m4_se_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`; only 10Y SGB
+  via FRED `IRLTLT01SEM156N` OECD mirror (live at Sprint W-SE
+  probe) and policy rate (via M1 cascade) + corridor floor/ceiling
+  (SECBDEPOEFF / SECBLENDEFF, shipped Sprint W-SE C2) are mappable
+  at Sprint W-SE scope, below the `MIN_CUSTOM_COMPONENTS == 5`
+  floor.
+- **Scope:** connectors/wrappers for the missing components:
+  - SE credit spread (SEK corp vs SGB; candidates: Riksbank
+    Financial Market Statistics (FMÖ) or SCB credit aggregates —
+    no FRED mirror known).
+  - SE vol index (no OMXS30 vol index on FRED; candidates: Nasdaq
+    OMX's VINX30 or realised-vol proxy from `^OMXS30` returns via
+    Yahoo Finance).
+  - SEK NEER (Riksbank publishes the KIX effective exchange-rate
+    index via `SEKKIX` on Swea, or BIS Trade-Weighted indices via
+    existing `bis.py` connector).
+  - SE mortgage rate (SCB MFI lending rates — no wrapper at Sprint
+    W-SE scope; candidate: Riksbank / SCB household-lending tables).
+- **Unblocks:** M4 SE persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-SE-M3 — SE M3 market-expectations overlays (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per
+  country; analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA)
+  / CAL-AU-M3 (AU) / CAL-CH-M3 (CH).
+- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
+  rows per country; Sprint W-SE did not ship SE NSS or SE EXPINF
+  overlays (Phase 2+ scope).
+- **Scope:**
+  - SE NSS overlay persistence (SGB tenor family via FRED
+    `IRLTLT01SEM156N` long-end + Riksbank Swea SGB yield series;
+    NSS fit via existing overlay module).
+  - SE EXPINF overlay persistence — Sweden does issue inflation-
+    linked government bonds (Statsobligationer SEK-denominated),
+    so breakeven construction may be feasible via SGB tenor
+    combined with inflation-linked bond yields on SCB / Riksbank.
+    Fallback: 2 % CPIF target (already wired as
+    `EXPECTED_INFLATION_CB_TARGET` proxy).
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` SE path.
+- **Unblocks:** M3 SE persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-SE-BS-GDP — SE balance-sheet / GDP ratio wiring (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** LOW — closes the `SE_BS_GDP_PROXY_ZERO` flag on M1 SE.
+- **Trigger:** Sprint W-SE C4 zero-seeded SE balance-sheet ratios
+  because the Riksbank Monthly Statistical Bulletin + SCB nominal
+  GDP are not wired at Sprint W-SE scope. Riksbank balance sheet
+  expanded significantly during the 2015-2019 QE era (SGB purchases)
+  and again during COVID-19 so the zero-seed is visibly inadequate
+  for M1 balance-sheet signal contribution.
+- **Scope:** Riksbank MSB monthly total assets series combined with
+  SCB nominal GDP (or equivalent FRED `SWEGDPNAD2GDQ`-style series).
+- **Unblocks:** M1 SE BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1 score
+  is null).
+- **Status:** OPEN.
+
+### CAL-SE-CPI — SE CPI / CPIF YoY wrapper (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** MEDIUM — required input for M2 SE Taylor gap.
+- **Trigger:** Sprint W-SE C4 `build_m2_se_inputs` scaffold lists
+  SE CPI / CPIF YoY as one of three missing inputs; TE generic
+  `fetch_indicator("SE", "inflation rate", ...)` should cover CPI
+  but CPIF (the target measure) may require a dedicated path. SCB
+  publishes monthly CPI + CPIF via the SCB Statistical Database
+  (`api.scb.se`).
+- **Scope:**
+  - Probe TE generic indicator for SE CPI YoY cadence + coverage.
+  - Probe SCB Statistical Database for CPIF YoY (the target measure
+    since 2017 — more appropriate than CPI for Taylor-gap compute).
+  - Wire `fetch_se_cpi_yoy` / `fetch_se_cpif_yoy` wrappers with
+    source-drift guard (analogous to `fetch_ch_policy_rate`).
+  - Consume in `build_m2_se_inputs` output.
+- **Unblocks:** M2 SE inflation input; combined with CAL-SE-GAP +
+  CAL-SE-INFL-FORECAST closes M2 SE.
+- **Status:** OPEN.
+
+### CAL-SE-INFL-FORECAST — SE inflation-forecast wrapper (Week 9 Sprint W-SE surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 SE compute; Riksbank 2 %
+  CPIF-target serves as CB-target proxy until this lands.
+- **Trigger:** Riksbank publishes quarterly Monetary Policy Report
+  (MPR) forecast tables (HTML / PDF) but unwired at Sprint W-SE
+  scope. M2 SE currently treats the 2 % CPIF target as the
+  inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
+- **Scope:**
+  - Probe Riksbank MPR for scriptable forecast series.
+  - Wire `fetch_se_inflation_forecast` (connector TBD — likely a
+    HTML/PDF-scrape adapter on top of `RiksbankConnector`, or the
+    Riksbank publishes machine-readable MPR appendices).
+  - Consume in `build_m2_se_inputs` with new flag
+    `SE_INFLATION_FORECAST_RIKSBANK_MPR` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 SE second-cycle inflation input; combined with
+  CAL-SE-GAP + CAL-SE-CPI closes M2 SE.
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
