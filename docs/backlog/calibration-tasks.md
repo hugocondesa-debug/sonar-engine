@@ -4,6 +4,15 @@ Placeholders declarados em specs P3-P5 a recalibrar empiricamente quando product
 
 **Convenção**: cada placeholder em specs marcado `placeholder — recalibrate after Nm`. Este inventário consolida todos os placeholders catalogados com ID estável `CAL-NNN`.
 
+**Última revisão major**: 2026-04-22 (Week 10 Day 0).
+- Phase 3 reframe em torno de L7 API + Website (ver `../ROADMAP.md`).
+- Phase 2.5 introduzida como bridge (L5 regimes + L6 integration + L7 infra prep).
+- Country-specific sub-CALs Week 9 (CA/AU/NZ/CH/SE/NO/DK × 6-7 shapes) consolidados em 5 generic T1-expansion items (ver §Consolidated T1 expansion items).
+- Forward-looking CAL items for Phase 2.5 + Phase 3 added (L5 regimes, L6 matriz 4-way / diagnostics / cross-country k_e, L7 API MCP / REST / Website, backtest harness, per-country ERP).
+- Nenhum item matched deprecation categories do brief §4 Commit 7 (Streamlit dashboard / alerts MVP / PT-vertical stack / React dashboard interna) — essas scopes não tinham CAL items in-flight; roadmap remove-as-scope registada directamente em `../ROADMAP.md#Deprecated`.
+
+CAL items catalogued per 9-layer + Phase scope. See ROADMAP.md §Phase definitions.
+
 ## Sumário
 
 **20 itens catalogados** (inventory real via grep). SESSION_CONTEXT estimava ~40; reality revelou ~20 após exclusão de fixtures, non-requirements e duplicados.
@@ -2232,6 +2241,199 @@ Items encontrados em grep mas **não catalogáveis** como calibration tasks one-
 - [`../specs/conventions/methodology-versions.md`](../specs/conventions/methodology-versions.md) — bump rules
 - [`../specs/conventions/normalization.md`](../specs/conventions/normalization.md) — lookbacks per cycle
 - [`../specs/conventions/composite-aggregation.md`](../specs/conventions/composite-aggregation.md) — Policy 1 + cycle weights
+
+## Forward-looking items (Phase 2 / 2.5 / 3 scope)
+
+Added 2026-04-22 (Week 10 Day 0 Phase 3 reframe). Catalogues the
+larger scope items implied by the revised `../ROADMAP.md` so they
+have stable CAL IDs for cross-reference before implementation begins.
+
+### CAL-ERP-T1-PER-COUNTRY — Per-country ERP live paths (Phase 2)
+
+- **Priority:** HIGH — Phase 2 gate blocker (T1 uniformity); explicit
+  Phase 2 exit criterion in roadmap.
+- **Trigger:** current cost-of-capital composite uses
+  `MATURE_ERP_PROXY_US` flag for EA / GB / JP (fallback to US ERP).
+  Phase 2 gate requires per-market ERP live paths.
+- **Scope:**
+  - `src/sonar/overlays/erp_ea.py` — ERP EA assembler (FactSet EA
+    earnings yield + Eurostoxx DDM + Eurostoxx Gordon + Buyback EA
+    + FRED ECB CPI expectations + Damodaran EA cross-val).
+  - `src/sonar/overlays/erp_gb.py` — ERP GB assembler (GBP
+    equivalents).
+  - `src/sonar/overlays/erp_jp.py` — ERP JP assembler (JPY
+    equivalents; Nikkei DDM via TE; Topix Gordon).
+  - `daily_erp_<market>` assembly inside `daily_cost_of_capital`
+    composition (follow CAL-057 pattern).
+  - Integration tests per market with cassette fixtures.
+- **Unblocks:** Phase 2 T1 uniformity gate; per-market k_e in
+  DCF workflows for EA / GB / JP.
+- **Follow-on:** additional T1 markets (CA / AU / NZ / CH / SE / NO /
+  DK) after Phase 2 gate — same pattern applied to Nordic + ANZ +
+  North America peer markets.
+- **Status:** OPEN (Phase 2).
+
+### CAL-L5-REGIME-TAXONOMY — L5 regimes dedicated table (Phase 2.5)
+
+- **Priority:** HIGH — Phase 2.5 gate blocker.
+- **Trigger:** current L5 implementation shipped Week 8 Sprint H/K
+  as scaffold + classifier + CLI wiring; overlay booleans still
+  persisted inside cycle scores. Phase 2.5 roadmap demands dedicated
+  regimes table with `active`, `intensity`, `duration_days`,
+  `transition_probability`.
+- **Scope:**
+  - Spec `docs/specs/regimes/README.md` + per-regime files (regime
+    taxonomy currently absent from Phase 0 specs).
+  - Alembic migration for `regimes` table (composite PK: country,
+    regime_slug, date).
+  - Classifier upgrade: overlay boolean → intensity in [0, 1] +
+    duration counter + transition probability per regime.
+  - Overlay / cycle composite integration (currently gated).
+- **Unblocks:** L6 matriz 4-way + diagnostics (depend on regime
+  state); L7 `regime_active` API endpoint.
+- **Status:** OPEN (Phase 2.5).
+
+### CAL-L6-MATRIZ-4WAY — 4-way cycle-state matrix (Phase 2.5)
+
+- **Priority:** MEDIUM — Phase 2.5 gate blocker.
+- **Trigger:** roadmap Phase 2.5 exit criterion. ECS × CCCS × MSC ×
+  FCS → 16 canonical states + outliers persisted daily. Currently
+  cycle scores are persisted individually but no composite state
+  classification exists.
+- **Scope:**
+  - Spec `docs/specs/integration/matriz-4way.md` (16 canonical
+    states + outlier criteria).
+  - Alembic migration for `matriz_4way_daily` table.
+  - `src/sonar/integration/matriz_4way.py` + CLI / pipeline wiring.
+  - Historical backfill once spec frozen.
+- **Unblocks:** L7 `matriz_4way` API + website heatmap page.
+- **Status:** OPEN (Phase 2.5).
+
+### CAL-L6-DIAGNOSTICS — Four diagnostic composites (Phase 2.5)
+
+- **Priority:** MEDIUM — Phase 2.5 gate blocker.
+- **Trigger:** roadmap Phase 2.5 exit criterion. Four composites:
+  `bubble-detection` (FCS + overlay triggers), `minsky-fragility`
+  (L4 credit + L2 CRP + L3 market-exp), `real-estate-cycle` (L3
+  credit + BIS property prices), `risk-appetite-regime` (cross-
+  cycle composite).
+- **Scope:**
+  - Spec `docs/specs/integration/diagnostics.md` (4 sub-files per
+    diagnostic).
+  - Alembic migration for `diagnostics_daily` table.
+  - Per-diagnostic module under `src/sonar/integration/`.
+  - CLI + pipeline wiring.
+- **Unblocks:** L7 `diagnostic` API + website per-country diagnostic
+  pages.
+- **Status:** OPEN (Phase 2.5).
+
+### CAL-L6-KE-CROSS-COUNTRY — Cost-of-capital cross-country composite (Phase 2.5)
+
+- **Priority:** HIGH — Phase 2.5 gate blocker; unblocks primary
+  DCF workflow use case.
+- **Trigger:** current `daily_cost_of_capital` ships US k_e only.
+  Cross-country composite requires per-market ERP
+  (CAL-ERP-T1-PER-COUNTRY) + per-market CRP + β sourcing documented.
+- **Scope:**
+  - Composite formula: `k_e_country = risk_free_country + β ·
+    ERP_mature + CRP_country`.
+  - β sourcing: per-market (FactSet / Bloomberg) or bottom-up by
+    sector — decision in ADR.
+  - Persistence extension of existing `cost_of_capital_daily`
+    table schema.
+  - Per-country pipeline runs.
+- **Unblocks:** L7 `cost_of_capital` API endpoint per country;
+  Consumer A MCP endpoint functionality.
+- **Status:** OPEN (Phase 2.5).
+
+### CAL-BACKTEST-HARNESS — Walk-forward backtest infrastructure (Phase 2.5)
+
+- **Priority:** MEDIUM — Phase 2.5 scope (harness pronto, calibração
+  final em Phase 4).
+- **Trigger:** roadmap Phase 2.5 requires harness executable against
+  production data. Backtests: ECS vs NBER (US) / CEPR (EA); FCS
+  Pagan-Sossounov bear/bull dating; MSC transition frequencies vs
+  regime changes; CCCS crisis-prediction AUC vs Moody's default
+  study.
+- **Scope:**
+  - `src/sonar/backtest/harness.py` — walk-forward runner.
+  - Per-cycle scoring module (`backtest_ecs.py`, `backtest_fcs.py`,
+    etc.).
+  - Benchmark data loaders (NBER recessions, CEPR EA, Pagan-
+    Sossounov dated periods, Moody's default events).
+  - CLI `sonar backtest --cycle {ecs,fcs,msc,cccs}`.
+- **Unblocks:** Phase 4 empirical calibration gate (harness must
+  exist before Phase 4 recalibration starts).
+- **Status:** OPEN (Phase 2.5).
+
+### CAL-L7-API-MCP — MCP server implementation (Phase 3)
+
+- **Priority:** HIGH — Phase 3 primary unlock milestone.
+- **Trigger:** Consumer A (Hugo DCF workflows) demands MCP endpoint
+  exposure. Roadmap Phase 3 lists 9 endpoints:
+  `sonar.cost_of_capital`, `sonar.yield_curve`, `sonar.crp`,
+  `sonar.rating_spread`, `sonar.expected_inflation`,
+  `sonar.cycle_status`, `sonar.regime_active`, `sonar.matriz_4way`,
+  `sonar.diagnostic`.
+- **Scope:**
+  - MCP server framework selection (ADR-P3-MCP-framework).
+  - Per-endpoint schema + handler.
+  - Auth model (API key in header; private-vs-public routing).
+  - Cloudflared tunnel `mcp.hugocondesa.com` (depends on
+    CAL-CLOUDFLARE-TUNNEL-REACTIVATION).
+- **Unblocks:** Consumer A live consumption.
+- **Status:** OPEN (Phase 3).
+
+### CAL-L7-API-REST — REST API implementation (Phase 3)
+
+- **Priority:** HIGH — Phase 3 primary unlock milestone.
+- **Trigger:** Consumer B (website) + Consumer A fallback need REST
+  equivalent to MCP endpoints. Roadmap Phase 3 tech stack: FastAPI
+  confirmed, OpenAPI auto-gen.
+- **Scope:**
+  - FastAPI app skeleton.
+  - REST endpoints mirroring MCP surface (9 endpoints) + OpenAPI
+    spec auto-gen at `/docs`.
+  - Auth model identical to MCP (API key + rate limit per key).
+  - Deployment to `api.sonar.hugocondesa.com` via cloudflared.
+- **Unblocks:** Consumer B website + programmatic consumers outside
+  MCP.
+- **Status:** OPEN (Phase 3).
+
+### CAL-L7-WEBSITE — Website implementation (Phase 3)
+
+- **Priority:** HIGH — Phase 3 primary unlock milestone (Consumer B).
+- **Trigger:** roadmap Phase 3 Consumer B. 8 page categories: Home,
+  Cycles, Curves, Cost of capital, Matriz 4-way, Diagnostics,
+  Methodology, Editorial.
+- **Scope:**
+  - Frontend tech stack decision (ADR-P3-website-stack — React/Next
+    vs static SSG vs hybrid).
+  - Per-page layout + data-fetching (consumes REST API).
+  - Editorial workflow (ADR-P3-editorial — triggered regime shifts
+    vs manual Hugo drafting).
+  - Licensing per dataset (ADR-P3-licensing — which outputs
+    publishable vs API-only per BIS / TE / paid-source constraints).
+  - Deployment to `sonar.hugocondesa.com` via cloudflared.
+- **Unblocks:** Public consumption of SONAR outputs.
+- **Status:** OPEN (Phase 3).
+
+### CAL-CLOUDFLARE-TUNNEL-REACTIVATION — Cloudflare tunnel infrastructure (Phase 3)
+
+- **Priority:** LOW — infra dependency; activation condition of
+  Phase 3 L7 ship.
+- **Trigger:** cloudflared config preserved in `/etc/cloudflared/`
+  but inactive since Phase 0. Phase 3 L7 requires public routes
+  for `sonar.hugocondesa.com` + `mcp.hugocondesa.com` +
+  `api.sonar.hugocondesa.com`.
+- **Scope:**
+  - Reactivate cloudflared service.
+  - DNS + tunnel routing to local FastAPI + MCP + static-site
+    endpoints.
+  - Monitoring: uptime + request rate + error rate.
+- **Unblocks:** Public L7 URLs; Consumer A MCP + Consumer B website
+  access.
+- **Status:** OPEN (Phase 3).
 
 ## Consolidated T1 expansion items (Phase 2 scope)
 
