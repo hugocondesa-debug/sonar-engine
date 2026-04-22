@@ -76,11 +76,18 @@ Last ~200 lines from the most recent run. Look for the structlog
 error event + Python traceback (oneshot exit code is captured by
 systemd; non-zero triggers the `Restart=on-failure` cooldown).
 
-Re-run manually:
+Re-run manually (post-CAL-138 — iterates T1 tier):
 
 ```bash
 cd /home/macro/projects/sonar-engine
-uv run python -m sonar.pipelines.daily_curves --country US \
+uv run python -m sonar.pipelines.daily_curves --all-t1 \
+    --date $(date -u -I -d yesterday)
+```
+
+Or single-country (e.g. spot-check DE only):
+
+```bash
+uv run python -m sonar.pipelines.daily_curves --country DE \
     --date $(date -u -I -d yesterday)
 ```
 
@@ -202,9 +209,11 @@ script for a clean teardown.
 
 - No alerting on failures yet (operator-driven monitoring).
 - No Prometheus/Grafana wiring (manual `journalctl`).
-- No template units (per-country `@.service`) — would let
-  `daily_curves` cleanly serve more than just US once the pipeline
-  gains `--all-t1` support.
+- No template units (per-country `@.service`). Post-CAL-138
+  `daily_curves` now supports `--all-t1` directly (iterates T1_7
+  tier), so template units are no longer necessary for the curves
+  step; periphery (PT/IT/ES/FR/NL) still skips with warnings until
+  CAL-CURVES-EA-PERIPHERY lands.
 - Email/webhook integration via `AlertSink` concrete impl is Phase 2.
 - DST transitions handled by UTC scheduling; if local-time semantics
   ever matter, systemd's `OnCalendar=` supports `Europe/Lisbon` etc.

@@ -12,9 +12,12 @@ User=macro
 Group=macro
 WorkingDirectory=/home/macro/projects/sonar-engine
 EnvironmentFile=/home/macro/projects/sonar-engine/.env
-# Phase 1 ships US only; daily_curves requires a single --country and --date.
-# Anchor on yesterday so EOD FRED data is settled.
-ExecStart=/bin/bash -lc '/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_curves --country US --date $(date -u -I -d yesterday)'
+# CAL-138 ship — --all-t1 iterates US + 6 EA members (DE/PT/IT/ES/FR/NL).
+# Countries without a wired curve path (PT/IT/ES/FR/NL per
+# CAL-CURVES-EA-PERIPHERY) skip with a warning; the run exits 0 if at
+# least one country persists. Anchor on yesterday so EOD FRED / ECB SDW /
+# Bundesbank / TE data is settled.
+ExecStart=/bin/bash -lc '/home/macro/.local/bin/uv run python -m sonar.pipelines.daily_curves --all-t1 --date $(date -u -I -d yesterday)'
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=1800
