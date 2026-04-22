@@ -2866,3 +2866,135 @@ async def test_live_canary_ea_inflation_forecast(tmp_cache_dir: Path) -> None:
         assert -2.0 <= fcst.forecast_year_end_pct <= 10.0
     finally:
         await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Week 10 Sprint J — M4 FCI equity-volatility wrappers
+# ---------------------------------------------------------------------------
+#
+# ``fetch_equity_volatility_markets`` probes the TE ``/markets/
+# historical`` endpoint for ``VIX:IND`` (US) and ``VSTOXX:IND`` (EA —
+# shared proxy for EA-member custom FCI paths). Cassettes captured
+# 2026-04-22 over the 2024 calendar year; parse tests below exercise
+# the row-to-TEIndicatorObservation mapping, source-drift guard, and
+# unknown-country error path.
+
+
+def test_te_m4_vol_symbols_table_covers_us_ea() -> None:
+    assert TEConnector.TE_M4_VOL_SYMBOLS == {"US": "VIX:IND", "EA": "VSTOXX:IND"}
+
+
+async def test_fetch_equity_volatility_us_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette("te_m4_vol_us_vix_2024.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_equity_volatility_markets(
+        "US", date(2024, 1, 1), date(2024, 12, 31)
+    )
+    assert len(obs) >= 200
+    assert obs[0].country == "US"
+    assert obs[0].indicator == "volatility"
+    assert obs[0].historical_data_symbol == "VIX:IND"
+    assert obs[0].frequency == "Daily"
+    # Sorted ascending by observation_date per wrapper contract.
+    from itertools import pairwise  # noqa: PLC0415
+
+    for prev, cur in pairwise(obs):
+        assert prev.observation_date <= cur.observation_date
+    # 2024 VIX in [10, 50] empirically.
+    for o in obs[-20:]:
+        assert 5.0 <= o.value <= 80.0
+
+
+async def test_fetch_equity_volatility_ea_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette("te_m4_vol_ea_vstoxx_2024.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_equity_volatility_markets(
+        "EA", date(2024, 1, 1), date(2024, 12, 31)
+    )
+    assert len(obs) >= 200
+    assert obs[0].country == "EA"
+    assert obs[0].historical_data_symbol == "VSTOXX:IND"
+    # 2024 VSTOXX in [10, 40] empirically.
+    for o in obs[-20:]:
+        assert 5.0 <= o.value <= 60.0
+
+
+async def test_fetch_equity_volatility_unknown_country_raises(
+    te_connector: TEConnector,
+) -> None:
+    with pytest.raises(ValueError, match="Sprint J probe"):
+        await te_connector.fetch_equity_volatility_markets("JP", date(2024, 1, 1), date(2024, 1, 5))
+
+
+async def test_fetch_equity_volatility_source_drift_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Source-drift guard fires when the Symbol field rotates."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Symbol": "ROTATED:IND",
+                "Date": "02/12/2024",
+                "Open": 14.0,
+                "High": 14.5,
+                "Low": 13.8,
+                "Close": 14.2,
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="M4 vol source drift"):
+        await te_connector.fetch_equity_volatility_markets(
+            "US", date(2024, 12, 1), date(2024, 12, 5)
+        )
+
+
+async def test_fetch_equity_volatility_empty_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="M4 vol returned empty"):
+        await te_connector.fetch_equity_volatility_markets(
+            "EA", date(2024, 12, 1), date(2024, 12, 5)
+        )
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_volatility_us(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_volatility_markets("US", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "VIX:IND"
+        # VIX historically [5, 90].
+        for o in obs[-5:]:
+            assert 3.0 <= o.value <= 100.0
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_volatility_ea(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_volatility_markets("EA", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "VSTOXX:IND"
+        for o in obs[-5:]:
+            assert 3.0 <= o.value <= 100.0
+    finally:
+        await conn.aclose()

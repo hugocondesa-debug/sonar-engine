@@ -147,6 +147,32 @@ async def test_fetch_nfci(httpx_mock: HTTPXMock, fred_connector: FredConnector) 
     assert all(-5.0 < o.value < 5.0 for o in obs)
 
 
+async def test_fetch_us_ig_oas(httpx_mock: HTTPXMock, fred_connector: FredConnector) -> None:
+    """Sprint J — US IG corporate OAS (BAMLC0A0CM)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=_stub_daily([("2024-12-02", "0.81"), ("2024-12-03", "0.81"), ("2024-12-04", "0.82")]),
+    )
+    obs = await fred_connector.fetch_us_ig_oas(date(2024, 12, 1), date(2024, 12, 31))
+    assert len(obs) == 3
+    assert obs[0].series_id == "BAMLC0A0CM"
+    # IG OAS typically 0.5-3.0 pp in normal regimes.
+    assert all(0.0 < o.value < 5.0 for o in obs)
+
+
+async def test_fetch_ea_hy_oas(httpx_mock: HTTPXMock, fred_connector: FredConnector) -> None:
+    """Sprint J — EA HY corporate OAS (BAMLHE00EHYIOAS)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=_stub_daily([("2024-12-02", "3.32"), ("2024-12-03", "3.35"), ("2024-12-04", "3.38")]),
+    )
+    obs = await fred_connector.fetch_ea_hy_oas(date(2024, 12, 1), date(2024, 12, 31))
+    assert len(obs) == 3
+    assert obs[0].series_id == "BAMLHE00EHYIOAS"
+    # HY OAS typically 2-10 pp normal regimes.
+    assert all(1.0 < o.value < 15.0 for o in obs)
+
+
 async def test_fetch_potential_gdp(httpx_mock: HTTPXMock, fred_connector: FredConnector) -> None:
     httpx_mock.add_response(
         method="GET",

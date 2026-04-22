@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 import structlog
@@ -2098,6 +2098,116 @@ class TEConnector:
             )
             raise ValueError(msg)
         return {}
+
+    # -------------------------------------------------------------------
+    # M4 FCI components (Sprint J — Week 10 Day 2)
+    # -------------------------------------------------------------------
+    #
+    # Equity-volatility probes (2026-04-22) against the TE ``/markets/
+    # historical`` endpoint confirmed ``VIX:IND`` (CBOE VIX) and
+    # ``VSTOXX:IND`` (Euro Stoxx 50 implied vol) as the two daily-cadence
+    # index symbols provisioned at our API tier. Other tier-3 symbols
+    # (V2TX / VFTSE / NKYVOLX / country-VIX analogs) returned empty —
+    # tracked under CAL-M4-VOL-T2-TIER3. The wrapper below emits a
+    # source-drift guard on the Symbol field so a TE rotation (e.g.
+    # dropping ``VIX:IND`` for a renamed series) raises cleanly instead
+    # of quietly returning a different instrument's close.
+    #
+    # Return type: :class:`TEIndicatorObservation` with ``value`` set to
+    # the markets-endpoint ``Close`` (index level in float points).
+    # ``indicator`` is fixed to ``"volatility"`` (semantic label — not a
+    # TE country-indicator endpoint name). ``historical_data_symbol`` is
+    # the ``Symbol`` field from the row (e.g. ``"VIX:IND"``), enabling
+    # downstream source-drift guards.
+
+    TE_M4_VOL_SYMBOLS: ClassVar[dict[str, str]] = {
+        "US": "VIX:IND",
+        "EA": "VSTOXX:IND",
+    }
+
+    async def fetch_equity_volatility_markets(
+        self,
+        country: str,
+        start: date,
+        end: date,
+    ) -> list[TEIndicatorObservation]:
+        """Daily equity-vol index close via TE ``/markets/historical``.
+
+        Supported ISO codes (Sprint J empirical probe 2026-04-22):
+        ``US`` → ``VIX:IND``, ``EA`` → ``VSTOXX:IND``. Per-country EA
+        members (DE / FR / IT / ES / NL / PT) consume the EA row as an
+        implied-vol proxy via the builder layer — see
+        :func:`sonar.indices.monetary.builders.build_m4_de_inputs`.
+
+        Source-drift guard: the first non-empty ``Symbol`` field must
+        match the expected entry in :data:`TE_M4_VOL_SYMBOLS`; mismatch
+        raises :class:`DataUnavailableError` before returning the
+        observation list.
+
+        Raises:
+            ValueError: ``country`` not in :data:`TE_M4_VOL_SYMBOLS`.
+            DataUnavailableError: empty response or source-drift.
+        """
+        country_upper = country.upper()
+        symbol = self.TE_M4_VOL_SYMBOLS.get(country_upper)
+        if symbol is None:
+            msg = (
+                f"TE M4 equity volatility supports only "
+                f"{sorted(self.TE_M4_VOL_SYMBOLS)} (Sprint J probe); "
+                f"got {country}. See CAL-M4-VOL-T2-TIER3 for per-country "
+                f"expansion (GB / JP / CA / AU / NZ / CH / SE / NO / DK)."
+            )
+            raise ValueError(msg)
+
+        cache_key = f"te_m4_vol:{symbol}:{start.isoformat()}:{end.isoformat()}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug("te.m4_vol.cache_hit", symbol=symbol)
+            return cast("list[TEIndicatorObservation]", cached)
+
+        rows = await self._fetch_raw(symbol, start, end)
+        self._call_count += 1
+        if not rows:
+            err = (
+                f"TE M4 vol returned empty series: country={country_upper!r} "
+                f"symbol={symbol!r} window={start.isoformat()}..{end.isoformat()}"
+            )
+            raise DataUnavailableError(err)
+
+        # Source-drift guard on the first row's Symbol.
+        first_symbol = str(rows[0].get("Symbol", ""))
+        if first_symbol and first_symbol != symbol:
+            err = (
+                f"TE M4 vol source drift: expected {symbol!r}, got "
+                f"{first_symbol!r} (country={country_upper!r})"
+            )
+            raise DataUnavailableError(err)
+
+        out: list[TEIndicatorObservation] = []
+        for row in rows:
+            raw_date = row.get("Date")
+            raw_close = row.get("Close")
+            if not raw_date or raw_close is None:
+                continue
+            try:
+                obs_date = datetime.strptime(str(raw_date), "%d/%m/%Y").replace(tzinfo=UTC).date()
+                close_level = float(raw_close)
+            except (ValueError, TypeError):
+                continue
+            out.append(
+                TEIndicatorObservation(
+                    observation_date=obs_date,
+                    value=close_level,
+                    country=country_upper,
+                    indicator="volatility",
+                    frequency="Daily",
+                    historical_data_symbol=symbol,
+                )
+            )
+        out.sort(key=lambda o: o.observation_date)
+        self.cache.set(cache_key, out, ttl=DEFAULT_TTL_SECONDS)
+        log.info("te.m4_vol.fetched", symbol=symbol, country=country_upper, n=len(out))
+        return out
 
     # -------------------------------------------------------------------
     # Telemetry

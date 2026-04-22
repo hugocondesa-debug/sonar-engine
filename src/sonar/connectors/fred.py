@@ -593,6 +593,34 @@ class FredConnector(BaseConnector):
         """Real GDP level (``GDPC1``) — quarterly, $bn (chained 2017)."""
         return await self.fetch_economic_series("GDPC1", start, end)
 
+    # -------------------------------------------------------------------
+    # M4 FCI credit-spread components (Sprint J — Week 10 Day 2)
+    # -------------------------------------------------------------------
+    #
+    # Sprint J pre-flight probe 2026-04-22 confirmed ``BAMLC0A0CM`` (US
+    # ICE BofA US Corporate Master OAS, daily pp) and ``BAMLHE00EHYIOAS``
+    # (ICE BofA Euro High Yield OAS, daily pp) as the two FRED series
+    # viable for M4 credit-spread inputs at our API tier. The US IG OAS
+    # feeds the M4 US custom-FCI fallback (NFCI direct-provider remains
+    # primary per spec §4 step 1). The EA HY OAS is consumed as a
+    # shared-EA proxy by the M4 EA aggregate + 6 EA-member builders
+    # (DE / FR / IT / ES / NL / PT). Per-country IG/HY OAS beyond these
+    # two is not served by FRED — tracked under
+    # CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY.
+
+    async def fetch_us_ig_oas(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """US IG corporate OAS (``BAMLC0A0CM``) — daily, percent (pp)."""
+        return await self.fetch_economic_series("BAMLC0A0CM", start, end)
+
+    async def fetch_ea_hy_oas(self, start: date, end: date) -> list[FredEconomicObservation]:
+        """EA HY corporate OAS (``BAMLHE00EHYIOAS``) — daily, percent (pp).
+
+        Consumed as shared-EA proxy by the M4 EA aggregate + 6 EA-member
+        custom-FCI builders. Per-country IG OAS replacement deferred to
+        CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY.
+        """
+        return await self.fetch_economic_series("BAMLHE00EHYIOAS", start, end)
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
