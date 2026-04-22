@@ -2,10 +2,10 @@
 
 > **S**ystematic **O**bservatory of **N**ational **A**ctivity and **R**isk
 >
-> Motor analítico de quatro ciclos macro + cinco sub-modelos quantitativos, com cobertura cross-country e foco em aplicação editorial e de investimento.
+> Motor analítico de quatro ciclos macro + cinco sub-modelos quantitativos, com cobertura cross-country e foco em serviço programático + consumo público.
 
 **Maintainer**: Hugo · 7365 Capital
-**Status**: Phase 1 Week 7 CLOSED — **M1 US milestone ~95 %** (implementation scope complete)
+**Status**: Phase 1 Week 9 in progress — **M2 T1 Core ~90 %** (16 países monetary M1 live; curves + overlays T1 expansion pendente)
 **License**: Proprietary (to be determined)
 
 ---
@@ -17,78 +17,98 @@ SONAR **não é** uma plataforma de visualização de indicadores macro ao estil
 SONAR **é** um motor analítico que produz:
 
 1. **Classificação probabilística de quatro ciclos macro em tempo quase real**
-   - Economic Cycle Score (ECS) + Stagflation overlay
-   - Credit Cycle Score (CCCS) + Boom overlay
-   - Monetary Stance Composite (MSC) + Dilemma overlay
-   - Financial Cycle Score (FCS) + Bubble Warning overlay
 
+   * Economic Cycle Score (ECS) + Stagflation overlay
+   * Credit Cycle Score (CCCS) + Boom overlay
+   * Monetary Stance Composite (MSC) + Dilemma overlay
+   * Financial Cycle Score (FCS) + Bubble Warning overlay
 2. **Cinco sub-modelos quantitativos derivados, operacionais daily**
-   - Yield curves por país (NSS methodology, 5 output families)
-   - Equity Risk Premium diária computada (não consumida de Damodaran)
-   - Country Risk Premium (30+ países, CDS + sovereign spread + vol ratio)
-   - Rating-to-spread mapping (22 notches cross-agency)
-   - Expected inflation cross-country term structure
 
+   * Yield curves por país (NSS methodology, 5 output families)
+   * Equity Risk Premium diária computada (não consumida de Damodaran)
+   * Country Risk Premium (30+ países, CDS + sovereign spread + vol ratio)
+   * Rating-to-spread mapping (22 notches cross-agency)
+   * Expected inflation cross-country term structure
 3. **Integração — matriz 4-way + quatro diagnósticos aplicados**
-   - Seis padrões canónicos + cinco configurações críticas
-   - Bubble detection, risk appetite regime, real estate cycle, Minsky fragility
-   - Cost of capital cross-border framework
 
-4. **Outputs operacionais**
-   - API interna com endpoints por módulo e integrados
-   - Alerts de threshold breach e regime shift
-   - Editorial pipeline com 27+ ângulos automaticamente triggerable
-   - Pipeline diário orquestrado (timezone Lisboa)
+   * Seis padrões canónicos + cinco configurações críticas
+   * Bubble detection, risk appetite regime, real estate cycle, Minsky fragility
+   * Cost of capital cross-border framework
 
-## Quem usa
+## Consumidores
 
-- **Editorial** — coluna "A Equação" e institutional commentary
-- **Valuation** — Portuguese equity DCF e cross-border analysis
-- **Portfolio** — cycle-informed allocation (futuro)
-- **Fund** — 7365 Capital discretionary macro fund (eventual)
+SONAR expõe outputs via **dois canais**:
+
+### 1. MCP / API privado (Hugo)
+
+Interface programático para consumo dos outputs nos workflows de valuation:
+
+* Cost of capital cross-country composites (k_e por país, ERP, CRP)
+* Yield curves NSS (spot/zero/forward/real) por país
+* Rating-spread implícito (22 notches cross-agency)
+* Expected inflation term structure
+* Cycle classifications + regimes + overlay triggers
+* Composites cross-cycle (matriz 4-way + diagnostics)
+
+Uso: DCF workflows em qualquer company — PT, internacional, cross-border, emerging markets. Cross-country **universal** cost-of-capital + curves engine, servido via MCP server + REST API.
+
+### 2. Website público (sonar.hugocondesa.com)
+
+Consumo público dos outputs computados — **não inputs raw** (licensing constraints BIS, TE paid tiers, FRED agreements).
+
+Superfície pública:
+
+* Cycle scores + regime classifications (live)
+* Overlay activations (Stagflation, Boom, Dilemma, Bubble Warning)
+* Yield curves rendering (derived output, not raw quotes)
+* Cross-country comparison dashboards
+* Editorial commentary triggered por regime shifts
+* Methodology transparency pages
+
+Frontend tech stack: TBD (Phase 2.5 decision — React vs static SSG vs hybrid).
 
 ## Filosofia
 
 Cinco princípios não-negociáveis:
 
 1. **Compute, don't consume** — ERP, CRP, yield curves, expected inflation são **calculados** pelo SONAR, não copiados de fontes externas. Damodaran/Bloomberg/Bundesbank servem como **cross-validation**, não como input primário.
-
 2. **Metodologia transparente** — toda computação documentada, versionada, replicável. O competitive advantage é transparência, não secrecy.
-
-3. **Portugal-aware by design** — cada sub-model tem derivação específica para Portugal. PT yield curve via IGCP, PT CRP daily, PT expected inflation via EA + differential synthesis, PT rating consolidado cross-agency.
-
-4. **Cross-border coherence** — framework cost-of-capital funciona para Portuguese equity, Brazilian bank cross-border DCF, emerging market valuation, com currency handling rigoroso (Fisher equation + PPP).
-
+3. **Cross-country uniform coverage** — T1 coverage (16 países) deve ser genuinamente uniform; não há country-privileged treatment. Portugal ingerido via Eurostat + ECB SDW + IGCP como qualquer outro T1 country.
+4. **Cross-border coherence** — framework cost-of-capital funciona consistentemente para equity analysis em qualquer país T1/T2, com currency handling rigoroso (Fisher equation + PPP).
 5. **Honest calibration** — confidence intervals explícitos, claims vs non-claims documentados, failure modes reconhecidos. Framework é probabilistic, não deterministic.
 
-## Estado — Phase 1 Week 7 (M1 US)
+## Estado — Phase 1 Week 9 (M2 T1 Core em execução)
 
-Phase 1 encerra com **M1 US = single-country end-to-end**:
+### Engine interno (L0-L4): essencialmente fechado
 
-- **L0 connectors**: 22+ operacionais (FRED, Eurostat, BIS, ECB SDW,
-  IGCP, Bundesbank, BoE, Shiller, Damodaran, FMP, Multpl, CBOE, CFTC,
-  FINRA, Chicago Fed NFCI, Moody's, Yahoo, TE, AAII, Factset Insight,
-  ICE BofA, MOVE, CBO, SPDJI Buyback, Yardeni).
-- **L1 persistence**: 16 migrations Alembic; SQLite MVP (Postgres Phase 2+).
-- **L2 overlays**: 5/5 shipped (NSS curves, ERP US, CRP, rating-spread v0.2,
-  expected-inflation canonical).
-- **L3 indices**: 16/16 compute; 14-16 real-data (E2 + M3 landam via
-  DB-backed readers quando daily_curves + daily_overlays têm upstream rows).
-- **L4 cycles**: 4/4 operacionais (CCCS, FCS, MSC, ECS) com overlays
-  (boom, bubble, dilemma, stagflation).
-- **L5 regimes**: Phase 2+ scope — spec stub apenas.
-- **L6 integration**: ERP composition live via `daily_cost_of_capital`.
-- **L8 pipelines**: 9 daily pipelines operacionais com graceful
-  degradation + structured logs + exit codes tipados.
+* **L0 connectors**: 28+ operacionais (FRED, Eurostat, BIS v2, ECB SDW, IGCP, Bundesbank, BoE, Shiller, Damodaran, FMP, Multpl, CBOE, CFTC, FINRA, Chicago Fed NFCI, Moody's, Yahoo, TE, AAII, Factset Insight, ICE BofA, MOVE, CBO, SPDJI Buyback, Yardeni, BoC Valet, RBA tables, Riksbank Swea, Norges Bank DataAPI, SNB data portal, Nationalbanken Statbank).
+* **L1 persistence**: 18+ migrations Alembic; SQLite MVP (Postgres Phase 2+).
+* **L2 overlays**: 5/5 shipped (NSS curves, ERP, CRP, rating-spread v0.2, expected-inflation canonical).
+* **L3 indices**: 16/16 compute operational.
+* **L4 cycles**: 4/4 operational (CCCS, FCS, MSC, ECS) com overlays (boom, bubble, dilemma, stagflation).
+* **L5 regimes**: Phase 2+ scope — overlay booleans persistidos em cycle scores; tabela dedicada pendente.
+* **L6 integration**: k_e US live via `daily_cost_of_capital`; cross-country composition pendente.
+* **L8 pipelines**: 9 daily pipelines daemonized systemd operacionais.
 
-Ver [`docs/milestones/m1-us.md`](docs/milestones/m1-us.md) para
-scorecard completo + coverage matrix por país + CLI quickstart.
-Deltas spec-vs-implementação em
-[`docs/milestones/m1-us-gap-analysis.md`](docs/milestones/m1-us-gap-analysis.md).
+### Coverage geográfica (M2 T1 Core)
+
+| Layer | US | EA members (DE/FR/IT/ES/NL/PT) | GB | JP | CA | AU | NZ | CH | SE | NO | DK |
+|-------|----|----|----|----|----|----|----|----|----|----|-----|
+| M1 monetary | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Day 5 target |
+| NSS curves | ✓ | — | — | — | — | — | — | — | — | — | — |
+| ERP | ✓ | proxy | proxy | proxy | — | — | — | — | — | — | — |
+| CRP | ✓ | ✓ | — | — | — | — | — | — | — | — | — |
+| Cycles L4 | ✓ | partial | — | — | — | — | — | — | — | — | — |
+
+M2 T1 Core complete quando **curves + overlays + cycles T1 uniform** (CAL-138 scope para Week 10).
+
+### Camada externa (L7): não iniciada
+
+L7 API + Website são o **unlock principal** para Phase 3. Actualmente zero implementation — engine corre em SQLite com CLI quickstart apenas.
 
 ### Quickstart operacional
 
-```bash
+```
 uv sync
 cp .env.example .env   # populate API keys
 
@@ -103,16 +123,15 @@ uv run sonar health
 uv run sonar retention run --dry-run
 ```
 
-Cobertura cross-country: US (primário) + DE/PT/IT/ES/FR/NL (parcial via
-Eurostat + ECB SDW + BIS). UK + JP no próximo milestone (M2 T1 Core).
+Ver [`docs/milestones/m1-us.md`](docs/milestones/m1-us.md) para scorecard M1 US. Deltas spec-vs-implementação em [`docs/milestones/m1-us-gap-analysis.md`](docs/milestones/m1-us-gap-analysis.md).
 
 ## Estado documentacional (v1)
 
 Antes do rewrite v2, a arquitetura conceptual foi documentada completa:
 
-- **5 manuais** em 6 partes cada (~18.700 parágrafos total): Crédito, Monetário, Económico, Financeiro, Sub-Modelos
-- **5 masters** consolidados (um por módulo, cada ~150-350KB)
-- **5 planos** de fontes de dados (operationalization technical)
+* **5 manuais** em 6 partes cada (~18.700 parágrafos total): Crédito, Monetário, Económico, Financeiro, Sub-Modelos
+* **5 masters** consolidados (um por módulo, cada ~150-350KB)
+* **5 planos** de fontes de dados (operationalization technical)
 
 Esta documentação está em `/docs/methodology/` e serve como source of truth para a implementação v2.
 
@@ -120,58 +139,30 @@ Esta documentação está em `/docs/methodology/` e serve como source of truth p
 
 Ver [REPOSITORY_STRUCTURE.md](docs/REPOSITORY_STRUCTURE.md) para layout detalhado.
 
-Resumo:
-
-```
-sonar/
-├── README.md                    # Este ficheiro
-├── docs/                        # Documentação metodológica + técnica
-│   ├── methodology/             # 5 manuais + masters
-│   ├── data_sources/            # 5 planos
-│   ├── architecture/            # Docs técnicos
-│   └── wiki/                    # GitHub Wiki mirror
-├── sonar/                       # Package Python principal
-│   ├── connectors/              # Data source connectors
-│   ├── db/                      # Schema + migrations
-│   ├── cycles/                  # 4 cycle classifications
-│   ├── submodels/               # 5 quantitative sub-models
-│   ├── integration/             # Matriz 4-way + diagnostics
-│   ├── outputs/                 # API layer
-│   └── pipelines/               # Orchestration
-├── tests/
-├── scripts/                     # CLI entry points
-├── notebooks/                   # Exploratory analysis
-└── data/                        # Gitignored local DB + cache
-```
-
 ## Roadmap
 
 Ver [ROADMAP.md](docs/ROADMAP.md) para phases detalhadas.
 
-Phase summary:
+Phase summary (revised 2026-04-22):
 
-- **Phase 0** (in progress): bootstrap — arquivar v1, criar v2 foundations, wiki, CI/CD skeleton
-- **Phase 1**: data foundation — schema v18, 5-7 core connectors (FRED, ECB, BIS, IGCP, WGB CDS, Shiller, Damodaran monthly for validation)
-- **Phase 2**: sub-models — yield curves NSS, ERP daily, CRP, rating-to-spread, expected inflation. Portugal first, then expand.
-- **Phase 3**: cycles — ECS, CCCS, MSC, FCS + overlays
-- **Phase 4**: integration — matriz 4-way, diagnostics, cost of capital API
-- **Phase 5**: dashboard — HTML/React prototype
-- **Phase 6**: operationalization — alerts, backtesting, editorial pipeline automation
+* **Phase 0** — Bootstrap & Specs — **COMPLETE** (2026-04-18)
+* **Phase 1** — Vertical Slice L0→L4 + M1 US — **COMPLETE** (2026-04-20 Week 7)
+* **Phase 2** — Horizontal Expansion — **IN PROGRESS** (M2 T1 Core ~90%; T2/T3 pending)
+* **Phase 2.5** — L5 Regimes + L7 Infrastructure Prep — pending
+* **Phase 3** — L7 API + Website Launch — pending (primary unlock milestone)
+* **Phase 4** — Calibração Empírica + Scale — gated by 24m production data (earliest 2028-Q2)
 
 ## Development
 
 Ver [CODING_STANDARDS.md](docs/CODING_STANDARDS.md) para conventions.
 
-Quick start (after Phase 0):
-```bash
+```
 git clone <repo>
-cd sonar
-python -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-pip install -e ".[dev]"
-cp .env.example .env         # and fill in API keys
-pytest                        # run tests
-sonar-cli pipeline daily      # run daily pipeline
+cd sonar-engine
+uv sync
+cp .env.example .env
+uv run pytest
+uv run sonar health
 ```
 
 ## Contributing
@@ -186,13 +177,14 @@ TBD (see [BRIEF_FOR_DEBATE.md](BRIEF_FOR_DEBATE.md) section on licensing). Defau
 
 ## Links úteis
 
-- [Architecture overview](docs/ARCHITECTURE.md)
-- [Repository structure rationale](docs/REPOSITORY_STRUCTURE.md)
-- [Development roadmap](docs/ROADMAP.md)
-- [Migration from v1 repo](docs/MIGRATION_PLAN.md)
-- [Key decisions for debate](BRIEF_FOR_DEBATE.md)
-- [Coding standards](docs/CODING_STANDARDS.md)
-- [Wiki home](wiki/Home.md)
+* [Architecture overview](docs/ARCHITECTURE.md)
+* [Repository structure rationale](docs/REPOSITORY_STRUCTURE.md)
+* [Development roadmap](docs/ROADMAP.md)
+* [M1 US milestone](docs/milestones/m1-us.md)
+* [M1 US gap analysis](docs/milestones/m1-us-gap-analysis.md)
+* [Key decisions for debate](BRIEF_FOR_DEBATE.md)
+* [Coding standards](docs/CODING_STANDARDS.md)
+* [Wiki home](wiki/Home.md)
 
 ---
 
