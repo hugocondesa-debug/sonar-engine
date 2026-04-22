@@ -33,6 +33,17 @@ in ``--all-t1`` mode the country is skipped and the orchestrator
 continues; in ``--country <X>`` mode the exit code is
 ``EXIT_INSUFFICIENT_DATA`` (1).
 
+Week 10 Sprint D pilot (2026-04-22) executed the FR national-CB
+integration attempt and confirmed all four brief §9 fallback paths
+(BdF / AFT / TE / FRED) fail to provide a ≥ 6-tenor daily FR
+sovereign curve (BdF legacy SDMX decommissioned; BdF OpenDatasoft
+successor publishes only a monthly archive; AFT Cloudflare-challenged;
+TE single-tenor; FRED 10Y-monthly). ``CAL-CURVES-FR-BDF`` is marked
+BLOCKED; the scaffolded :mod:`sonar.connectors.banque_de_france`
+connector captures the empirical state. See ADR-0009 for the
+national-CB connector pattern lessons applicable to the four
+successor sprints (IT/ES/PT/NL).
+
 CLI entrypoints:
 
     python -m sonar.pipelines.daily_curves --country US --date 2024-01-02

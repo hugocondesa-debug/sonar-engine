@@ -23,9 +23,22 @@ each country is tracked under its own CAL item (see
 :data:`PERIPHERY_CAL_POINTERS`). The Sprint A probe superseded the
 umbrella ``CAL-CURVES-EA-PERIPHERY`` with the five per-country items.
 
+Week 10 Sprint D pilot (2026-04-22) executed the first national-CB
+integration (FR via Banque de France webstat) and **inverted the
+pattern assumption**: BdF decommissioned its legacy SDMX-JSON REST
+mid-2024 in a migration to OpenDatasoft that exposes only a monthly
+archive dataset (tenor-incomplete, publication frozen 2024-07-11).
+All four brief §9 fallback paths (BdF / AFT / TE / FRED) failed,
+firing HALT-0. ``CAL-CURVES-FR-BDF`` is consequently marked BLOCKED;
+see :mod:`sonar.connectors.banque_de_france` for the scaffolded
+placeholder connector and ``docs/adr/ADR-0009-national-cb-connectors-ea-periphery.md``
+for the pattern lessons applicable to the four successor sprints
+(IT/ES/PT/NL).
+
 Reference: ``docs/data_sources/monetary.md`` §3.2 ECB SDW; spec
 ``docs/specs/overlays/nss-curves.md`` §2 T1 DE/EA-AAA;
-``docs/planning/retrospectives/week10-sprint-ea-periphery-report.md``.
+``docs/planning/retrospectives/week10-sprint-ea-periphery-report.md``;
+``docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md``.
 """
 
 from __future__ import annotations
@@ -86,7 +99,11 @@ ECB_EUROSYSTEM_BS_SERIES_ID = "W.U2.C.T000000.Z5.Z01"
 # Per-country CAL pointers for EA periphery members whose full yield
 # curves are not served by ECB SDW (Sprint A 2026-04-22 probe finding).
 # These supersede the umbrella CAL-CURVES-EA-PERIPHERY — each country
-# has its own national-CB integration path + estimate.
+# has its own national-CB integration path + estimate. Sprint D pilot
+# 2026-04-22 executed the FR-BDF integration and marked
+# ``CAL-CURVES-FR-BDF`` BLOCKED (BdF legacy SDMX decommissioned +
+# OpenDatasoft successor publishes only a monthly archive); ADR-0009
+# carries the pattern notes for IT/ES/PT/NL pre-flights.
 PERIPHERY_CAL_POINTERS: dict[str, str] = {
     "PT": "CAL-CURVES-PT-BPSTAT",
     "IT": "CAL-CURVES-IT-BDI",

@@ -2794,66 +2794,78 @@ as sub-bullets below when it differs materially from peer countries.
     4. Live canaries per country (2024-12-30 baseline).
 - **Related:** CAL-138 (grandparent, closed); CAL-CURVES-T1-LINKER (linker coverage — will fold into the per-country sprints).
 
-### CAL-CURVES-FR-BDF — FR sovereign yield curve via Banque de France Webstat
+### CAL-CURVES-FR-BDF — FR sovereign yield curve via Banque de France Webstat — **BLOCKED**
 
-- **Priority:** MEDIUM-HIGH among the periphery five — Banque de France Webstat publishes the cleanest OAT zero-coupon spectrum of the group and OAT indexed-linkers (OATei) are the best-covered ILB of the periphery, so FR is the natural pilot for the superseded umbrella.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22 confirmed ECB SDW ``YC``/``FM``/``IRS`` cannot serve a ≥6-tenor nominal curve for FR (IRS publishes only the monthly 10Y Maastricht convergence rate).
-- **Current behavior:** ``daily_curves --country FR`` raises ``InsufficientDataError("daily_curves: no connector for country='FR' … Deferred per CAL-CURVES-FR-BDF.")``; ``--all-t1`` skips FR with the same deferral pointer.
-- **Data path (candidate):** Banque de France Webstat CSV download ``https://webstat.banque-france.fr/`` — OAT zero-coupon yields (benchmark 3M-30Y; confirm exact tenor list on pre-flight), plus OATei indexed series. No API key (CSV download). Parser style: French-locale CSV (``;`` separator, ``,`` decimal) per Bundesbank precedent.
-- **Required work:**
-  1. L0 connector ``sonar/connectors/banque_de_france.py`` (mirror Bundesbank pattern: fetch_series → domain wrappers).
-  2. Pre-flight probe tenor coverage + dataset IDs; document series family constants.
-  3. ``fetch_yield_curve_nominal`` + ``fetch_yield_curve_linker`` (OATei).
-  4. Pipeline dispatch branch in ``daily_curves.run_country`` (alongside DE Bundesbank branch); remove FR from ``_DEFERRAL_CAL_MAP``.
-  5. Unit tests + @slow live canary (2024-12-30 baseline).
-  6. Persistence — confirm ``NSSYieldCurveSpot(country_code='FR')`` sibling rows.
-- **Impact if unresolved:** FR overlays (ERP / CRP / rating-spread) stay on EA-aggregate proxy; once FR lands, it becomes the reference template for IT/ES/PT/NL.
-- **Estimate:** 3-4h CC (Banque de France CSV format is documented; OATei tenors limited so linker scope is small).
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` FR portion absorbed here.
+- **Status:** **BLOCKED** Week 10 Sprint D pilot pre-flight 2026-04-22 — all four brief §9 fallback data paths (BdF primary / AFT / TE / FRED) failed to provide a ≥ 6-tenor daily FR sovereign yield curve. HALT trigger 0 fired; narrow-scope ship per Sprint A / CAL-138 precedents. Pilot outcome inverts the brief's assumption that BdF would mirror Bundesbank cleanly, and consequently **re-frames the probe discipline for the four successor EA-periphery sprints** (``CAL-CURVES-IT-BDI`` / ``CAL-CURVES-ES-BDE`` / ``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-NL-DNB``).
+- **Priority:** DEFERRED — parked pending either (a) BdF restoring a per-tenor daily feed through its OpenDatasoft portal (the one dataset currently exposed is a monthly archive frozen 2024-07-11), (b) SONAR provisioning a licensed feed (Bloomberg / Refinitiv / FactSet), or (c) a successor sprint running a browser-automation shim against AFT to bypass the Cloudflare challenge.
+- **Trigger:** Week 10 Sprint D pilot pre-flight probe 2026-04-22 — see commit (Commit 1, scaffolded connector ``src/sonar/connectors/banque_de_france.py``) and retrospective ``docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md``. Earlier Sprint A probe 2026-04-22 had already ruled out ECB SDW ``YC``/``FM``/``IRS`` as feasible surfaces; Sprint D completes the fallback-hierarchy audit.
+- **Current behavior:** ``daily_curves --country FR`` and ``--all-t1`` continue to skip FR with the existing deferral pointer (``_DEFERRAL_CAL_MAP["FR"] = "CAL-CURVES-FR-BDF"``). The scaffolded ``BanqueDeFranceConnector`` is NOT wired into the dispatcher — doing so would surface the same ``InsufficientDataError`` one layer deeper without changing pipeline outcome. Pipeline behaviour is unchanged relative to Sprint A close.
+- **Fallback-hierarchy probe matrix (2026-04-22):**
+  - **BdF legacy SDMX REST** ``https://webstat.banque-france.fr/ws_wsfr/rest/data/`` — HTTP 404. Decommissioned when BdF migrated ``webstat`` to the OpenDatasoft platform mid-2024.
+  - **BdF OpenDatasoft explore API** ``https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets`` — ``total_count=1``. Single dataset ``tableaux_rapports_preetablis``; yield-adjacent file ``Taux_indicatifs_et_OAT_Archive.csv`` carries 8 tenors {1M, 3M, 6M, 9M, 12M, 2Y, 5Y, 30Y} (**no 10Y benchmark**), end-of-period monthly, publication frozen 2024-07-11. Unfit for daily pipelines on frequency + tenor completeness.
+  - **AFT direct** ``https://www.aft.gouv.fr/`` — HTTP 403 behind Cloudflare managed-challenge (``cf-mitigated: challenge``). Not viable for headless pipelines.
+  - **TE ``fetch_fr_yield_curve_nominal``** — never shipped Sprint CAL-138 (FR exposes only ``GFRN10:IND`` via ``/markets/historical``; 10Y single-tenor, below ``MIN_OBSERVATIONS=6``). FR is absent from ``TE_YIELD_CURVE_SYMBOLS``.
+  - **FRED OECD mirror** — ``IRLTLT01FRM156N``: 10Y only, monthly frequency. Insufficient.
+- **Pilot artefacts shipped (scope-narrow):**
+  1. ``src/sonar/connectors/banque_de_france.py`` — documentation-first scaffold preserving ``BaseConnector`` interface; every fetch method raises ``InsufficientDataError`` citing the CAL pointer + probe date + findings.
+  2. ``docs/adr/ADR-0009-national-cb-connectors-ea-periphery.md`` — pattern lessons for IT/ES/PT/NL pre-flights (required probe sequence, migration-risk budget adjustment, alternative-source research track).
+  3. ``docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md`` — v3-format retrospective.
+- **Required work (future, when unblocked):**
+  1. Re-probe BdF OpenDatasoft catalog and AFT surfaces (via browser-automation shim if Cloudflare remains in place).
+  2. Swap ``BanqueDeFranceConnector`` fetch methods for real HTTP logic once a viable source is identified; the interface is frozen so the delta is methods-only.
+  3. Wire into ``daily_curves.run_country`` FR branch alongside DE Bundesbank; drop FR from ``_DEFERRAL_CAL_MAP``.
+  4. Unit tests on live data + @slow canary + cross-validation against a public reference (Trésor / OECD / Reuters).
+- **Impact if unresolved (unchanged from Sprint A close):** FR overlays (ERP / CRP / rating-spread / expected-inflation) remain on the EA-AAA-aggregate proxy fallback. The 07:30 WEST overlays cascade continues to emit ``MATURE_ERP_PROXY_FR`` / ``EA_AAA_PROXY_FALLBACK`` flags for FR runs.
+- **Estimate (future):** 4-6h CC (original 3-4h was predicated on a BdF-is-Bundesbank analog assumption; the probe matrix inflates the budget for re-probe + alternative-source research + either a browser-automation shim or a licensed-feed integration).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-T1-LINKER`` FR portion absorbed here (OATei coverage irrelevant while nominal path is blocked); ``ADR-0009`` (pattern for successor sprints).
 
 ### CAL-CURVES-IT-BDI — IT sovereign yield curve via Banca d'Italia BDS
 
 - **Priority:** MEDIUM — IT has the widest sovereign-spread range of the periphery (post-2011 crisis, 2018 Lega spike, 2022 energy-war widening) so country-specific curves materially improve rating-spread precision.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22 (same empirical path as FR).
+- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 makes a **CB-API state probe** a mandatory Commit 1 step. Sprint D pilot found BdF had decommissioned its legacy SDMX REST mid-2024 in a migration to OpenDatasoft that dropped daily yield tenor granularity; the IT-BDI sprint must not assume Banca d'Italia's public BDS portal ships the historically-advertised SDMX surface without re-probing. If the probe finds a similar data-availability gap, narrow scope per Sprint D template (scaffold + ADR update + CAL BLOCKED + retrospective) rather than attempting to synthesise a curve from sparse inputs.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22 (ECB SDW path empirically infeasible); Sprint D pilot 2026-04-22 inverted expectations for national-CB path viability.
 - **Current behavior:** ``daily_curves --country IT`` raises ``InsufficientDataError`` citing ``CAL-CURVES-IT-BDI``; ``--all-t1`` skips.
-- **Data path (candidate):** Banca d'Italia BDS (``https://infostat.bancaditalia.it/``) — BTP zero-coupon curves (spot + forward; 3M-30Y typical spectrum). BTP€i indexed linker coverage post-2003, decent but thinner than OATei. Public CSV / XLS download; SDMX 2.1 REST also available. No API key.
-- **Required work:** mirror FR-BDF structure — L0 connector, pre-flight probe, nominal + linker wrappers, pipeline dispatch, tests + canary. Reuse Bundesbank-analog pattern.
+- **Data path (candidate, re-probe required):** Banca d'Italia BDS (``https://infostat.bancaditalia.it/``) — BTP zero-coupon curves (spot + forward; 3M-30Y typical spectrum). BTP€i indexed linker coverage post-2003, decent but thinner than OATei. Historically advertised: public CSV / XLS download; SDMX 2.1 REST. No API key. Sprint D pilot precedent: verify whether the advertised SDMX surface still responds 200 before promising a connector.
+- **Required work:** mirror Bundesbank pattern if CB-API probe succeeds; mirror BdF scaffold pattern if it fails. L0 connector, pre-flight probe matrix (SDMX + web scrape + TE + FRED), nominal + linker wrappers, pipeline dispatch, tests + canary.
 - **Impact if unresolved:** IT ERP/CRP per-country stuck on EA-aggregate proxy; rating-spread signal loses the Italy-specific credit premium that drives most of the peripheral spread variance.
-- **Estimate:** 3-4h CC (after FR-BDF ships — connector skeleton is reusable).
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` IT portion absorbed here.
+- **Estimate:** 4-5h CC (bumped from 3-4h per ADR-0009 — includes CB-API re-probe + migration-risk buffer).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot — pattern template); ``ADR-0009`` (national-CB connector pattern); ``CAL-CURVES-T1-LINKER`` IT portion absorbed here.
 
 ### CAL-CURVES-ES-BDE — ES sovereign yield curve via Banco de España
 
 - **Priority:** MEDIUM — ES spread dynamics mirror IT on a smaller scale; country-specific curve needed once IT lands.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 mandates CB-API state probe. The Banco de España ``SeriesTemporales`` portal has been migrated multiple times (Sprint D pilot found the BdF migration introduced a hidden data gap); re-probe before committing to the connector skeleton.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22; Sprint D pilot 2026-04-22 inverted expectations for national-CB viability.
 - **Current behavior:** ``daily_curves --country ES`` raises ``InsufficientDataError`` citing ``CAL-CURVES-ES-BDE``.
-- **Data path (candidate):** Banco de España ``SeriesTemporales`` / BE-Series feed (``https://www.bde.es/webbde/es/estadis/infoest/``) — Bonos y Obligaciones daily yields (3M-30Y spectrum; confirm 7Y / 15Y / 20Y availability on pre-flight). Bonos-i indexed linker coverage post-2014 limited (expect ``LINKER_UNAVAILABLE`` on historical runs pre-2014). Public CSV; no API key.
-- **Required work:** standard template (connector, probe, nominal + linker wrappers, dispatch, tests + canary).
+- **Data path (candidate, re-probe required):** Banco de España ``SeriesTemporales`` / BE-Series feed (``https://www.bde.es/webbde/es/estadis/infoest/``) — Bonos y Obligaciones daily yields (3M-30Y spectrum; confirm 7Y / 15Y / 20Y availability on pre-flight). Bonos-i indexed linker coverage post-2014 limited (expect ``LINKER_UNAVAILABLE`` on historical runs pre-2014). Public CSV; no API key.
+- **Required work:** standard template if probe succeeds (connector, nominal + linker wrappers, dispatch, tests + canary); Sprint D scaffold pattern if probe fails (scaffolded ``banco_de_espana.py`` + CAL BLOCKED + ADR-0009 addendum + retro).
 - **Impact if unresolved:** ES overlays on EA-aggregate proxy; linker path limited to DERIVED BEI fallback until ExpInf per-country ships.
-- **Estimate:** 3-4h CC.
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` ES portion absorbed here.
+- **Estimate:** 4-5h CC (bumped from 3-4h per ADR-0009 — CB-API re-probe + migration-risk buffer).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template); ``ADR-0009`` (pattern); ``CAL-CURVES-T1-LINKER`` ES portion absorbed here.
 
 ### CAL-CURVES-PT-BPSTAT — PT sovereign yield curve via Banco de Portugal BPstat
 
 - **Priority:** MEDIUM (LOW-MEDIUM relative to FR/IT) — PT is Hugo's home market (operator interest) but overlay-cascade priority is lower because PT ERP rides on EA-aggregate cleanly for cost-of-capital baselines.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 mandates CB-API state probe. BPstat ships a public REST API (``bpstat.bportugal.pt/data/v1``) that is simpler than the BdF SDMX surface but equally subject to migration risk; re-probe before committing.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22; Sprint D pilot 2026-04-22 inverted national-CB pattern assumptions.
 - **Current behavior:** ``daily_curves --country PT`` raises ``InsufficientDataError`` citing ``CAL-CURVES-PT-BPSTAT``.
-- **Data path (candidate):** Banco de Portugal BPstat (``https://bpstat.bportugal.pt/``) — OT benchmark yields 1Y-30Y. IGCP (Agência de Gestão da Tesouraria) publishes the benchmark curve with more tenor granularity than BPstat for the long end but has no open API (scrape required). No PT linker in open form — expect ``LINKER_UNAVAILABLE`` fallback.
-- **Required work:** standard template; BPstat REST API returns JSON (simpler parser than the French-locale CSV path). Optional enhancement: IGCP weekly auction data for intra-curve validation (not required for nominal fit).
+- **Data path (candidate, re-probe required):** Banco de Portugal BPstat (``https://bpstat.bportugal.pt/``) — OT benchmark yields 1Y-30Y. IGCP (Agência de Gestão da Tesouraria) publishes the benchmark curve with more tenor granularity than BPstat for the long end but has no open API (scrape required). No PT linker in open form — expect ``LINKER_UNAVAILABLE`` fallback.
+- **Required work:** standard template if probe succeeds (BPstat REST API returns JSON, simpler parser than French-locale CSV); Sprint D scaffold pattern if probe fails.
 - **Impact if unresolved:** PT overlays on EA-aggregate proxy; linker path locked to DERIVED BEI fallback (no OT-indexed universe to hook).
-- **Estimate:** 3-4h CC.
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` PT portion = permanent ``LINKER_UNAVAILABLE``.
+- **Estimate:** 4-5h CC (bumped per ADR-0009).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template); ``ADR-0009`` (pattern); ``CAL-CURVES-T1-LINKER`` PT portion = permanent ``LINKER_UNAVAILABLE``.
 
 ### CAL-CURVES-NL-DNB — NL sovereign yield curve via De Nederlandsche Bank Statistics
 
 - **Priority:** LOW-MEDIUM — NL trades close to DE (AAA cluster) so country-specific curve gain vs DE-Bund proxy is smaller; still needed for per-country ERP cleanliness.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 mandates CB-API state probe. DNB migrated its public statistics portal to OpenDatasoft mid-2024 (same platform BdF migrated to — Sprint D pilot found OpenDatasoft's BdF catalog surfaces only monthly archive data); NL is therefore the **highest-risk** of the four successor sprints. Probe the OpenDatasoft catalog depth before any scaffolding.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22; Sprint D pilot 2026-04-22 (BdF-OpenDatasoft precedent makes NL-DNB a near-duplicate risk profile).
 - **Current behavior:** ``daily_curves --country NL`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NL-DNB``.
-- **Data path (candidate):** DNB Statistics portal (``https://www.dnb.nl/en/statistics/``) — DSL (Dutch State Loan) daily yields; tenor spectrum thinner than Bundesbank (2Y-30Y benchmarks; expect 3M/6M/1Y gaps — likely NS-reduced fit per CA precedent). No DSL indexed linker (confirm via probe; expect ``LINKER_UNAVAILABLE``).
-- **Required work:** standard template; potential fallback to ESMA-published AAA-EA aggregate for the short end if DNB publishes only benchmarks ≥2Y.
+- **Data path (candidate, re-probe required — OpenDatasoft risk):** DNB Statistics portal (``https://www.dnb.nl/en/statistics/``) — DSL (Dutch State Loan) daily yields; tenor spectrum thinner than Bundesbank (2Y-30Y benchmarks; expect 3M/6M/1Y gaps — likely NS-reduced fit per CA precedent). No DSL indexed linker (confirm via probe; expect ``LINKER_UNAVAILABLE``).
+- **Required work:** standard template if probe succeeds; Sprint D scaffold pattern if probe fails (high probability given the OpenDatasoft-migration precedent).
 - **Impact if unresolved:** NL overlays stay on EA-aggregate proxy (lowest-cost gap of the five since NL≈DE).
-- **Estimate:** 3-4h CC; could be the last of the five to ship given the tight cost-benefit.
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
+- **Estimate:** 4-5h CC (bumped per ADR-0009); could be the last of the five to ship given the tight cost-benefit **and** the elevated probability of HALT-0 firing on the CB-API probe.
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template — near-duplicate platform risk); ``ADR-0009`` (pattern); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
 
 ### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK)
 
