@@ -1277,67 +1277,27 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-120 — JP M2 output-gap source (Week 8 Sprint L surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 JP Taylor-gap compute.
-- **Trigger:** Sprint L C5 shipped `build_m2_jp_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; JP has no CBO equivalent
-  and OECD EO / BoJ Tankan are outside L0 coverage at Sprint L scope.
-- **Scope:**
-  - Probe TE generic `fetch_indicator("JP", "gdp gap", ...)` for
-    coverage; if empty, probe OECD Economic Outlook direct API
-    (quarterly cadence acceptable).
-  - Wire JP output gap connector (FRED JPRGDP pattern or OECD EO
-    direct) and populate `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_jp_inputs` once the resolver lands.
-- **Unblocks:** M2 JP persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation). See that item for T1 scope
+  + per-country sources.
 
 ### CAL-121 — JP M4 FCI 5-component bundle (Week 8 Sprint L surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 JP custom-FCI compute.
-- **Trigger:** Sprint L C5 shipped `build_m4_jp_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; only 10Y JGB yield is
-  mappable via existing TE `GJGB10:IND` at Sprint L scope, below the
-  `MIN_CUSTOM_COMPONENTS == 5` floor from M4 spec §4.
-- **Scope:** connectors/wrappers for the four missing components:
-  - JP credit spread (BBB corp vs JGB; TE probe `credit spread`
-    indicator or BoJ J-REIT proxy).
-  - JP vol index (Nikkei VI via TE `NKYVOLX:IND` or OSE direct).
-  - JPY NEER (BIS narrow/broad; wrapper not yet shipped).
-  - JP mortgage rate (FRED `INTDSRJPM193N` candidate; probe pending).
-- **Unblocks:** M4 JP persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). See that item for T1 scope +
+  per-country sources.
 
 ### CAL-122 — JP M3 market-expectations overlays (Week 8 Sprint L surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
-  analogous to CAL-105 for UK.
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF rows
-  per country; Sprint L did not ship JP NSS or JP EXPINF overlays
-  (Phase 2+ scope).
-- **Scope:**
-  - JP NSS overlay persistence (FRED `IRLTLT01JPM156N` + intermediate
-    tenors via TE `GJGB2:IND` / `GJGB5:IND`; NSS fit via existing
-    overlay module).
-  - JP EXPINF overlay persistence (5Y/10Y breakeven-analog from BoJ
-    Tankan survey series, if available; else BoJ 2% CPI target as
-    CB-target fallback, mirroring UK).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` JP path.
-- **Unblocks:** M3 JP persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). See that item for T1 scope +
+  per-country sources.
 
 ### CAL-123 — JP balance-sheet / GDP ratio wiring (Week 8 Sprint L surfaced)
 
-- **Priority:** LOW — closes the `JP_BS_GDP_PROXY_ZERO` flag on M1 JP.
-- **Trigger:** Sprint L C4 zero-seeded JP balance-sheet ratios because
-  BoJ Monetary Base (`BS01'MABJMTA` via TSD) + Cabinet Office nominal
-  GDP are not FRED-mirrored at Sprint L scope.
-- **Scope:** direct BoJ TSD fetch for Monetary Base (if CAL-124 bypass
-  lands) OR FRED JP M2 series (`MABMM301JPM189S`) as proxy; combined
-  with Cabinet Office JP nominal GDP via FRED `JPNRGDPEXP` or similar.
-- **Unblocks:** M1 JP BS/GDP signal history populated (currently seeded
-  as zeros → balance_sheet_signal contribution to M1 score is null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). See that item for T1 scope +
+  per-country sources.
 
 ### CAL-124 — BoJ TSD browser-gate bypass (Week 8 Sprint L surfaced)
 
@@ -1368,18 +1328,9 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-126 — JP CPI YoY wrapper (Week 8 Sprint L surfaced)
 
-- **Priority:** MEDIUM — required input for M2 JP Taylor gap.
-- **Trigger:** Sprint L C5 `build_m2_jp_inputs` scaffold lists JP CPI
-  YoY as one of three missing inputs; generic TE `fetch_indicator("JP",
-  "inflation rate", ...)` should cover but not probed at Sprint L scope.
-- **Scope:**
-  - Probe TE generic indicator for JP CPI YoY cadence + coverage.
-  - Wire `fetch_jp_cpi_yoy` wrapper on `TEConnector` with source-drift
-    guard (analogous to `fetch_jp_bank_rate`).
-  - Consume in `build_m2_jp_inputs` output.
-- **Unblocks:** M2 JP inflation input; combined with CAL-120 closes
-  M2 JP.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). See that item for T1 scope +
+  per-country sources.
 
 ### CAL-129 — CA country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint S — M1 level)
 
@@ -1420,104 +1371,33 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-130 — CA M2 output-gap source (Week 9 Sprint S surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 CA Taylor-gap compute.
-- **Trigger:** Sprint S C4 shipped `build_m2_ca_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; BoC publishes a quarterly
-  output gap via Valet series (`DMREST_SEGP_GAP` candidate) but the
-  wiring is not Sprint S scope.
-- **Scope:**
-  - Probe BoC Valet `DMREST_SEGP_GAP` + OECD EO CA for cadence +
-    coverage.
-  - Wire CA output-gap connector (Valet extension or OECD EO direct)
-    and populate `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_ca_inputs` once the resolver lands.
-- **Unblocks:** M2 CA persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-131 — CA M4 FCI 5-component bundle (Week 9 Sprint S surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 CA custom-FCI compute.
-- **Trigger:** Sprint S C4 shipped `build_m4_ca_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; only 10Y GoC (Valet
-  `BD.CDN.10YR.DQ.YLD`) and policy rate (via M1 cascade) are mappable
-  at Sprint S scope, below the `MIN_CUSTOM_COMPONENTS == 5` floor.
-- **Scope:** connectors/wrappers for the missing components:
-  - CA credit spread (BBB corp vs GoC; candidate: FRED `BAMLHYCA` or
-    Valet bond-yield curve proxy).
-  - CA vol index (no TSX VIX-analog on FRED; Yahoo `^VIXC` candidate
-    or proxy from `^VIX`).
-  - CA CAD NEER (BoC Valet `CEER_BROADN` is canonical daily
-    nominal-CEER series).
-  - CA mortgage rate (BoC Valet `V80691335` or equivalent).
-- **Unblocks:** M4 CA persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-132 — CA M3 market-expectations overlays (Week 9 Sprint S surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
-  analogous to CAL-105 (UK) / CAL-122 (JP).
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
-  rows per country; Sprint S did not ship CA NSS or CA EXPINF
-  overlays (Phase 2+ scope).
-- **Scope:**
-  - CA NSS overlay persistence (BoC Valet yield-curve series family
-    + FRED `IRLTLT01CAM156N` long-end; NSS fit via existing overlay
-    module).
-  - CA EXPINF overlay persistence (Valet CPI breakeven analog OR BoC
-    2 % CPI target as CB-target fallback, mirroring UK / JP).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` CA path.
-- **Unblocks:** M3 CA persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-133 — CA balance-sheet / GDP ratio wiring (Week 9 Sprint S surfaced)
 
-- **Priority:** LOW — closes the `CA_BS_GDP_PROXY_ZERO` flag on M1 CA.
-- **Trigger:** Sprint S C4 zero-seeded CA balance-sheet ratios because
-  BoC weekly balance-sheet aggregates (Valet `B50000` family candidate)
-  + StatCan nominal GDP are not wired at Sprint S scope.
-- **Scope:** direct BoC Valet fetch for balance-sheet aggregate OR
-  FRED CA M2 series proxy, combined with StatCan CA nominal GDP via
-  FRED `CANRGDPEXP` or equivalent.
-- **Unblocks:** M1 CA BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1 score is
-  null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-134 — CA CPI YoY wrapper (Week 9 Sprint S surfaced)
 
-- **Priority:** MEDIUM — required input for M2 CA Taylor gap.
-- **Trigger:** Sprint S C4 `build_m2_ca_inputs` scaffold lists CA CPI
-  YoY as one of three missing inputs; TE generic `fetch_indicator("CA",
-  "inflation rate", ...)` should cover but not probed at Sprint S
-  scope. StatCan also publishes CPI via Valet-adjacent feeds.
-- **Scope:**
-  - Probe TE generic indicator for CA CPI YoY cadence + coverage.
-  - Wire `fetch_ca_cpi_yoy` wrapper on `TEConnector` with
-    source-drift guard (analogous to `fetch_ca_bank_rate` /
-    `fetch_jp_bank_rate`).
-  - Consume in `build_m2_ca_inputs` output.
-- **Unblocks:** M2 CA inflation input; combined with CAL-130 +
-  CAL-135 closes M2 CA.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-135 — CA inflation-forecast wrapper (Week 9 Sprint S surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 CA compute; BoC 2 % CPI
-  target serves as CB-target proxy until this lands.
-- **Trigger:** BoC publishes quarterly Monetary Policy Report forecast
-  series that are Valet-hosted (candidate: `MPR_INFL_EXP_4Q` family)
-  but unwired at Sprint S scope. M2 CA currently treats the 2 % target
-  as the inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
-- **Scope:**
-  - Probe Valet for BoC MPR inflation-forecast series.
-  - Wire `fetch_ca_inflation_forecast` on `BoCConnector`.
-  - Consume in `build_m2_ca_inputs` with new flag
-    `CA_INFLATION_FORECAST_BOC_MPR` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 CA second-cycle inflation input; combined with
-  CAL-130 + CAL-134 closes M2 CA.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-136 — BIS SDMX v2 API migration (CLOSED 2026-04-21 via Sprint AA)
 
@@ -1633,104 +1513,33 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-AU-GAP — AU M2 output-gap source (Week 9 Sprint T surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 AU Taylor-gap compute.
-- **Trigger:** Sprint T C4 shipped `build_m2_au_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; RBA publishes a quarterly
-  output-gap discussion in SMP technical notes but no scriptable
-  endpoint exists at Sprint T scope.
-- **Scope:**
-  - Probe OECD EO AU for cadence + coverage (canonical fallback across
-    the cascade family).
-  - Probe RBA SMP table + ABS RBANZ for any scriptable series;
-    otherwise consume the OECD EO path.
-  - Wire AU output-gap connector and populate
-    `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_au_inputs` once the resolver lands.
-- **Unblocks:** M2 AU persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-AU-M4-FCI — AU M4 FCI 5-component bundle (Week 9 Sprint T surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 AU custom-FCI compute.
-- **Trigger:** Sprint T C4 shipped `build_m4_au_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; only 10Y AGB (RBA F2
-  `FCMYGBAG10D`) and policy rate (via M1 cascade) are mappable at
-  Sprint T scope, below the `MIN_CUSTOM_COMPONENTS == 5` floor.
-- **Scope:** connectors/wrappers for the missing components:
-  - AU credit spread (BBB corp vs AGB; candidate: FRED `BAMLHYAU` or
-    RBA F3 corporate-yield series).
-  - AU vol index (no ASX VIX-analog on FRED; Yahoo `^AXVI` candidate
-    or proxy from `^VIX`).
-  - AU AUD NEER (RBA F11 nominal-TWI index).
-  - AU mortgage rate (RBA F5 lender-rates table).
-- **Unblocks:** M4 AU persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-AU-M3 — AU M3 market-expectations overlays (Week 9 Sprint T surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
-  analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA).
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
-  rows per country; Sprint T did not ship AU NSS or AU EXPINF
-  overlays (Phase 2+ scope).
-- **Scope:**
-  - AU NSS overlay persistence (RBA F2 yield-curve series family +
-    FRED `IRLTLT01AUM156N` long-end; NSS fit via existing overlay
-    module).
-  - AU EXPINF overlay persistence (RBA Indexed-Bond 10Y `FCMYGBAGID`
-    breakeven analog OR RBA 2.5 % CPI-target midpoint as CB-target
-    fallback, mirroring UK / JP / CA).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` AU path.
-- **Unblocks:** M3 AU persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-AU-BS-GDP — AU balance-sheet / GDP ratio wiring (Week 9 Sprint T surfaced)
 
-- **Priority:** LOW — closes the `AU_BS_GDP_PROXY_ZERO` flag on M1 AU.
-- **Trigger:** Sprint T C4 zero-seeded AU balance-sheet ratios because
-  RBA weekly balance-sheet aggregates (table A1 candidate) + ABS
-  nominal GDP are not wired at Sprint T scope.
-- **Scope:** RBA A1 weekly balance-sheet series (total assets) combined
-  with ABS nominal GDP via FRED `AUSGDPNAD2GDQ` or equivalent.
-- **Unblocks:** M1 AU BS/GDP signal history populated (currently seeded
-  as zeros → balance_sheet_signal contribution to M1 score is null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-AU-CPI — AU CPI YoY wrapper (Week 9 Sprint T surfaced)
 
-- **Priority:** MEDIUM — required input for M2 AU Taylor gap.
-- **Trigger:** Sprint T C4 `build_m2_au_inputs` scaffold lists AU CPI
-  YoY as one of three missing inputs; TE generic
-  `fetch_indicator("AU", "inflation rate", ...)` should cover but not
-  probed at Sprint T scope. ABS publishes quarterly CPI.
-- **Scope:**
-  - Probe TE generic indicator for AU CPI YoY cadence + coverage.
-  - Wire `fetch_au_cpi_yoy` wrapper on `TEConnector` with
-    source-drift guard (analogous to `fetch_au_cash_rate`).
-  - Consume in `build_m2_au_inputs` output.
-- **Unblocks:** M2 AU inflation input; combined with CAL-AU-GAP +
-  CAL-AU-INFL-FORECAST closes M2 AU.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-AU-INFL-FORECAST — AU inflation-forecast wrapper (Week 9 Sprint T surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 AU compute; RBA 2.5 %
-  CPI-target midpoint serves as CB-target proxy until this lands.
-- **Trigger:** RBA publishes quarterly SMP forecast tables (HTML-only)
-  but unwired at Sprint T scope. M2 AU currently treats the 2.5 %
-  target midpoint as the inflation-forecast proxy via
-  `EXPECTED_INFLATION_CB_TARGET`.
-- **Scope:**
-  - Probe RBA SMP for scriptable forecast series.
-  - Wire `fetch_au_inflation_forecast` (connector TBD — likely a
-    HTML-scrape adapter on top of `RBAConnector`).
-  - Consume in `build_m2_au_inputs` with new flag
-    `AU_INFLATION_FORECAST_RBA_SMP` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 AU second-cycle inflation input; combined with
-  CAL-AU-GAP + CAL-AU-CPI closes M2 AU.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-NZ — NZ country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint U-NZ — M1 level)
 
@@ -1814,78 +1623,26 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-NZ-M2-OUTPUT-GAP — NZ M2 output-gap source (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 NZ Taylor-gap compute.
-- **Trigger:** Sprint U-NZ C4 shipped `build_m2_nz_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`; Stats NZ +
-  the NZ Treasury (HYEFU / BEFU) publish quarterly output-gap
-  estimates but no scriptable endpoint exists at Sprint U-NZ scope.
-- **Scope:**
-  - Probe OECD EO NZ for cadence + coverage (canonical fallback
-    across the cascade family).
-  - Probe Stats NZ `infoshare` + NZ Treasury HYEFU/BEFU HTML for any
-    scriptable series; otherwise consume the OECD EO path.
-  - Wire NZ output-gap connector and populate
-    `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_nz_inputs` once the resolver lands.
-- **Unblocks:** M2 NZ persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation). Note: NZ also depends on
+  CAL-NZ-RBNZ-TABLES host-block remediation (tracked separately).
 
 ### CAL-NZ-M4-FCI — NZ M4 FCI 5-component bundle (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 NZ custom-FCI compute.
-- **Trigger:** Sprint U-NZ C4 shipped `build_m4_nz_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`; only policy
-  rate (via M1 cascade) is mappable at Sprint U-NZ scope, below the
-  `MIN_CUSTOM_COMPONENTS == 5` floor. 10Y NZ gov is available via
-  FRED (`IRLTLT01NZM156N`) monthly but not yet wired.
-- **Scope:** connectors/wrappers for the missing components:
-  - NZ credit spread (BBB corp vs NZ gov; RBNZ B5 corporate-yield
-    series candidate once host unblocks, or Bloomberg NZD credit
-    indices).
-  - NZ vol index (no NZX VIX-analog published; proxy from global
-    VIX or `^AXVI` with weighting).
-  - NZ 10Y government stock yield (RBNZ B2 weekly long-maturity
-    series pending CAL-NZ-RBNZ-TABLES; FRED `IRLTLT01NZM156N` OECD
-    mirror available monthly).
-  - NZ NZD NEER (RBNZ B14 trade-weighted index).
-  - NZ mortgage rate (RBNZ B20 lender-rates table).
-- **Unblocks:** M4 NZ persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: NZ vol-index and corporate-
+  yield components partly depend on CAL-NZ-RBNZ-TABLES.
 
 ### CAL-NZ-M3 — NZ M3 market-expectations overlays (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per
-  country; analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA) /
-  CAL-AU-M3 (AU).
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
-  rows per country; Sprint U-NZ did not ship NZ NSS or NZ EXPINF
-  overlays (Phase 2+ scope).
-- **Scope:**
-  - NZ NSS overlay persistence (RBNZ B2 yield-curve series family
-    pending host unblock + FRED `IRLTLT01NZM156N` long-end; NSS fit
-    via existing overlay module).
-  - NZ EXPINF overlay persistence (NZ inflation-indexed bond
-    breakeven, or RBNZ 2 % CPI-target midpoint as CB-target
-    fallback — mirroring UK / JP / CA / AU).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` NZ path.
-- **Unblocks:** M3 NZ persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-NZ-BS-GDP — NZ balance-sheet / GDP ratio wiring (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** LOW — closes the `NZ_BS_GDP_PROXY_ZERO` flag on M1 NZ.
-- **Trigger:** Sprint U-NZ C4 zero-seeded NZ balance-sheet ratios
-  because RBNZ balance-sheet aggregates (B5/B6 series candidate) +
-  Stats NZ nominal GDP are not wired at Sprint U-NZ scope. Stats NZ
-  `infoshare` covers NZ GDP; RBNZ balance-sheet pends
-  CAL-NZ-RBNZ-TABLES.
-- **Scope:** RBNZ B5/B6 balance-sheet series combined with Stats NZ
-  nominal GDP (or equivalent FRED mirror).
-- **Unblocks:** M1 NZ BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1 score is
-  null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: NZ balance-sheet series partly
+  depend on CAL-NZ-RBNZ-TABLES host unblock.
 
 ### CAL-CH — CH country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint V — M1 level)
 
@@ -1951,155 +1708,54 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-CH-GAP — CH M2 output-gap source (Week 9 Sprint V surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 CH Taylor-gap compute.
-- **Trigger:** Sprint V C4 shipped `build_m2_ch_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; SECO publishes the
-  quarterly KOF-SECO output gap but no scriptable endpoint exists
-  at Sprint V scope.
-- **Scope:**
-  - Probe OECD EO CH for cadence + coverage (canonical fallback
-    across the cascade family).
-  - Probe SECO macroeconomic forecast PDFs / KOF scriptable endpoints
-    for any structured series; otherwise consume the OECD EO path.
-  - Wire CH output-gap connector and populate
-    `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_ch_inputs` once the resolver lands.
-- **Unblocks:** M2 CH persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-CH-M4-FCI — CH M4 FCI 5-component bundle (Week 9 Sprint V surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 CH custom-FCI compute.
-- **Trigger:** Sprint V C4 shipped `build_m4_ch_inputs` as wire-ready
-  scaffold raising `InsufficientDataError`; only 10Y Confederation
-  (SNB `rendoblim` 10J) and policy rate (via M1 cascade) are
-  mappable at Sprint V scope, below the `MIN_CUSTOM_COMPONENTS == 5`
-  floor.
-- **Scope:** connectors/wrappers for the missing components:
-  - CH credit spread (CHF corp vs Confederation; candidate: SNB
-    `rendopa` Pfandbrief yield cube — no FRED mirror known).
-  - CH vol index (no SMI vol index on FRED; candidate: Yahoo `^VSMI`
-    which SIX/UBS co-publish, or realised-vol proxy from `^SSMI`
-    returns).
-  - CHF NEER (SNB `capaerenexch` cube or BIS Trade-Weighted indices
-    via existing `bis.py` connector).
-  - CH mortgage rate (SNB `zihypch` table — no wrapper at Sprint V
-    scope).
-- **Unblocks:** M4 CH persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: CH balance sheet is
+  structurally unusual (large forex-intervention base from 2011-2015
+  CHF-floor regime) — interpretation differs from peer countries.
 
 ### CAL-CH-M3 — CH M3 market-expectations overlays (Week 9 Sprint V surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per country;
-  analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA) / CAL-AU-M3
-  (AU).
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
-  rows per country; Sprint V did not ship CH NSS or CH EXPINF
-  overlays (Phase 2+ scope).
-- **Scope:**
-  - CH NSS overlay persistence (SNB `rendoblim` 1J-30J tenor family
-    + FRED `IRLTLT01CHM156N` long-end; NSS fit via existing overlay
-    module).
-  - CH EXPINF overlay persistence — note SNB does not issue
-    inflation-indexed Confederation bonds (no direct breakeven
-    series), so fallback is the 1 % SNB 0-2 % band midpoint (already
-    wired as `EXPECTED_INFLATION_CB_TARGET` / `CH_INFLATION_TARGET_BAND`
-    proxy).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` CH path.
-- **Unblocks:** M3 CH persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: SNB does not issue inflation-
+  indexed Confederation bonds, so EXPINF overlay relies on the
+  0-2 % SNB band midpoint (1 %) as CB-target proxy — no direct
+  breakeven series.
 
 ### CAL-CH-BS-GDP — CH balance-sheet / GDP ratio wiring (Week 9 Sprint V surfaced)
 
-- **Priority:** LOW — closes the `CH_BS_GDP_PROXY_ZERO` flag on M1 CH.
-- **Trigger:** Sprint V C4 zero-seeded CH balance-sheet ratios because
-  SNB monthly statistical bulletin (MSB Table B1A candidate) + SECO
-  nominal GDP are not wired at Sprint V scope. SNB balance sheet is
-  structurally unusual — large forex-intervention-driven asset base
-  dating from the 2011-2015 CHF-floor regime — so the zero-seed is
-  especially visible.
-- **Scope:** SNB MSB B1A monthly total assets series combined with
-  SECO nominal GDP (or equivalent FRED `CHEGDPNAD2GDQ`-style series).
-- **Unblocks:** M1 CH BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1 score is
-  null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: CH balance-sheet is
+  structurally unusual — large forex-intervention asset base dating
+  from 2011-2015 CHF-floor regime — so the zero-seed is especially
+  visible and the ratio carries a non-standard interpretation.
 
 ### CAL-NZ-CPI — NZ CPI YoY wrapper (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** MEDIUM — required input for M2 NZ Taylor gap.
-- **Trigger:** Sprint U-NZ C4 `build_m2_nz_inputs` scaffold lists NZ
-  CPI YoY as one of three missing inputs; TE generic
-  `fetch_indicator("NZ", "inflation rate", ...)` should cover but
-  not probed at Sprint U-NZ scope. Stats NZ publishes quarterly CPI.
-- **Scope:**
-  - Probe TE generic indicator for NZ CPI YoY cadence + coverage.
-  - Wire `fetch_nz_cpi_yoy` wrapper on `TEConnector` with
-    source-drift guard (analogous to `fetch_nz_ocr`).
-  - Consume in `build_m2_nz_inputs` output.
-- **Unblocks:** M2 NZ inflation input; combined with
-  CAL-NZ-M2-OUTPUT-GAP + CAL-NZ-INFL-FORECAST closes M2 NZ.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-NZ-INFL-FORECAST — NZ inflation-forecast wrapper (Week 9 Sprint U-NZ surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 NZ compute; RBNZ 2 %
-  CPI-target midpoint serves as CB-target proxy until this lands.
-- **Trigger:** RBNZ publishes quarterly Monetary Policy Statement
-  (MPS) forecast tables (HTML / PDF) but unwired at Sprint U-NZ
-  scope. M2 NZ currently treats the 2 % target midpoint as the
-  inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
-- **Scope:**
-  - Probe RBNZ MPS for scriptable forecast series (post host
-    unblock).
-  - Wire `fetch_nz_inflation_forecast` (connector TBD — likely a
-    HTML/PDF-scrape adapter on top of `RBNZConnector`).
-  - Consume in `build_m2_nz_inputs` with new flag
-    `NZ_INFLATION_FORECAST_RBNZ_MPS` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 NZ second-cycle inflation input; combined with
-  CAL-NZ-M2-OUTPUT-GAP + CAL-NZ-CPI closes M2 NZ.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: RBNZ MPS scraping partly
+  depends on CAL-NZ-RBNZ-TABLES host unblock.
 
 ### CAL-CH-CPI — CH CPI YoY wrapper (Week 9 Sprint V surfaced)
 
-- **Priority:** MEDIUM — required input for M2 CH Taylor gap.
-- **Trigger:** Sprint V C4 `build_m2_ch_inputs` scaffold lists CH CPI
-  YoY as one of three missing inputs; TE generic
-  `fetch_indicator("CH", "inflation rate", ...)` should cover but not
-  probed at Sprint V scope. SNB publishes the `cpikern` cube
-  (headline + core CPI, monthly).
-- **Scope:**
-  - Probe TE generic indicator for CH CPI YoY cadence + coverage.
-  - Probe SNB `cpikern` cube via the existing `SNBConnector` for a
-    native alternative.
-  - Wire `fetch_ch_cpi_yoy` wrapper on `TEConnector` (or
-    `SNBConnector`) with source-drift guard (analogous to
-    `fetch_ch_policy_rate`).
-  - Consume in `build_m2_ch_inputs` output.
-- **Unblocks:** M2 CH inflation input; combined with CAL-CH-GAP +
-  CAL-CH-INFL-FORECAST closes M2 CH.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-CH-INFL-FORECAST — CH inflation-forecast wrapper (Week 9 Sprint V surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 CH compute; SNB 0-2 % band
-  midpoint (1 %) serves as CB-target proxy until this lands.
-- **Trigger:** SNB publishes quarterly Monetary Policy Assessment
-  forecast tables (HTML-only) but unwired at Sprint V scope. M2 CH
-  currently treats the 1 % midpoint as the inflation-forecast proxy
-  via `EXPECTED_INFLATION_CB_TARGET` + `CH_INFLATION_TARGET_BAND`.
-- **Scope:**
-  - Probe SNB MPA for scriptable forecast series.
-  - Wire `fetch_ch_inflation_forecast` (connector TBD — likely a
-    HTML-scrape adapter on top of `SNBConnector`).
-  - Consume in `build_m2_ch_inputs` with new flag
-    `CH_INFLATION_FORECAST_SNB_MPA` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 CH second-cycle inflation input; combined with
-  CAL-CH-GAP + CAL-CH-CPI closes M2 CH.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: SNB 0-2 % band midpoint
+  (1 %) currently serves as CB-target proxy via
+  `EXPECTED_INFLATION_CB_TARGET` + `CH_INFLATION_TARGET_BAND`.
 
 ### CAL-NO — NO country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint X-NO — M1 level)
 
@@ -2154,128 +1810,44 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-NO-M2-OUTPUT-GAP — NO M2 output-gap source (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** MEDIUM — blocks M2 NO Taylor-gap compute; OECD EO NO
-  is the natural mirror path via the existing FRED connector.
-- **Trigger:** Sprint X-NO shipped `build_m2_no_inputs` as a scaffold
-  that raises `InsufficientDataError` because NO output-gap source is
-  not wired. Statistics Norway + Norges Bank's own "regional network"
-  qualitative survey contribute the domestic input set but neither
-  is scriptable at quarterly cadence within Sprint X-NO scope.
-- **Scope:** Probe FRED's OECD EO mirror for the NO output-gap
-  series (pattern: `NORGDPGAPQPANA` or similar OECD suffix); wire
-  `fetch_no_output_gap` on the FRED connector; consume via the M2 NO
-  builder. Alternative (secondary): the Statistics Norway national-
-  accounts API at `data.ssb.no/api/v0/en/table/09190` could be
-  wrapped as a SSB-native connector if OECD proves unreliable.
-- **Unblocks:** M2 NO first-cycle output-gap input; combined with
-  CAL-NO-CPI + CAL-NO-INFL-FORECAST closes M2 NO.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-NO-M4-FCI — NO M4 FCI 5-component bundle (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** MEDIUM — NO lacks an NFCI-style direct aggregator so
-  the spec §4 custom-FCI path requires ≥5 components; 2 are wired.
-- **Trigger:** Sprint X-NO shipped `build_m4_no_inputs` as a scaffold
-  that raises `InsufficientDataError` because fewer than 5 of the
-  seven FCI inputs are available. Wired at close: policy-rate M1
-  cascade + 10Y generic gov-bond yield (Norges Bank
-  `GOVT_GENERIC_RATES/B.10Y.GBON`). Pending: credit spread + vol +
-  NOK NEER + mortgage rate.
-- **Scope:**
-  - NO credit spread: BBB NOK corp vs Norwegian gov — candidates
-    Nordic Credit Rating / Nordea indices, or SSB corporate-bond
-    yield table 12132 (quarterly).
-  - NO vol index: no OSE-VIX-analog published; proxy candidate
-    realised-vol from OBX 25 Index returns via Yahoo Finance.
-  - NOK NEER: Norges Bank `EXR` dataflow publishes the TWI-based
-    effective exchange rate as `I-44`; wire-ready via an additional
-    Norges Bank DataAPI call.
-  - NO mortgage rate: SSB table 10746 tracks monthly mortgage-rate
-    averages; no wrapper at Sprint X-NO scope.
-- **Petroleum context**: Norway's oil-NOK coupling is a structural
-  feature that future NO FCI work needs to address. Brent / WTI
-  price moves propagate into NOK exchange-rate and domestic
-  petroleum-sector credit conditions within trading days — tighter
-  than any other G10 FCI-component coupling. This is Phase 2+
-  research scope, not CAL-NO-M4-FCI scope.
-- **Unblocks:** M4 NO composite computation; closes final M-sub-index
-  for NO at M1/M2/M4 level (M3 is CAL-NO-M3).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: NO has a structural oil-NOK
+  coupling (Brent/WTI moves propagate into NOK exchange-rate and
+  domestic petroleum-sector credit conditions within trading days —
+  tighter than any other G10 FCI-component coupling). This is
+  Phase 2+ research scope, not the T1-expansion scope.
 
 ### CAL-NO-M3 — NO M3 market-expectations overlays (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** LOW — M3 requires NO NSS forwards + EXPINF overlay
-  persistence which is Phase 2+ scope.
-- **Trigger:** Sprint X-NO did not ship M3 NO. Spec M3 market-
-  expectations composite requires NSS curve forwards + EXPINF series
-  resolution at daily cadence.
-- **Scope:** Wire NO NSS curve (Norges Bank publishes zero-coupon
-  yields via `SEC` dataflow — possible DB-backed landing), EXPINF
-  NO breakeven (not readily available; inflation-linked debt market
-  in Norway is thin), and consume in `MonetaryDbBackedInputsBuilder`
-  for M3 NO.
-- **Unblocks:** M3 NO composite computation.
-- **Status:** OPEN (Phase 2+).
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: inflation-linked debt market
+  in NO is thin, so NO EXPINF overlay leans heavily on CB-target
+  fallback.
 
 ### CAL-NO-BS-GDP — NO balance-sheet / GDP ratio wiring (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** LOW — closes the `NO_BS_GDP_PROXY_ZERO` flag on M1 NO.
-- **Trigger:** Sprint X-NO C4 zero-seeded NO balance-sheet ratios
-  because Norges Bank balance-sheet + Statistics Norway GDP are not
-  wired. **Special context**: Norway's GPFG (Government Pension Fund
-  Global — NOK ~16 trillion) is legally offshore-invested so the
-  domestic central-bank balance-sheet is an order of magnitude
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: Norway's GPFG (Government
+  Pension Fund Global, NOK ~16 trillion) is legally offshore-
+  invested so the domestic CB balance-sheet is an order of magnitude
   smaller than G10 peers' post-QE balances. Regime classifiers
   consuming NO BS/GDP should treat the signal with caution until a
   sovereign-fund-adjusted variant is wired (Phase 2+ research).
-- **Scope:** Norges Bank balance-sheet aggregate (dataflow TBD — the
-  `LIQUIDITY_STATISTICS` or `FINANCIAL_INDICATORS` flow are
-  candidates) combined with Statistics Norway nominal GDP (SSB
-  table 09842 — quarterly national accounts) or the equivalent FRED
-  OECD mirror.
-- **Unblocks:** M1 NO BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1 score is
-  null).
-- **Status:** OPEN.
 
 ### CAL-NO-CPI — NO CPI YoY wrapper (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** MEDIUM — blocks M2 NO inflation-gap compute; SSB
-  publishes scriptable monthly CPI.
-- **Trigger:** Sprint X-NO shipped M2 NO as a scaffold because no
-  `fetch_no_cpi_yoy` wrapper exists on either TE or FRED within
-  Sprint X-NO scope.
-- **Scope:** Probe Statistics Norway's CPI table 03013 at
-  `data.ssb.no/api/v0/en/table/03013` for a scriptable monthly CPI
-  YoY series; wire via a new SSB connector (or extend the FRED path
-  if a NORCPIALLMINMEI-equivalent exists). Consume in
-  `build_m2_no_inputs` with new flag `NO_CPI_YOY_SSB_NATIVE` or
-  `NO_CPI_YOY_FRED_OECD` depending on source.
-- **Unblocks:** M2 NO inflation input; combined with
-  CAL-NO-M2-OUTPUT-GAP + CAL-NO-INFL-FORECAST closes M2 NO.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-NO-INFL-FORECAST — NO inflation-forecast wrapper (Week 9 Sprint X-NO surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 NO compute; Norges Bank
-  2 % CPI target (post-2018) serves as CB-target proxy until this
-  lands.
-- **Trigger:** Norges Bank publishes quarterly Monetary Policy
-  Report (MPR) forecasts — PDF + HTML-hosted, unwired Sprint X-NO
-  scope. M2 NO currently treats the 2 % target as the inflation-
-  forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
-- **Scope:**
-  - Probe Norges Bank MPR landing pages + appendix tables for a
-    scriptable forecast series. MPR forecast tables are typically
-    published quarterly in PDF — no SDMX dataflow at probe.
-  - Wire `fetch_no_inflation_forecast` (connector TBD — likely a
-    HTML-scrape or PDF-parse adapter on top of the base HTTP client).
-  - Consume in `build_m2_no_inputs` with new flag
-    `NO_INFLATION_FORECAST_NB_MPR` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 NO second-cycle inflation input; combined with
-  CAL-NO-M2-OUTPUT-GAP + CAL-NO-CPI closes M2 NO.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 
 ### CAL-SE — SE country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint W-SE — M1 level)
@@ -2364,126 +1936,42 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-SE-GAP — SE M2 output-gap source (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 SE Taylor-gap compute.
-- **Trigger:** Sprint W-SE C4 shipped `build_m2_se_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`;
-  Konjunkturinstitutet (NIER) publishes the quarterly Swedish
-  output gap but no scriptable endpoint exists at Sprint W-SE scope.
-- **Scope:**
-  - Probe OECD EO SE for cadence + coverage (canonical fallback
-    across the cascade family).
-  - Probe NIER Konjunkturläget forecast PDFs / HTML tables for any
-    structured output-gap series; otherwise consume the OECD EO
-    path.
-  - Wire SE output-gap connector and populate
-    `M2TaylorGapsInputs.output_gap_pct`.
-  - Remove the scaffold `raise InsufficientDataError` in
-    `build_m2_se_inputs` once the resolver lands.
-- **Unblocks:** M2 SE persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-SE-M4-FCI — SE M4 FCI 5-component bundle (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 SE custom-FCI compute.
-- **Trigger:** Sprint W-SE C4 shipped `build_m4_se_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`; only 10Y SGB
-  via FRED `IRLTLT01SEM156N` OECD mirror (live at Sprint W-SE
-  probe) and policy rate (via M1 cascade) + corridor floor/ceiling
-  (SECBDEPOEFF / SECBLENDEFF, shipped Sprint W-SE C2) are mappable
-  at Sprint W-SE scope, below the `MIN_CUSTOM_COMPONENTS == 5`
-  floor.
-- **Scope:** connectors/wrappers for the missing components:
-  - SE credit spread (SEK corp vs SGB; candidates: Riksbank
-    Financial Market Statistics (FMÖ) or SCB credit aggregates —
-    no FRED mirror known).
-  - SE vol index (no OMXS30 vol index on FRED; candidates: Nasdaq
-    OMX's VINX30 or realised-vol proxy from `^OMXS30` returns via
-    Yahoo Finance).
-  - SEK NEER (Riksbank publishes the KIX effective exchange-rate
-    index via `SEKKIX` on Swea, or BIS Trade-Weighted indices via
-    existing `bis.py` connector).
-  - SE mortgage rate (SCB MFI lending rates — no wrapper at Sprint
-    W-SE scope; candidate: Riksbank / SCB household-lending tables).
-- **Unblocks:** M4 SE persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: SE policy corridor (deposit
+  vs lending, shipped Sprint W-SE C2 as `SECBDEPOEFF` /
+  `SECBLENDEFF`) already wired — counts as pre-existing M4 inputs
+  beyond the 5-component floor.
 
 ### CAL-SE-M3 — SE M3 market-expectations overlays (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per
-  country; analogous to CAL-105 (UK) / CAL-122 (JP) / CAL-132 (CA)
-  / CAL-AU-M3 (AU) / CAL-CH-M3 (CH).
-- **Trigger:** M3 spec §2 requires persisted NSS forwards + EXPINF
-  rows per country; Sprint W-SE did not ship SE NSS or SE EXPINF
-  overlays (Phase 2+ scope).
-- **Scope:**
-  - SE NSS overlay persistence (SGB tenor family via FRED
-    `IRLTLT01SEM156N` long-end + Riksbank Swea SGB yield series;
-    NSS fit via existing overlay module).
-  - SE EXPINF overlay persistence — Sweden does issue inflation-
-    linked government bonds (Statsobligationer SEK-denominated),
-    so breakeven construction may be feasible via SGB tenor
-    combined with inflation-linked bond yields on SCB / Riksbank.
-    Fallback: 2 % CPIF target (already wired as
-    `EXPECTED_INFLATION_CB_TARGET` proxy).
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` SE path.
-- **Unblocks:** M3 SE persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: Sweden issues inflation-
+  linked Statsobligationer (SEK-denominated), so breakeven
+  construction is feasible — more favourable than CH/NO.
 
 ### CAL-SE-BS-GDP — SE balance-sheet / GDP ratio wiring (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** LOW — closes the `SE_BS_GDP_PROXY_ZERO` flag on M1 SE.
-- **Trigger:** Sprint W-SE C4 zero-seeded SE balance-sheet ratios
-  because the Riksbank Monthly Statistical Bulletin + SCB nominal
-  GDP are not wired at Sprint W-SE scope. Riksbank balance sheet
-  expanded significantly during the 2015-2019 QE era (SGB purchases)
-  and again during COVID-19 so the zero-seed is visibly inadequate
-  for M1 balance-sheet signal contribution.
-- **Scope:** Riksbank MSB monthly total assets series combined with
-  SCB nominal GDP (or equivalent FRED `SWEGDPNAD2GDQ`-style series).
-- **Unblocks:** M1 SE BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1 score
-  is null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: Riksbank balance sheet
+  expanded significantly during 2015-2019 QE era (SGB purchases)
+  and again during COVID-19 so the zero-seed is visibly inadequate.
 
 ### CAL-SE-CPI — SE CPI / CPIF YoY wrapper (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** MEDIUM — required input for M2 SE Taylor gap.
-- **Trigger:** Sprint W-SE C4 `build_m2_se_inputs` scaffold lists
-  SE CPI / CPIF YoY as one of three missing inputs; TE generic
-  `fetch_indicator("SE", "inflation rate", ...)` should cover CPI
-  but CPIF (the target measure) may require a dedicated path. SCB
-  publishes monthly CPI + CPIF via the SCB Statistical Database
-  (`api.scb.se`).
-- **Scope:**
-  - Probe TE generic indicator for SE CPI YoY cadence + coverage.
-  - Probe SCB Statistical Database for CPIF YoY (the target measure
-    since 2017 — more appropriate than CPI for Taylor-gap compute).
-  - Wire `fetch_se_cpi_yoy` / `fetch_se_cpif_yoy` wrappers with
-    source-drift guard (analogous to `fetch_ch_policy_rate`).
-  - Consume in `build_m2_se_inputs` output.
-- **Unblocks:** M2 SE inflation input; combined with CAL-SE-GAP +
-  CAL-SE-INFL-FORECAST closes M2 SE.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: SE target measure is CPIF
+  (not CPI) since 2017 — the consolidated item's SE entry must
+  source CPIF specifically.
 
 ### CAL-SE-INFL-FORECAST — SE inflation-forecast wrapper (Week 9 Sprint W-SE surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 SE compute; Riksbank 2 %
-  CPIF-target serves as CB-target proxy until this lands.
-- **Trigger:** Riksbank publishes quarterly Monetary Policy Report
-  (MPR) forecast tables (HTML / PDF) but unwired at Sprint W-SE
-  scope. M2 SE currently treats the 2 % CPIF target as the
-  inflation-forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
-- **Scope:**
-  - Probe Riksbank MPR for scriptable forecast series.
-  - Wire `fetch_se_inflation_forecast` (connector TBD — likely a
-    HTML/PDF-scrape adapter on top of `RiksbankConnector`, or the
-    Riksbank publishes machine-readable MPR appendices).
-  - Consume in `build_m2_se_inputs` with new flag
-    `SE_INFLATION_FORECAST_RIKSBANK_MPR` (replacing the
-    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
-- **Unblocks:** M2 SE second-cycle inflation input; combined with
-  CAL-SE-GAP + CAL-SE-CPI closes M2 SE.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation).
 
 ### CAL-DK — DK country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint Y-DK — M1 level)
 
@@ -2590,69 +2078,27 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-DK-CPI — DK CPI / HICP YoY wrapper (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** MEDIUM — required input for M2 DK Taylor gap.
-- **Trigger:** Sprint Y-DK C4 `build_m2_dk_inputs` scaffold lists
-  DK CPI / HICP YoY as one of three missing inputs. Statistics
-  Denmark publishes monthly CPI + HICP via the same Statbank.dk
-  REST API Sprint Y-DK C2 already wired for the monetary tables
-  (Statbank tables PRIS113 / PRIS9).
-- **Scope:**
-  - Wire `NationalbankenConnector.fetch_cpi_yoy` /
-    `fetch_hicp_yoy` (or split off into a `StatbankConnector`
-    sibling; same `api.statbank.dk` host).
-  - Probe TE generic `fetch_indicator("DK", "inflation rate", ...)`
-    as cross-validation source.
-  - Consume in `build_m2_dk_inputs` output. **Note:** for an
-    EUR-peg country the relevant inflation measure for the
-    monetary stance is HICP (the ECB target measure) rather than
-    CPI (the domestic measure) — the M2 spec revision required
-    for EUR-peg countries (CAL-DK-M2-EUR-PEG-TAYLOR) should pin
-    HICP as primary.
-- **Unblocks:** M2 DK inflation input; combined with CAL-DK-GAP +
-  CAL-DK-INFL-FORECAST closes M2 DK.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: for an EUR-peg country the
+  relevant inflation measure for the monetary stance is HICP (the
+  ECB target measure) rather than CPI (the domestic measure) —
+  the M2 spec revision required for EUR-peg countries
+  (`CAL-DK-M2-EUR-PEG-TAYLOR`) should pin HICP as primary.
+  Statbank.dk REST API already wired Sprint Y-DK C2 for the
+  monetary tables; CPI / HICP add-ons reuse same host.
 
 ### CAL-DK-GAP — DK M2 output-gap source (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** MEDIUM — unblocks M2 DK Taylor-gap compute.
-- **Trigger:** Sprint Y-DK C4 shipped `build_m2_dk_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`; Statistics
-  Denmark + EU Commission DG-ECFIN publish the Danish output gap
-  quarterly but no scriptable endpoint exists at Sprint Y-DK
-  scope.
-- **Scope:**
-  - Probe OECD EO DK for cadence + coverage (canonical fallback
-    across the cascade family — same path SE/NO use).
-  - Probe Statistics Denmark for any structured output-gap series
-    on Statbank (NATR-prefixed national-accounts tables).
-  - Wire DK output-gap connector and populate
-    `M2TaylorGapsInputs.output_gap_pct`.
-- **Unblocks:** M2 DK persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M2-T1-OUTPUT-GAP-EXPANSION` on
+  2026-04-22 (Week 10 Day 0 consolidation).
 
 ### CAL-DK-INFL-FORECAST — DK inflation-forecast wrapper (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** LOW — nice-to-have for M2 DK compute; the ECB-
-  imported 2 % HICP target serves as proxy until this lands.
-- **Trigger:** Nationalbanken publishes "Outlook for the Danish
-  Economy" twice a year (PDF/HTML) but unwired at Sprint Y-DK
-  scope. M2 DK currently treats the imported ECB 2 % HICP target
-  as the inflation-forecast proxy via
-  `DK_INFLATION_TARGET_IMPORTED_FROM_EA`.
-- **Scope:**
-  - Probe Nationalbanken Outlook publication for scriptable
-    forecast series.
-  - Consider importing the ECB Survey of Professional Forecasters
-    EA-area inflation forecast as a structurally consistent
-    proxy (since DK inflation expectations are EUR-peg-anchored).
-  - Wire `fetch_dk_inflation_forecast` and consume in
-    `build_m2_dk_inputs` with new flag
-    `DK_INFLATION_FORECAST_NATIONALBANKEN_OUTLOOK` (or
-    `DK_INFLATION_FORECAST_ECB_SPF_PROXY` if the ECB SPF path is
-    chosen).
-- **Unblocks:** M2 DK second-cycle inflation input; combined with
-  CAL-DK-GAP + CAL-DK-CPI closes M2 DK.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-CPI-INFL-T1-WRAPPERS` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: consider importing the ECB
+  SPF EA-area inflation forecast as a structurally consistent
+  proxy (DK inflation expectations are EUR-peg-anchored). Current
+  proxy flag: `DK_INFLATION_TARGET_IMPORTED_FROM_EA`.
 
 ### CAL-DK-M2-EUR-PEG-TAYLOR — DK M2 spec revision for EUR-peg regime (Week 9 Sprint Y-DK surfaced)
 
@@ -2684,30 +2130,13 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-DK-M4-FCI — DK M4 FCI 5-component bundle (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** MEDIUM — unblocks M4 DK custom-FCI compute.
-- **Trigger:** Sprint Y-DK C4 shipped `build_m4_dk_inputs` as
-  wire-ready scaffold raising `InsufficientDataError`; only 10Y
-  DGB via FRED `IRLTLT01DKM156N` OECD mirror (live at Sprint
-  Y-DK probe) and policy rate (via M1 cascade) + corridor floor /
-  ceiling (OFONAA / OIRNAA, shipped Sprint Y-DK C2) are mappable
-  at Sprint Y-DK scope, below the `MIN_CUSTOM_COMPONENTS == 5`
-  floor.
-- **Scope:** connectors/wrappers for the missing components:
-  - DK credit spread (DKK corp vs DGB; candidates: Nationalbanken
-    Financial Markets statistics (FNOR) or Statistics Denmark
-    credit aggregates — no FRED mirror known).
-  - DK vol index (no OMXC25 vol index on FRED; candidates: a
-    realised-vol proxy from `^OMXC25` returns via Yahoo Finance).
-  - DKK NEER (Nationalbanken publishes the effective exchange-
-    rate index; the EUR-peg keeps DKK NEER tightly coupled to
-    EUR NEER so a pragmatic alternative is the BIS Trade-Weighted
-    indices via existing `bis.py` connector).
-  - DK mortgage rate (Statbank MFI lending rates — candidate:
-    Nationalbanken DNREALKM or Statistics Denmark MFI-prefixed
-    tables).
-- **Unblocks:** M4 DK persistence end-to-end (numerically — see
-  CAL-DK-M4-EUR-PEG-FCI for signal-validity).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M4-T1-FCI-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation) for the **numerical** path. Note:
+  the EUR-peg keeps DKK NEER tightly coupled to EUR NEER — the
+  BIS Trade-Weighted path via existing `bis.py` is a pragmatic
+  shortcut over a dedicated Nationalbanken NEER connector.
+  Signal-validity for an EUR-peg country tracked separately via
+  `CAL-DK-M4-EUR-PEG-FCI` (Phase 2+ research scope).
 
 ### CAL-DK-M4-EUR-PEG-FCI — DK M4 FCI hybrid DK + EA-area (Week 9 Sprint Y-DK surfaced)
 
@@ -2734,49 +2163,21 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 
 ### CAL-DK-M3 — DK M3 market-expectations overlays (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** LOW — M3 depends on L2 persisted overlays per
-  country; analogous to CAL-105 (UK) / CAL-122 (JP) /
-  CAL-132 (CA) / CAL-AU-M3 / CAL-CH-M3 / CAL-SE-M3.
-- **Trigger:** M3 spec §2 requires persisted NSS forwards +
-  EXPINF rows per country; Sprint Y-DK did not ship DK NSS or DK
-  EXPINF overlays (Phase 2+ scope).
-- **Scope:**
-  - DK NSS overlay persistence (DGB tenor family via FRED
-    `IRLTLT01DKM156N` long-end + Nationalbanken DGB yield series
-    if available; NSS fit via existing overlay module).
-  - DK EXPINF overlay persistence — Denmark issues inflation-
-    linked government bonds (Indeksoblig) so breakeven
-    construction may be feasible. **Note:** for an EUR-peg
-    country, the structurally consistent EXPINF anchor is the
-    ECB EXPINF (already wired via the EA path) — the DK domestic
-    breakeven serves as an additional cross-validation source
-    rather than the primary anchor.
-  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` DK path.
-- **Unblocks:** M3 DK persistence end-to-end.
-- **Status:** OPEN.
+- **Status:** merged into `CAL-M3-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: for an EUR-peg country the
+  structurally consistent EXPINF anchor is the ECB EXPINF (already
+  wired via the EA path); the DK domestic Indeksoblig breakeven
+  serves as cross-validation rather than primary.
 
 ### CAL-DK-BS-GDP — DK balance-sheet / GDP ratio wiring (Week 9 Sprint Y-DK surfaced)
 
-- **Priority:** LOW — closes the `DK_BS_GDP_PROXY_ZERO` flag on
-  M1 DK.
-- **Trigger:** Sprint Y-DK C4 zero-seeded DK balance-sheet
-  ratios because the Nationalbanken Monthly Statistical Bulletin
-  + Statistics Denmark nominal GDP are not wired at Sprint Y-DK
-  scope. Nationalbanken balance sheet expanded during the
-  2015-2022 EUR-peg defence (FX intervention) and again during
-  COVID-19 — the zero-seed is visibly inadequate for M1 BS
-  signal contribution. Note: for an EUR-peg country the
-  Nationalbanken BS dynamic is dominated by FX-intervention
-  flow (DKK reserves built up to defend the peg during EA QE
-  era; partially unwound 2022-2025) rather than QE per se — a
-  DK-specific reading may be required.
-- **Scope:** Nationalbanken MSB monthly total-assets series
-  combined with Statistics Denmark nominal GDP (or equivalent
-  FRED `DNKGDPNAD2GDQ`-style series).
-- **Unblocks:** M1 DK BS/GDP signal history populated (currently
-  seeded as zeros → balance_sheet_signal contribution to M1
-  score is null).
-- **Status:** OPEN.
+- **Status:** merged into `CAL-BS-GDP-T1-EXPANSION` on 2026-04-22
+  (Week 10 Day 0 consolidation). Note: for an EUR-peg country the
+  Nationalbanken BS dynamic is dominated by FX-intervention flow
+  (DKK reserves built up to defend the peg during EA QE era;
+  partially unwound 2022-2025) rather than QE per se — a
+  DK-specific signal interpretation may be required even once the
+  numerical wiring lands.
 
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
@@ -2831,6 +2232,150 @@ Items encontrados em grep mas **não catalogáveis** como calibration tasks one-
 - [`../specs/conventions/methodology-versions.md`](../specs/conventions/methodology-versions.md) — bump rules
 - [`../specs/conventions/normalization.md`](../specs/conventions/normalization.md) — lookbacks per cycle
 - [`../specs/conventions/composite-aggregation.md`](../specs/conventions/composite-aggregation.md) — Policy 1 + cycle weights
+
+## Consolidated T1 expansion items (Phase 2 scope)
+
+Week 9 introduced ~46 country-specific sub-CALs as the advanced-economy
+monetary M1 arc shipped (CA / AU / NZ / CH / SE / NO / DK × 6-7 sub-
+shapes each). Week 10 Day 0 grooming consolidates these per-country
+copies into 5 generic T1-expansion items — the work is genuinely
+uniform per country (same data-source pattern, same wire-ready
+scaffold, same `InsufficientDataError` escape) and does not benefit
+from per-country tracking once parent M2 T1 Core items (CAL-119 /
+CAL-129 / CAL-AU / CAL-NZ / CAL-CH / CAL-SE / CAL-NO / CAL-DK) capture
+the per-country partial closure. Country-specific context preserved
+as sub-bullets below when it differs materially from peer countries.
+
+**Not consolidated** (material scope difference, tracked separately):
+
+- `CAL-120..126` (JP) — already opened at M2 T1 Core level; merged
+  here alongside Week 9 peer countries.
+- `CAL-NZ-RBNZ-TABLES` — RBNZ host perimeter-block remediation
+  (NZ-specific infrastructure; NOT a calibration/data-source item in
+  the T1 expansion sense).
+- `CAL-124` (BoJ TSD browser-gate bypass) — JP-specific scraper
+  problem; tracked separately.
+- `CAL-125` (JP 10Y JGB FRED path) — JP-specific FRED routing;
+  tracked separately.
+- `CAL-DK-M2-EUR-PEG-TAYLOR` + `CAL-DK-M4-EUR-PEG-FCI` — DK EUR-peg
+  regime is structural (Danmarks Nationalbanken imports ECB DFR
+  target), not a variant of generic M2/M4 T1 expansion; tracked
+  separately under DK parent item.
+
+### CAL-M2-T1-OUTPUT-GAP-EXPANSION — M2 Taylor-gap output-gap connectors for T1 countries (Phase 2)
+
+- **Priority:** MEDIUM — unblocks M2 T1 uniformity (Phase 2 gate).
+- **Scope:** OECD Economic Outlook / per-country statistics office
+  output-gap connectors for 8 T1 countries beyond US/EA (JP + CA +
+  AU + NZ + CH + SE + NO + DK). Populates
+  `M2TaylorGapsInputs.output_gap_pct`. Removes the wire-ready-scaffold
+  `raise InsufficientDataError` in each country's
+  `build_m2_<country>_inputs`.
+- **Sources per country (reference):**
+  - JP — OECD EO JP mirror or BoJ Tankan proxy.
+  - CA — BoC Valet `DMREST_SEGP_GAP` candidate or OECD EO CA.
+  - AU — OECD EO AU or RBA statistical tables.
+  - NZ — RBNZ OCR gap series (blocked on `CAL-NZ-RBNZ-TABLES`) or
+    OECD EO NZ.
+  - CH — OECD EO CH (SNB doesn't publish; sanctioned proxy).
+  - SE — Konjunkturinstitutet potential GDP vs Statistics Sweden
+    actual, or OECD EO SE.
+  - NO — OECD EO NO or Statistics Norway.
+  - DK — OECD EO DK.
+- **Unblocks:** M2 Taylor-gap compute across T1 (Phase 2 gate). For DK,
+  works alongside `CAL-DK-M2-EUR-PEG-TAYLOR` (structural spec revision
+  for EUR-peg regime, preserved separately).
+- **Replaces:** `CAL-120`, `CAL-130`, `CAL-AU-GAP`,
+  `CAL-NZ-M2-OUTPUT-GAP`, `CAL-CH-GAP`, `CAL-SE-GAP`,
+  `CAL-NO-M2-OUTPUT-GAP`, `CAL-DK-GAP` (8 items → 1).
+
+### CAL-M3-T1-EXPANSION — M3 market-expectations overlays for T1 countries (Phase 2)
+
+- **Priority:** MEDIUM — unblocks M3 T1 uniformity (Phase 2 gate).
+  Dependent on CAL-138 (curves multi-country) for forward curves per
+  country.
+- **Scope:** `MarketExpectationsInputs` assembly for 8 T1 countries
+  beyond US/EA (JP + CA + AU + NZ + CH + SE + NO + DK). Sources:
+  - NSS forwards from curves per country (gated by CAL-138).
+  - SPF / central-bank survey of inflation forecasts per market
+    (BoJ Tankan, BoC MPR, RBA SoMP, RBNZ MPS, SNB GDP+CPI projections,
+    Konjunkturinstitutet, Norges Bank MPR, Danish Economic Council).
+  - OIS / FRA / swap rates per currency (ECB EUR, GBP, JPY, CAD, AUD,
+    NZD, CHF, SEK, NOK, DKK).
+- **Unblocks:** M3 compute across T1. Central dependency: CAL-138
+  curves.
+- **Replaces:** `CAL-122`, `CAL-132`, `CAL-AU-M3`, `CAL-NZ-M3`,
+  `CAL-CH-M3`, `CAL-SE-M3`, `CAL-NO-M3`, `CAL-DK-M3`
+  (8 items → 1).
+
+### CAL-M4-T1-FCI-EXPANSION — M4 FCI 5-component bundles for T1 countries (Phase 2.5)
+
+- **Priority:** LOW-MEDIUM — Phase 2.5 scope (T2-uniform FCI after
+  Phase 2 M1/M2/M3 completion).
+- **Scope:** FCI 5-component bundle per country:
+  1. Real 10Y yield → NSS real yields by country (US TIPS; EA BEI-
+     based; GB ILG; others — synthetic via breakeven if no linker).
+  2. VIX-equivalent per country — national equity-vol index (VSTOXX
+     for EA/GB; VIX for US; Nikkei VIX for JP; no clean equivalent
+     CA/AU/NZ/CH/SE/NO/DK — use pooled proxy with `F4_COVERAGE_SPARSE`
+     flag).
+  3. Credit spread per country (IBoxx corporate vs sovereign, or
+     country-specific equivalent).
+  4. NEER (Nominal Effective Exchange Rate) per country (BIS NEER or
+     native CB NEER).
+  5. Financial-conditions proxy (equity-bond correlation or similar).
+- **Unblocks:** M4 composite cross-country FCI (Phase 2.5 gate).
+- **Replaces:** `CAL-121`, `CAL-131`, `CAL-AU-M4-FCI`,
+  `CAL-NZ-M4-FCI`, `CAL-CH-M4-FCI`, `CAL-SE-M4-FCI`, `CAL-NO-M4-FCI`,
+  `CAL-DK-M4-FCI` (8 items → 1). Does NOT replace
+  `CAL-DK-M4-EUR-PEG-FCI` (DK EUR-peg hybrid preserved separately).
+
+### CAL-BS-GDP-T1-EXPANSION — Central-bank balance-sheet / GDP ratio for T1 countries (Phase 2.5)
+
+- **Priority:** LOW — M4 FCI nice-to-have signal (QE / QT intensity).
+- **Scope:** `<country>_BS_GDP` signal per country — central-bank
+  balance sheet (CB assets in LCU) ÷ nominal GDP (LCU, quarterly).
+  Replaces the per-country `<CC>_BS_GDP_PROXY_ZERO` flag currently
+  emitted as placeholder.
+- **Sources per country:**
+  - JP — BoJ balance sheet statistics.
+  - CA — BoC weekly statement + StatCan GDP.
+  - AU — RBA statistical tables D3 + ABS GDP.
+  - NZ — RBNZ balance sheet + StatsNZ GDP.
+  - CH — SNB monthly bulletin + SECO GDP.
+  - SE — Riksbank balance sheet + SCB GDP.
+  - NO — Norges Bank balance sheet + StatsNorway GDP.
+  - DK — Danmarks Nationalbanken balance sheet + DST GDP.
+- **Unblocks:** M4 FCI signal breadth; proper QE/QT intensity
+  measurement cross-country.
+- **Replaces:** `CAL-123`, `CAL-133`, `CAL-AU-BS-GDP`,
+  `CAL-NZ-BS-GDP`, `CAL-CH-BS-GDP`, `CAL-SE-BS-GDP`, `CAL-NO-BS-GDP`,
+  `CAL-DK-BS-GDP` (8 items → 1).
+
+### CAL-CPI-INFL-T1-WRAPPERS — CPI YoY + inflation-forecast wrappers for T1 countries (Phase 2)
+
+- **Priority:** MEDIUM — unblocks M2 Taylor rule (inflation-gap) + M3
+  market-expectations across T1.
+- **Scope:** Per-country YoY-CPI extractor (native CB or statistics
+  office source; falls back to OECD / FRED mirror) + inflation-
+  forecast wrapper (central-bank projection / SPF / Consensus
+  Economics).
+- **Sources per country:**
+  - JP — Statistics Bureau CPI + BoJ outlook forecast.
+  - CA — StatCan CPI + BoC MPR forecast.
+  - AU — ABS CPI + RBA SoMP forecast.
+  - NZ — StatsNZ CPI + RBNZ MPS forecast.
+  - CH — BfS CPI + SNB inflation forecast.
+  - SE — SCB CPIF (not CPI — Riksbank target is CPIF) + NIER forecast.
+  - NO — StatsNorway CPI-ATE + Norges Bank MPR forecast.
+  - DK — DST CPI / HICP + Economic Council forecast.
+- **Unblocks:** Native CPI feed per country (demotes FRED OECD mirror
+  fallback); inflation-forecast surface for M3 / M2 tooling.
+- **Replaces:** `CAL-126`, `CAL-134`, `CAL-135`, `CAL-AU-CPI`,
+  `CAL-AU-INFL-FORECAST`, `CAL-NZ-CPI`, `CAL-NZ-INFL-FORECAST`,
+  `CAL-CH-CPI`, `CAL-CH-INFL-FORECAST`, `CAL-SE-CPI`,
+  `CAL-SE-INFL-FORECAST`, `CAL-NO-CPI`, `CAL-NO-INFL-FORECAST`,
+  `CAL-DK-CPI`, `CAL-DK-INFL-FORECAST` (15 items → 1).
 
 ### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion)
 
