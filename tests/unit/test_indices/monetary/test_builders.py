@@ -40,6 +40,7 @@ from sonar.indices.monetary.builders import (
     build_m2_ca_inputs,
     build_m2_ch_inputs,
     build_m2_dk_inputs,
+    build_m2_ea_inputs,
     build_m2_gb_inputs,
     build_m2_jp_inputs,
     build_m2_no_inputs,
@@ -3226,13 +3227,21 @@ class TestMonetaryInputsBuilderFacade:
             await builder.build_m4_inputs("JP", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
-    async def test_m2_ea_raises(self) -> None:
+    async def test_m2_ea_routes_to_aggregate_builder_post_sprint_l(self) -> None:
+        """Sprint L flipped EA aggregate M2 to live compute.
+
+        Pre-Sprint-L this test asserted NotImplementedError; the CAL item
+        (CAL-M2-EA-AGGREGATE) is now closed so the dispatch must route
+        to :func:`build_m2_ea_inputs`. Absent ancillary connectors
+        (te / oecd_eo) the helper surfaces ``InsufficientDataError``
+        from the CPI branch — not ``NotImplementedError``.
+        """
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        with pytest.raises(NotImplementedError, match="EA"):
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("EA", date(2024, 12, 31))
 
     @pytest.mark.asyncio
@@ -3246,13 +3255,16 @@ class TestMonetaryInputsBuilderFacade:
             await builder.build_m4_inputs("EA", date(2024, 12, 31))
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "NL", "PT", "EA"])
+    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "NL", "PT"])
     async def test_m2_unsupported_ea_country_references_phase_2_backlog(self, country: str) -> None:
-        """Sprint F Week 10: M2 EA + per-country EA members are deferred to Phase 2+.
+        """Sprint F + Sprint L: M2 per-country EA members are deferred to Phase 2+.
 
-        Sprint F completed the non-EA T1 countries (US + 9 live). EA
-        members and EA aggregate M2 live compute are out of scope — the
-        raise message redirects operators to the CAL items.
+        Sprint F completed the non-EA T1 countries (US + 9 live).
+        Sprint L (CAL-M2-EA-AGGREGATE) flipped EA aggregate to live
+        compute — EA is therefore no longer in this parametrize set.
+        Per-country EA members (DE / FR / IT / ES / NL / PT) remain out
+        of scope pending a country-specific reaction-function spec; the
+        raise message redirects operators to :cal:`CAL-M2-EA-PER-COUNTRY`.
         """
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
@@ -3263,7 +3275,32 @@ class TestMonetaryInputsBuilderFacade:
             await builder.build_m2_inputs(country, date(2024, 12, 31))
         message = str(excinfo.value)
         assert "CAL-M2-EA-PER-COUNTRY" in message
-        assert "CAL-M2-EA-AGGREGATE" in message
+        # EA aggregate is NO LONGER deferred post-Sprint-L — the
+        # NotImplementedError message should not point operators at the
+        # closed CAL item for the per-country members' gap.
+        assert "CAL-M2-EA-AGGREGATE" not in message
+
+    @pytest.mark.asyncio
+    async def test_m2_ea_aggregate_now_implemented_post_sprint_l(self) -> None:
+        """Sprint L: EA aggregate M2 dispatches (not raises) post-Sprint-L.
+
+        Counter-test to the per-country members guard above — the EA
+        aggregate dispatch must not raise ``NotImplementedError`` even
+        when the ancillary connectors (te / oecd_eo) are absent; the
+        raise instead surfaces ``InsufficientDataError`` from the
+        Sprint F full-compute helper when a required input is missing.
+        """
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            # te + oecd_eo deliberately None → expect InsufficientDataError
+            # on the HICP branch, NOT NotImplementedError on dispatch.
+        )
+        with pytest.raises((InsufficientDataError, NotImplementedError)) as excinfo:
+            await builder.build_m2_inputs("EA", date(2024, 12, 31))
+        # Must not be NotImplementedError — EA is now a routed country.
+        assert not isinstance(excinfo.value, NotImplementedError)
 
 
 # ---------------------------------------------------------------------------
@@ -3747,3 +3784,253 @@ class TestBuildM2SprintFFlipped:
             history_years=2,
         )
         assert "SE_M2_CPI_HEADLINE_NOT_CPIF" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint L — M2 EA aggregate builder (CAL-M2-EA-AGGREGATE)
+# ---------------------------------------------------------------------------
+
+
+class _FakeTESprintL:
+    """Fake TEConnector for the EA aggregate M2 builder.
+
+    Registers ``fetch_ea_hicp_yoy`` + ``fetch_ea_inflation_forecast``
+    on the instance so :func:`build_m2_ea_inputs` can dispatch through
+    the Sprint L wrappers without touching the live TE API.
+    """
+
+    def __init__(
+        self,
+        *,
+        hicp_pct: float = 2.4,
+        forecast_12m_pct: float = 2.1,
+        hicp_available: bool = True,
+        forecast_available: bool = True,
+        hicp_obs_count: int = 24,
+    ) -> None:
+        self.hicp_pct = hicp_pct
+        self.forecast_12m_pct = forecast_12m_pct
+        self.hicp_available = hicp_available
+        self.forecast_available = forecast_available
+        self.hicp_obs_count = hicp_obs_count
+
+        async def _hicp(start: date, end: date) -> list[_FakeTEIndicatorObs]:
+            if not self.hicp_available:
+                msg = "TE returned empty series: country='EA' indicator='inflation rate'"
+                raise DataUnavailableError(msg)
+            out: list[_FakeTEIndicatorObs] = []
+            d = end
+            count = 0
+            while count < self.hicp_obs_count and d >= start:
+                out.insert(
+                    0,
+                    _FakeTEIndicatorObs(
+                        observation_date=d,
+                        value=self.hicp_pct,
+                        historical_data_symbol="ECCPEMUY",
+                    ),
+                )
+                d = date.fromordinal(d.toordinal() - 30)
+                count += 1
+            return out
+
+        async def _forecast(observation_date: date) -> _FakeTEInflationForecast:
+            if not self.forecast_available:
+                msg = "TE forecast empty: country='EA' indicator='inflation rate'"
+                raise DataUnavailableError(msg)
+            return _FakeTEInflationForecast(
+                country="EA",
+                historical_data_symbol="ECCPEMUY",
+                latest_value_pct=self.hicp_pct,
+                latest_value_date=observation_date,
+                forecast_12m_pct=self.forecast_12m_pct,
+                forecast_12m_date=observation_date,
+                forecast_year_end_pct=self.forecast_12m_pct,
+            )
+
+        self.fetch_ea_hicp_yoy = _hicp
+        self.fetch_ea_inflation_forecast = _forecast
+
+
+class TestBuildM2Ea:
+    """Sprint L — EA aggregate M2 Taylor-gap builder (CAL-M2-EA-AGGREGATE)."""
+
+    @pytest.mark.asyncio
+    async def test_full_compute_live_happy_path(self) -> None:
+        """All four components present → builder returns with FULL_COMPUTE_LIVE."""
+        ecb = _FakeEcbConnector(dfr_pct=3.0)
+        te = _FakeTESprintL(hicp_pct=2.4, forecast_12m_pct=2.1)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5, ref_area="EA17")
+        inputs = await build_m2_ea_inputs(
+            ecb,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "EA"
+        assert inputs.observation_date == date(2024, 12, 31)
+        # Decimal unit conventions: TE pct-values → /100 at the builder
+        # boundary; target + r* come from YAML in decimal already.
+        assert inputs.policy_rate_pct == pytest.approx(0.03)
+        assert inputs.inflation_yoy_pct == pytest.approx(0.024)
+        assert inputs.inflation_forecast_2y_pct == pytest.approx(0.021)
+        assert inputs.inflation_target_pct == pytest.approx(0.02)  # ECB 2 %
+        assert inputs.r_star_pct == pytest.approx(-0.005)  # HLW EA Q4 2024
+        assert inputs.output_gap_pct == pytest.approx(-0.5)
+        assert inputs.output_gap_source == "OECD_EO"
+        # Flag contract — mirror Sprint F uniform naming; EA-specific
+        # DFR-source marker sits alongside the standard observability set.
+        assert "EA_M2_POLICY_RATE_ECB_DFR_LIVE" in inputs.upstream_flags
+        assert "EA_M2_CPI_TE_LIVE" in inputs.upstream_flags
+        assert "EA_M2_INFLATION_FORECAST_TE_LIVE" in inputs.upstream_flags
+        assert "EA_M2_OUTPUT_GAP_OECD_EO_LIVE" in inputs.upstream_flags
+        assert "EA_M2_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+        # r* for EA is non-proxy — the HLW series is native, so no flag.
+        assert "R_STAR_PROXY" not in inputs.upstream_flags
+        # Source connectors — ECB DFR first, then te + oecd_eo via helper.
+        assert inputs.source_connector[0] == "ecb_sdw"
+        assert "te" in inputs.source_connector
+        assert "oecd_eo" in inputs.source_connector
+
+    @pytest.mark.asyncio
+    async def test_hicp_missing_raises_insufficient_data(self) -> None:
+        """HICP unavailable → InsufficientDataError (Taylor compute requires CPI)."""
+        ecb = _FakeEcbConnector(dfr_pct=3.0)
+        te = _FakeTESprintL(hicp_available=False)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5, ref_area="EA17")
+        with pytest.raises(InsufficientDataError, match="CPI YoY unavailable"):
+            await build_m2_ea_inputs(
+                ecb,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_output_gap_missing_raises_insufficient_data(self) -> None:
+        """OECD EO EA17 unavailable → InsufficientDataError."""
+        ecb = _FakeEcbConnector(dfr_pct=3.0)
+        te = _FakeTESprintL()
+        oecd = _FakeOECDEOUnavailable()
+        with pytest.raises(InsufficientDataError, match="output gap unavailable"):
+            await build_m2_ea_inputs(
+                ecb,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_forecast_missing_ships_partial_compute(self) -> None:
+        """Forecast unavailable → PARTIAL_COMPUTE flag; Taylor-forward deferred."""
+        ecb = _FakeEcbConnector(dfr_pct=3.0)
+        te = _FakeTESprintL(forecast_available=False)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5, ref_area="EA17")
+        inputs = await build_m2_ea_inputs(
+            ecb,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.inflation_forecast_2y_pct is None
+        assert "EA_M2_INFLATION_FORECAST_UNAVAILABLE" in inputs.upstream_flags
+        assert "EA_M2_PARTIAL_COMPUTE" in inputs.upstream_flags
+        assert "EA_M2_FULL_COMPUTE_LIVE" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_dfr_missing_raises_insufficient_data(self) -> None:
+        """Policy-rate source (ECB DFR) empty → InsufficientDataError."""
+
+        class _FakeEcbEmpty:
+            async def fetch_dfr_rate(self, start: date, end: date) -> list[_Obs]:
+                _ = (start, end)  # unused stub
+                return []
+
+        te = _FakeTESprintL()
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5, ref_area="EA17")
+        with pytest.raises(InsufficientDataError, match="ECB DFR unavailable"):
+            await build_m2_ea_inputs(
+                _FakeEcbEmpty(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_facade_dispatches_ea_m2_to_new_builder(self) -> None:
+        """MonetaryInputsBuilder routes EA M2 to :func:`build_m2_ea_inputs`."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(dfr_pct=3.0),  # type: ignore[arg-type]
+            te=_FakeTESprintL(),  # type: ignore[arg-type]
+            oecd_eo=_FakeOECDEOSuccess(gap_pct=-0.5, ref_area="EA17"),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m2_inputs("EA", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "EA"
+        assert "EA_M2_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+        assert inputs.output_gap_source == "OECD_EO"
+
+
+class TestSprintLUsBaselineGuard:
+    """Sprint L HALT-3 regression guard: US M2 canonical compute invariant.
+
+    Sprint L added EA aggregate M2 on top of the Sprint F full-compute
+    helper; the US builder was intentionally not touched (CBO GDPPOT
+    quarterly remains strictly better than OECD EO annual for US). This
+    class re-asserts that the US signature, dispatch, and output
+    contract are unchanged post-Sprint-L.
+    """
+
+    @pytest.mark.asyncio
+    async def test_us_builder_signature_unchanged_no_regression(self) -> None:
+        """US M2 builder stays CBO-primary post-Sprint-L — no oecd_eo kwarg."""
+        import inspect  # noqa: PLC0415
+
+        from sonar.indices.monetary.builders import (  # noqa: PLC0415
+            build_m2_us_inputs,
+        )
+
+        sig = inspect.signature(build_m2_us_inputs)
+        assert "oecd_eo" not in sig.parameters
+        assert sig.parameters["cbo"].kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,)
+        # Sprint L did not add EA-specific kwargs to the US builder.
+        assert "ecb_sdw" not in sig.parameters
+        assert "te" not in sig.parameters
+
+    @pytest.mark.asyncio
+    async def test_us_dispatches_through_facade_unchanged_post_sprint_l(self) -> None:
+        """Facade US branch still routes through :func:`build_m2_us_inputs`.
+
+        Sprint L HALT-3 regression guard — verifies no US path leakage
+        through the EA branch added this sprint. Uses the same fakes as
+        Sprint F's regression guard so any breakage surfaces as a diff
+        against the exact-same inputs.
+        """
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            # Inject Sprint L fakes to ensure none leak into the US path.
+            te=_FakeTESprintL(),  # type: ignore[arg-type]
+            oecd_eo=_FakeOECDEOSuccess(gap_pct=-0.5, ref_area="USA"),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m2_inputs("US", date(2024, 1, 2), history_years=2)
+        assert inputs.country_code == "US"
+        assert inputs.output_gap_source == "CBO"
+        # US canonical path uses ("fred", "cbo") — no te, no oecd_eo, no ecb_sdw.
+        assert inputs.source_connector == ("fred", "cbo")
+        # r_star from YAML — not proxy for US.
+        assert "R_STAR_PROXY" not in inputs.upstream_flags
+        # Forecast proxy flag — Sprint L did not change US forecast source.
+        assert "INFLATION_FORECAST_PROXY_UMICH" in inputs.upstream_flags
+        # Sprint L flags (any) must not leak into US compute.
+        for flag in inputs.upstream_flags:
+            assert not flag.startswith("US_M2_")
+            assert not flag.startswith("EA_M2_")
+            assert not flag.startswith("POLICY_RATE_ECB_DFR")

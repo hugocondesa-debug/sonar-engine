@@ -89,6 +89,7 @@ __all__ = [
     "build_m2_ca_inputs",
     "build_m2_ch_inputs",
     "build_m2_dk_inputs",
+    "build_m2_ea_inputs",
     "build_m2_gb_inputs",
     "build_m2_jp_inputs",
     "build_m2_no_inputs",
@@ -721,6 +722,93 @@ async def build_m1_ea_inputs(
         lookback_years=history_years,
         source_connector=("ecb_sdw",),
         upstream_flags=("EXPECTED_INFLATION_PROXY",),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — EA aggregate (Week 10 Sprint L — CAL-M2-EA-AGGREGATE)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_ea_inputs(
+    ecb_sdw: EcbSdwConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    oecd_eo: OECDEOConnector | None = None,
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
+) -> M2TaylorGapsInputs:
+    """Assemble M2 EA aggregate inputs — full compute live (Sprint L).
+
+    Week 10 Sprint L (CAL-M2-EA-AGGREGATE) wires the EA aggregate M2
+    Taylor-gap compute on top of the Sprint F full-compute helper.
+    Composition:
+
+    1. **Policy rate** — ECB Deposit Facility Rate via
+       :meth:`EcbSdwConnector.fetch_dfr_rate`. No cascade (DFR is the
+       canonical ECB instrument — no fallback source wires into the
+       Taylor rule). Cascade flag is a single-source marker
+       ``EA_M2_POLICY_RATE_ECB_DFR_LIVE``.
+    2. **HICP YoY** — Eurostat Monetary Union HICP via the Sprint L
+       :meth:`TEConnector.fetch_ea_hicp_yoy` wrapper (symbol
+       ``ECCPEMUY``, monthly cadence from 1991-01-31). Semantically
+       HICP rather than per-country CPI; the helper's flag naming
+       (``EA_M2_CPI_TE_LIVE``) is retained for uniformity with the 9
+       Sprint F per-country builders — the methodology distinction is
+       captured in the wrapper's docstring, not the flag.
+    3. **Output gap** — OECD EO aggregate via
+       :meth:`OECDEOConnector.fetch_latest_output_gap` with the EA →
+       EA17 mapping established in Sprint C (EA19 / EA20 return
+       ``NoRecordsFound`` for the GAP measure as of EO118).
+    4. **Inflation forecast** — TE projection via the Sprint L
+       :meth:`TEConnector.fetch_ea_inflation_forecast` wrapper (q4 ≈
+       12m-ahead horizon, same ``ECCPEMUY`` symbol).
+
+    ECB 2 % HICP medium-term target anchors ``inflation_target_pct``
+    (via ``bc_targets.yaml:EA → ECB``). ``r_star_pct`` is -0.5 % from
+    ``r_star_values.yaml:EA`` (Holston-Laubach-Williams EA equivalent
+    Q4 2024; non-proxy — no ``R_STAR_PROXY`` flag).
+
+    Fallback path (ECB SDW ICP + SPF) was pre-specified in the Sprint
+    L brief §4 Commit 2 but **not shipped** per HALT-1 inversion: the
+    2026-04-22 pre-flight probe confirmed TE coverage is complete for
+    the EA aggregate (423 observations back to 1991-01-31), so the
+    ECB SDW HICP / SPF extension remains Phase 2+ scope. If TE ever
+    drifts or goes dark the cascade can be extended at the top of
+    this builder without touching the ``_assemble_m2_full_compute``
+    contract.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    dfr = _to_dated(await ecb_sdw.fetch_dfr_rate(start, observation_date))
+    if not dfr:
+        msg = (
+            "M2 EA builder (Sprint L) — ECB DFR unavailable at or before "
+            f"observation_date={observation_date.isoformat()}. Cannot "
+            "compute Taylor gap without the policy-rate instrument."
+        )
+        raise InsufficientDataError(msg)
+
+    cascade_flags: tuple[str, ...] = ("EA_M2_POLICY_RATE_ECB_DFR_LIVE",)
+    cascade_sources: tuple[str, ...] = ("ecb_sdw",)
+
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_ea_hicp_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "EA", observation_date, "fetch_ea_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "EA", observation_date)
+
+    return await _assemble_m2_full_compute(
+        country_code="EA",
+        observation_date=observation_date,
+        policy_hist=dfr,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
     )
 
 
@@ -3444,6 +3532,17 @@ class MonetaryInputsBuilder:
             # annual and strictly coarser. No regression path: US builder
             # signature unchanged Sprint C.
             return await build_m2_us_inputs(self.fred, self.cbo, observation_date, **kwargs)  # type: ignore[arg-type]
+        if country == "EA":
+            # Sprint L wiring — EA aggregate M2 Taylor compute via ECB DFR
+            # (policy rate) + TE EA HICP (``ECCPEMUY``) + TE EA inflation
+            # forecast + OECD EO EA17 output gap. Per CAL-M2-EA-AGGREGATE.
+            return await build_m2_ea_inputs(
+                self.ecb_sdw,
+                observation_date,
+                te=self.te,
+                oecd_eo=self.oecd_eo,
+                **kwargs,  # type: ignore[arg-type]
+            )
         if country == "JP":
             return await build_m2_jp_inputs(
                 self.fred,
@@ -3525,21 +3624,21 @@ class MonetaryInputsBuilder:
                 oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
-        # EA + per-country EA members (DE/FR/IT/ES/NL/PT) remain
-        # unimplemented at M2 Sprint F scope — Sprint F prioritised the
-        # non-EA T1 countries where the Taylor compute has a well-defined
-        # per-country policy-rate instrument. For EA members the policy
-        # rate is the ECB Deposit Facility Rate (shared, not per-country)
-        # so a per-country Taylor rule is academically ambiguous without
-        # a country-specific reaction-function spec. Tracked under
-        # CAL-M2-EA-PER-COUNTRY for Phase 2+ work. EA aggregate M2 is
-        # tracked separately under CAL-M2-EA-AGGREGATE.
+        # Per-country EA members (DE/FR/IT/ES/NL/PT) remain unimplemented
+        # at M2 post-Sprint-L scope. Sprint F prioritised the non-EA T1
+        # countries where the Taylor compute has a well-defined
+        # per-country policy-rate instrument; Sprint L closed EA
+        # aggregate on top of the shared ECB DFR. For per-country EA
+        # members the policy rate is still the ECB DFR (shared, not
+        # per-country) so a per-country Taylor rule is academically
+        # ambiguous without a country-specific reaction-function spec.
+        # Tracked under CAL-M2-EA-PER-COUNTRY for Phase 2+ work.
         msg = (
             f"M2 builder not implemented for country={country!r}. "
-            f"Sprint F Week 10 Day 2 ships US + 9 non-EA T1 countries "
-            f"(CA/AU/NZ/CH/SE/NO/DK + GB/JP) live; EA + per-country EA "
-            f"members deferred to Phase 2+ (see CAL-M2-EA-PER-COUNTRY + "
-            f"CAL-M2-EA-AGGREGATE)."
+            f"Sprint F + Sprint L (Week 10 Day 2) ship US + EA + 9 "
+            f"non-EA T1 countries (CA/AU/NZ/CH/SE/NO/DK + GB/JP) live; "
+            f"per-country EA members deferred to Phase 2+ (see "
+            f"CAL-M2-EA-PER-COUNTRY)."
         )
         raise NotImplementedError(msg)
 
