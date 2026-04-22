@@ -142,6 +142,14 @@ FRED_SERIES_TENORS: dict[str, float] = {
     # (~5.5 years stale). The cascade wires it anyway for shape
     # parity + CALIBRATION_STALE transparency.
     "IRSTCI01SEM156N": 0.01,
+    # DK entry added Week 9 Sprint Y-DK. The IRSTCI01DKM156N call-
+    # money mirror is fresh at probe (2026-04-22 saw 2025-12 as the
+    # latest observation — ~4-month lag, comparable to the NO mirror;
+    # substantially better than the SE mirror's 5.5-year
+    # discontinuation). The cascade still pairs it with
+    # CALIBRATION_STALE so the monthly-vs-daily cadence delta
+    # surfaces explicitly to operators.
+    "IRSTCI01DKM156N": 0.01,
     # OECD MEI mirror — monthly long-term interest rates (10Y
     # sovereign benchmark). Reserved for M4 FCI custom paths across
     # GB / JP / CA / AU / NZ / CH / NO / SE; not yet consumed at
@@ -158,6 +166,7 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "IRLTLT01CHM156N": 10.0,
     "IRLTLT01NOM156N": 10.0,
     "IRLTLT01SEM156N": 10.0,
+    "IRLTLT01DKM156N": 10.0,
 }
 
 # Back-compat alias for Week 1 nominal-only callers.

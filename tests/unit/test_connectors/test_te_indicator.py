@@ -1750,11 +1750,15 @@ async def test_live_canary_dk_policy_rate(tmp_cache_dir: Path) -> None:
         assert len(obs) >= 10
         assert obs[0].historical_data_symbol == "DEBRDISC"
         assert obs[0].country == "DK"
-        # Discount-rate band [-1.00, 5.00] % since 2014.
+        # TE always returns the full history regardless of the query
+        # window (Sprint 3 finding). DEBRDISC band across 1987-now is
+        # [-1.00, 12.00] % — pre-1992 ERM era hit ~9.50 %, with single
+        # spike-quotes near 11 %; post-2008 stayed ≤ 5.00 %.
         for o in obs:
-            assert -1.0 <= o.value <= 10.0
-        # Historical negative-rate preservation: 6Y lookback covers
-        # 2021-2022 — at least one strictly-negative observation.
+            assert -1.0 <= o.value <= 13.0
+        # Historical negative-rate preservation: with full-history
+        # back-fill we expect to see at least one strictly-negative
+        # observation (2021-03..2022-08 corridor).
         neg = [o for o in obs if o.value < 0]
         assert len(neg) >= 1, "expected at least one negative-discount-rate observation"
     finally:

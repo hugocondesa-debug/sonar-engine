@@ -87,12 +87,17 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # JP via BoJ → FRED cascade (sprint 8-L), CA via BoC Valet → FRED
 # cascade (sprint 9-S), AU via RBA F1 CSV → FRED cascade (sprint
 # 9-T), CH via SNB zimoma/SARON → FRED cascade (sprint 9-V), NO via
-# Norges Bank DataAPI SDMX-JSON → FRED cascade (sprint 9-X-NO), and
-# SE via Riksbank Swea SECBREPOEFF → FRED cascade (sprint 9-W-SE).
-# All stay separate from T1_7_COUNTRIES so --all-t1 preserves the
+# Norges Bank DataAPI SDMX-JSON → FRED cascade (sprint 9-X-NO), SE
+# via Riksbank Swea SECBREPOEFF → FRED cascade (sprint 9-W-SE), and
+# DK via Nationalbanken Statbank.dk DNRENTD/OIBNAA → FRED cascade
+# (sprint 9-Y-DK; first EUR-peg country in the family — emits
+# DK_INFLATION_TARGET_IMPORTED_FROM_EA always since the inflation
+# anchor is imported from the ECB via the DKK/EUR ERM-II peg). All
+# stay separate from T1_7_COUNTRIES so --all-t1 preserves the
 # historical 7-country semantics; callers opt in via --country GB
 # (or the deprecated "UK" alias — ADR-0007), --country JP, --country
-# CA, --country AU, --country CH, --country NO, or --country SE.
+# CA, --country AU, --country CH, --country NO, --country SE, or
+# --country DK.
 #
 # Backward compat: "UK" preserved as deprecated alias per ADR-0007.
 # CLI emits a structlog deprecation warning when ``--country UK`` is
@@ -113,6 +118,7 @@ MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = (
     "CH",
     "NO",
     "SE",
+    "DK",
 )
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
@@ -320,6 +326,7 @@ def _build_live_connectors(
     from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
     from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
+    from sonar.connectors.nationalbanken import NationalbankenConnector  # noqa: PLC0415
     from sonar.connectors.norgesbank import NorgesBankConnector  # noqa: PLC0415
     from sonar.connectors.rba import RBAConnector  # noqa: PLC0415
     from sonar.connectors.rbnz import RBNZConnector  # noqa: PLC0415
@@ -338,6 +345,7 @@ def _build_live_connectors(
     riksbank = RiksbankConnector(cache_dir=f"{cache_dir}/riksbank")
     snb = SNBConnector(cache_dir=f"{cache_dir}/snb")
     norgesbank = NorgesBankConnector(cache_dir=f"{cache_dir}/norgesbank")
+    nationalbanken = NationalbankenConnector(cache_dir=f"{cache_dir}/nationalbanken")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
     builder = MonetaryInputsBuilder(
         fred=fred,
@@ -351,6 +359,7 @@ def _build_live_connectors(
         riksbank=riksbank,
         snb=snb,
         norgesbank=norgesbank,
+        nationalbanken=nationalbanken,
         te=te,
     )
     connectors: list[object] = [
@@ -364,6 +373,7 @@ def _build_live_connectors(
         riksbank,
         snb,
         norgesbank,
+        nationalbanken,
     ]
     if te is not None:
         connectors.append(te)

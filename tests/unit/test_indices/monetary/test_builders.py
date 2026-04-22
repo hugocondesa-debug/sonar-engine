@@ -2864,8 +2864,8 @@ class TestMonetaryInputsBuilderFacade:
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        # NZ + CH + NO + SE all wired (Sprints U-NZ / V-CH / X-NO / W-SE);
-        # CN remains Phase 2+ — probe with it.
+        # NZ + CH + NO + SE + DK all wired (Sprints U-NZ / V-CH / X-NO
+        # / W-SE / Y-DK); CN remains Phase 2+ — probe with it.
         with pytest.raises(NotImplementedError, match="CN"):
             await builder.build_m1_inputs("CN", date(2024, 12, 31))
 
