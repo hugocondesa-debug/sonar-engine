@@ -249,6 +249,60 @@ async def test_daily_curves_ca_end_to_end(te: TEConnector, db_session: Session) 
     assert spot.source_connector == "te"
 
 
+@pytest.mark.slow
+async def test_daily_curves_it_end_to_end(te: TEConnector, db_session: Session) -> None:
+    """IT 2024-12-30 via TE GBTPGR family → Svensson fit persisted.
+
+    Sprint H empirical probe 2026-04-22 established 12-tenor IT BTP
+    coverage. NSS fit acceptance per Sprint H §6: RMSE ≤ 10 bps +
+    confidence ≥ 0.9 target (guarded softer at 15 / 0.85 because
+    2024-12-30 liquidity differs from the target fitting window;
+    production RMSE on ≥ 10 tenors consistently lands well under 10
+    bps across the GB/JP/CA prior cohort).
+    """
+    obs_date = date(2024, 12, 30)
+    result = await run_country(
+        country="IT",
+        observation_date=obs_date,
+        session=db_session,
+        te=te,
+    )
+    spot = db_session.query(NSSYieldCurveSpot).filter_by(country_code="IT", date=obs_date).one()
+    assert spot.fit_id == str(result.fit_id)
+    assert spot.observations_used >= 9  # Svensson-min reached (12-tenor curve)
+    assert spot.source_connector == "te"
+    # Sprint H brief §6 acceptance: RMSE ≤ 10 bps + confidence ≥ 0.9.
+    # Live canary 2026-04-22 observed RMSE=5.23 bps + confidence=1.0.
+    assert spot.rmse_bps <= 10
+    assert spot.confidence >= 0.9
+
+
+@pytest.mark.slow
+async def test_daily_curves_es_end_to_end(te: TEConnector, db_session: Session) -> None:
+    """ES 2024-12-30 via TE GSPG family → Svensson-minimum fit persisted.
+
+    Sprint H empirical probe 2026-04-22 established 9-tenor ES SPGB
+    coverage (missing 1M / 2Y / 20Y). 9 tenors sits at the exact
+    MIN_OBSERVATIONS_FOR_SVENSSON boundary; assertion tolerates the
+    boundary condition.
+    """
+    obs_date = date(2024, 12, 30)
+    result = await run_country(
+        country="ES",
+        observation_date=obs_date,
+        session=db_session,
+        te=te,
+    )
+    spot = db_session.query(NSSYieldCurveSpot).filter_by(country_code="ES", date=obs_date).one()
+    assert spot.fit_id == str(result.fit_id)
+    assert spot.observations_used >= 7  # allow TE 1-tenor thinning vs 9-probe
+    assert spot.source_connector == "te"
+    # Sprint H brief §6 acceptance: RMSE ≤ 10 bps + confidence ≥ 0.9.
+    # Live canary 2026-04-22 observed RMSE=4.41 bps + confidence=1.0.
+    assert spot.rmse_bps <= 10
+    assert spot.confidence >= 0.9
+
+
 # ---------------------------------------------------------------------------
 # Sprint E sparse-inclusion — full ``--all-t1`` iteration canary
 # ---------------------------------------------------------------------------
@@ -298,8 +352,11 @@ async def test_daily_curves_all_t1_sparse_inclusion(
     for country in ("GB", "JP", "CA", "IT", "ES"):
         assert persisted[country].source_connector == "te"
         assert persisted[country].observations_used >= 6
-    # Sprint H NSS quality guards (per-country) — aligned with RMSE ≤ 10 bps
-    # acceptance from the Sprint H brief §6.
+    # Sprint H NSS quality guards (per-country) — aligned with Sprint H
+    # brief §6 acceptance (RMSE ≤ 10 bps + confidence ≥ 0.9). Live
+    # canary 2026-04-22 observed IT 5.23 bps + ES 4.41 bps at 1.0
+    # confidence; bound preserves the explicit brief target rather
+    # than tightening to the observation.
     for country in ("IT", "ES"):
-        assert persisted[country].rmse_bps <= 15  # liquidity premium headroom
-        assert persisted[country].confidence >= 0.85
+        assert persisted[country].rmse_bps <= 10
+        assert persisted[country].confidence >= 0.9
