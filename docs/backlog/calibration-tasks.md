@@ -2248,14 +2248,39 @@ Added 2026-04-22 (Week 10 Day 0 Phase 3 reframe). Catalogues the
 larger scope items implied by the revised `../ROADMAP.md` so they
 have stable CAL IDs for cross-reference before implementation begins.
 
-### CAL-ERP-T1-PER-COUNTRY — Per-country ERP live paths (Phase 2)
+### CAL-ERP-T1-PER-COUNTRY — Per-country ERP live paths (Phase 2) — PARTIAL
 
 - **Priority:** HIGH — Phase 2 gate blocker (T1 uniformity); explicit
   Phase 2 exit criterion in roadmap.
 - **Trigger:** current cost-of-capital composite uses
   `MATURE_ERP_PROXY_US` flag for EA / GB / JP (fallback to US ERP).
   Phase 2 gate requires per-market ERP live paths.
-- **Scope:**
+- **Status:** PARTIAL (2026-04-22 via Week 10 Sprint B). Narrowed
+  scope shipped; per-country 4-method compute deferred pending
+  fundamentals connectors. See ADR-0008 and
+  `docs/planning/retrospectives/week10-sprint-erp-t1-report.md`.
+- **Shipped (Week 10 Sprint B)**:
+  - `src/sonar/connectors/te.py::fetch_equity_index_historical` for
+    DE / GB / JP / FR / EA with source-drift guards (DAX / UKX /
+    NKY / CAC / SX5E) + 5 cassettes + 5 @slow live canaries.
+  - `src/sonar/connectors/damodaran.py::fetch_monthly_implied_erp`
+    parsing `implprem/ERPMMMYY.xlsx`.
+  - `daily_cost_of_capital` three-tier mature-ERP fallback
+    (`erp_canonical` → Damodaran monthly → static 5.5 %) with new
+    flag `ERP_MATURE_LIVE_DAMODARAN`.
+  - `docs/planning/week10-sprint-b-erp-t1-preflight-findings.md`
+    empirical-probe reference doc.
+  - `docs/adr/ADR-0008-per-country-erp-data-constraints.md`.
+- **Deferred (fresh sub-CALs below)**:
+  - `CAL-ERP-COUNTRY-FUNDAMENTALS` — dividend yield / EPS / CAPE
+    per market index (Refinitiv / FactSet / Bloomberg / MSCI).
+  - `CAL-ERP-CAPE-CROSS-COUNTRY` — CAPE per country requires
+    Shiller-style ≥ 10Y smoothed-earnings per market.
+  - `CAL-ERP-BUYBACK-CROSS-COUNTRY` — buyback yield US-only.
+  - `CAL-ERP-T1-SMALLER-MARKETS` — IT/ES/NL/PT extension.
+  - `CAL-ERP-T1-NON-EA` — CA/AU/NZ/CH/SE/NO/DK extension.
+- **Original scope** (remains unshipped, awaiting
+  CAL-ERP-COUNTRY-FUNDAMENTALS):
   - `src/sonar/overlays/erp_ea.py` — ERP EA assembler (FactSet EA
     earnings yield + Eurostoxx DDM + Eurostoxx Gordon + Buyback EA
     + FRED ECB CPI expectations + Damodaran EA cross-val).
@@ -2266,12 +2291,126 @@ have stable CAL IDs for cross-reference before implementation begins.
   - `daily_erp_<market>` assembly inside `daily_cost_of_capital`
     composition (follow CAL-057 pattern).
   - Integration tests per market with cassette fixtures.
-- **Unblocks:** Phase 2 T1 uniformity gate; per-market k_e in
-  DCF workflows for EA / GB / JP.
+- **Unblocks (once full scope resolves):** Phase 2 T1 uniformity
+  gate; per-market k_e in DCF workflows for EA / GB / JP.
 - **Follow-on:** additional T1 markets (CA / AU / NZ / CH / SE / NO /
   DK) after Phase 2 gate — same pattern applied to Nordic + ANZ +
   North America peer markets.
-- **Status:** OPEN (Phase 2).
+
+
+### CAL-ERP-COUNTRY-FUNDAMENTALS — Per-market equity-fundamentals connectors (Phase 2.5)
+
+- **Priority:** HIGH — hard blocker for CAL-ERP-T1-PER-COUNTRY full
+  resolution.
+- **Trigger:** Week 10 Sprint B pre-flight confirmed that neither TE
+  (`/historical/country/.../indicator/stock market` surfaces only
+  closing level) nor FMP `stable` (`key-metrics` / `ratios` empty
+  for index tickers) nor Damodaran monthly / annual files expose
+  aggregate dividend yield + trailing / forward EPS + CAPE ratio per
+  market index in compute-friendly form. All four ERP methods
+  (DCF / Gordon / EY / CAPE) therefore fail for every non-US market.
+- **Required work:**
+  1. Source evaluation for per-market aggregate fundamentals.
+     Candidates (trial-and-price matrix required):
+     - Refinitiv Workspace / Eikon Data API (per-index fundamentals).
+     - FactSet IBES (forward EPS + consensus growth per benchmark).
+     - Bloomberg Index Fundamentals (DAX / UKX / NKY / CAC / SX5E).
+     - MSCI Index Analytics (per-index valuation metrics).
+     - Russell Benchmark data (less relevant — US-centric).
+  2. Connector(s) implementing a uniform contract:
+     `fetch_equity_index_fundamentals(index, date) -> IndexFundamentals`
+     carrying `index_level`, `trailing_eps`, `forward_eps`,
+     `dividend_yield_pct`, `buyback_yield_pct?`, `cape_ratio?`.
+  3. ERP per-market input assemblers layered on top (DE / GB / JP /
+     FR / EA first; other T1 markets as follow-on).
+  4. Cross-validation vs Damodaran annual `ctryprem.xlsx` within
+     the ±20 % band already established for US via `XVAL_DRIFT`.
+- **Impact if unresolved:** `daily_cost_of_capital` remains on
+  US-mature-ERP proxy for non-US countries; Phase 2 T1 uniformity
+  exit criterion remains unmet.
+- **Estimate:** vendor negotiation + API setup +
+  5 × 3h per country + cross-val → 20-30h CC once vendor contract
+  lands.
+- **Related:** CAL-ERP-T1-PER-COUNTRY (parent, PARTIAL); ADR-0008.
+
+### CAL-ERP-CAPE-CROSS-COUNTRY — CAPE ratio per non-US market
+
+- **Priority:** MEDIUM — one-of-four ERP methods; EY + DCF + Gordon
+  suffice for canonical with `MIN_METHODS_FOR_CANONICAL = 2`.
+- **Trigger:** Shiller CAPE is computed on a smoothed 10Y earnings
+  history per market. Non-US markets lack an equivalent published
+  series. Building it in-house requires ≥ 120 months of monthly
+  aggregate earnings-per-index plus an inflation-adjusted price
+  series per country.
+- **Required work:**
+  1. Decide whether to compute CAPE from the fundamentals connectors
+     (CAL-ERP-COUNTRY-FUNDAMENTALS) once they land, or to ingest a
+     third-party CAPE series (Research Affiliates, Barclays).
+  2. Implement CAPE extractor per country; maintain the 10Y
+     smoothing convention.
+  3. Wire into `ERPInput.cape_ratio` for non-US markets.
+- **Impact if unresolved:** `ERPInput.cape_ratio` stays US-only;
+  CAPE method drops for non-US → canonical uses ≤ 3 methods.
+- **Estimate:** 6-10h CC after CAL-ERP-COUNTRY-FUNDAMENTALS lands.
+- **Related:** CAL-ERP-T1-PER-COUNTRY.
+
+### CAL-ERP-BUYBACK-CROSS-COUNTRY — Buyback yield for non-US markets
+
+- **Priority:** LOW — buyback is a discretionary input on the
+  DCF/Gordon cash-yield side; `None` degrades gracefully via
+  `ERPMethodResult` flags without dropping the method.
+- **Trigger:** Week 10 Sprint B pre-flight confirmed buyback yield
+  is US-centric (S&P Dow Jones Indices publishes S&P 500 buybacks
+  back to 2000). Non-US markets have sparse-to-zero buyback
+  activity and no canonical per-market series exists.
+- **Required work:**
+  1. Document the US-only limitation in `docs/specs/overlays/erp-daily.md`
+     §6 "buyback > 1q stale" edge case.
+  2. Ensure per-country ERP assemblers pass `buyback_yield_pct=None`
+     explicitly and rely on the existing `_compute_gordon` ``STALE``
+     flag path.
+  3. Revisit in Phase 3+ if vendor publishes EA / GB / JP buyback
+     aggregates.
+- **Impact if unresolved:** Gordon method for non-US carries the
+  ``STALE`` flag by default; canonical confidence takes a single
+  0.05 deduction per spec §Confidence.
+- **Estimate:** 1-2h CC documentation sweep.
+
+### CAL-ERP-T1-SMALLER-MARKETS — ERP for IT / ES / NL / PT
+
+- **Priority:** MEDIUM — these 4 EA-periphery markets currently
+  proxy via SPX canonical (``MATURE_ERP_PROXY_US`` flag). Cheaper
+  win once CAL-ERP-COUNTRY-FUNDAMENTALS delivers the connector.
+- **Trigger:** Week 10 Sprint B explicitly deferred these under the
+  "smaller equity markets — proxy suffices initially" rationale in
+  the brief §1 Out scope.
+- **Required work:** once fundamentals connector lands, add per-market
+  ERP assemblers (`erp_it.py`, `erp_es.py`, `erp_nl.py`, `erp_pt.py`)
+  following the DE / FR template. Cassettes + @slow canaries
+  per country.
+- **Impact if unresolved:** smaller EA peripherals ride on SPX
+  proxy for per-market k_e — acceptable until Consumer A workflows
+  demand genuine per-market signal.
+- **Estimate:** 4-6h CC after CAL-ERP-COUNTRY-FUNDAMENTALS lands.
+- **Related:** CAL-ERP-T1-PER-COUNTRY.
+
+### CAL-ERP-T1-NON-EA — ERP for CA / AU / NZ / CH / SE / NO / DK
+
+- **Priority:** MEDIUM — Phase 2.5+ per the original brief §1 Out
+  scope. 7 markets on SPX proxy today.
+- **Trigger:** Week 10 Sprint B explicitly deferred these under the
+  Phase 2.5+ scope bullet. Each market has distinct equity index
+  (S&P/TSX, S&P/ASX 200, NZX 50, SMI, OMXS30, OBX, OMXC25) and
+  distinct sovereign curve / inflation series already partly wired
+  in Phase 1.
+- **Required work:** once fundamentals connector lands, add per-market
+  ERP assemblers following DE / GB / JP template. Cassettes + @slow
+  canaries per country. Likely shares vendor contract with
+  CAL-ERP-COUNTRY-FUNDAMENTALS.
+- **Impact if unresolved:** non-EA T1 markets ride on SPX proxy;
+  per-market k_e in DCF workflows remains US-biased.
+- **Estimate:** 10-14h CC after CAL-ERP-COUNTRY-FUNDAMENTALS lands.
+- **Related:** CAL-ERP-T1-PER-COUNTRY.
 
 ### CAL-L5-REGIME-TAXONOMY — L5 regimes dedicated table (Phase 2.5)
 
