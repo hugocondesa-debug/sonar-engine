@@ -223,15 +223,19 @@ async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
 
 
 def test_yield_curve_symbols_supported_countries() -> None:
-    """CAL-138 empirical scope: GB / JP / CA only."""
-    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA"}
+    """CAL-138 (GB/JP/CA) + Sprint H (IT) empirical scope.
+
+    ES lands in Commit 2 of the Sprint H pair (IT ships first).
+    """
+    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT"}
 
 
 def test_yield_curve_symbols_tenor_counts() -> None:
-    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6 tenors."""
+    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12 tenors."""
     assert len(TE_YIELD_CURVE_SYMBOLS["GB"]) == 12
     assert len(TE_YIELD_CURVE_SYMBOLS["JP"]) == 9
     assert len(TE_YIELD_CURVE_SYMBOLS["CA"]) == 6
+    assert len(TE_YIELD_CURVE_SYMBOLS["IT"]) == 12  # full 1M-30Y spectrum
 
 
 def test_yield_curve_symbols_gb_spectrum() -> None:
@@ -255,6 +259,33 @@ def test_yield_curve_symbols_ca_spectrum() -> None:
     ca = TE_YIELD_CURVE_SYMBOLS["CA"]
     assert set(ca) == {"1M", "3M", "6M", "1Y", "2Y", "10Y"}
     assert ca["10Y"] == "GCAN10YR:IND"
+
+
+def test_yield_curve_symbols_it_spectrum() -> None:
+    """IT covers full 1M-30Y (12 tenors, Svensson-capable; Sprint H).
+
+    Symbol quirks: ``M``/``Y`` suffixes on sub-10Y and 15Y-30Y; 10Y alone
+    drops the ``Y`` suffix (empirically ``GBTPGR10`` vs ``GBTPGR10YR``).
+    """
+    it = TE_YIELD_CURVE_SYMBOLS["IT"]
+    assert set(it) == {
+        "1M",
+        "3M",
+        "6M",
+        "1Y",
+        "2Y",
+        "3Y",
+        "5Y",
+        "7Y",
+        "10Y",
+        "15Y",
+        "20Y",
+        "30Y",
+    }
+    assert it["10Y"] == "GBTPGR10:IND"  # no Y suffix on 10Y (empirical)
+    assert it["2Y"] == "GBTPGR2Y:IND"
+    assert it["15Y"] == "GBTPGR15Y:IND"
+    assert it["30Y"] == "GBTPGR30Y:IND"
 
 
 def test_yield_curve_tenor_years_match_nss() -> None:
@@ -318,12 +349,36 @@ async def test_fetch_yield_curve_nominal_ca_happy(
     assert curve["10Y"].source_series_id == "GCAN10YR:IND"
 
 
+async def test_fetch_yield_curve_nominal_it_happy(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Happy path — 12-tenor IT BTP curve (Sprint H; full Svensson)."""
+    base_yield_pct = 2.50
+    for idx, _item in enumerate(TE_YIELD_CURVE_SYMBOLS["IT"].items()):
+        httpx_mock.add_response(
+            method="GET",
+            json=[{"Date": "31/12/2024", "Close": base_yield_pct + idx * 0.05}],
+        )
+    curve = await te_connector.fetch_yield_curve_nominal(
+        country="IT", observation_date=date(2024, 12, 31)
+    )
+    assert set(curve.keys()) == set(TE_YIELD_CURVE_SYMBOLS["IT"].keys())
+    assert curve["10Y"].country_code == "IT"
+    assert curve["10Y"].source == "TE"
+    assert curve["10Y"].source_series_id == "GBTPGR10:IND"
+    assert all(obs.country_code == "IT" for obs in curve.values())
+
+
 async def test_fetch_yield_curve_nominal_rejects_unsupported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """AU/NZ/CH/SE/NO/DK + EA periphery rejected with clear pointer to CAL."""
+    """AU/NZ/CH/SE/NO/DK + EA periphery remainder (FR/NL/PT) + US rejected.
+
+    IT moved to the supported set in Sprint H Commit 1; ES lands in
+    Commit 2.
+    """
     _ = httpx_mock
-    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "IT", "FR", "US"):
+    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "FR", "NL", "PT", "US"):
         with pytest.raises(ValueError, match="TE yield curve only supports"):
             await te_connector.fetch_yield_curve_nominal(
                 country=unsupported, observation_date=date(2024, 12, 31)
@@ -383,9 +438,13 @@ async def test_fetch_yield_curve_nominal_picks_latest_in_window(
 async def test_fetch_yield_curve_linker_returns_empty_for_supported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """CAL-138 stub — TE does not expose linker yields; empty dict for all."""
+    """CAL-138 + Sprint H stub — TE does not expose linker yields; empty
+    dict for every supported-nominal country. Linker coverage for
+    BTP€I / gilts-IL / JGBi / RRB deferred under CAL-CURVES-T1-LINKER
+    (Phase 2.5 per-country native-CB feed).
+    """
     _ = httpx_mock
-    for country in ("GB", "JP", "CA"):
+    for country in sorted(TE_YIELD_CURVE_SYMBOLS):
         linkers = await te_connector.fetch_yield_curve_linker(
             country=country, observation_date=date(2024, 12, 31)
         )
@@ -457,5 +516,25 @@ async def test_live_canary_ca_yield_curve_multi_tenor(tmp_cache_dir: Path) -> No
         for obs in curve.values():
             assert obs.country_code == "CA"
             assert 0 < obs.yield_bps < 1000  # 0-10% band
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_it_yield_curve_multi_tenor(tmp_cache_dir: Path) -> None:
+    """Live probe — IT 12-tenor BTP curve via GBTPGR family (Sprint H)."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        target = date(2024, 12, 30)
+        curve = await conn.fetch_yield_curve_nominal(country="IT", observation_date=target)
+        # Full spectrum assertion: allow a 1-tenor gap (TE thinning).
+        assert len(curve) >= 10, f"IT curve thin: {list(curve)}"
+        # IT BTP 10Y sat in [0.4, 7.5]% across 2010-2025.
+        for obs in curve.values():
+            assert obs.country_code == "IT"
+            assert 0 < obs.yield_bps < 1000
     finally:
         await conn.aclose()

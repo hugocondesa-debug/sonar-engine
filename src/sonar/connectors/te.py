@@ -161,11 +161,17 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 # under CAL-CURVES-T1-SPARSE (ship path: native CB yield-curve
 # connectors Phase 2+).
 #
-# EA periphery (PT/IT/ES/FR/NL) via TE 10Y-only (Bloomberg symbols
-# GFRN10/GBTPGR10/...) — deferred under per-country CAL items
-# (CAL-CURVES-PT-BPSTAT / CAL-CURVES-IT-BDI / CAL-CURVES-ES-BDE /
-# CAL-CURVES-FR-BDF / CAL-CURVES-NL-DNB) post Sprint A 2026-04-22
-# probe. TE symbol coverage alone is insufficient for NSS anyway.
+# EA periphery remainder (FR / NL / PT) via TE 10Y-only (Bloomberg
+# symbols GFRN10 / GNTH10YR / GSPT10YR) — deferred under per-country
+# CAL items (CAL-CURVES-FR-BDF / CAL-CURVES-NL-DNB / CAL-CURVES-PT-BPSTAT)
+# post Sprint A 2026-04-22 probe. IT + ES were in the same deferred
+# cohort post Sprint G (national-CB HALT-0), but Sprint H (2026-04-22)
+# shipped both via TE per-tenor cascade — the Sprint G brief §2 probe
+# list had omitted TE (see Week 10 Sprint H retro + ADR-0009 addendum).
+# Sprint H probe 2026-04-22 empirically confirmed 12-tenor IT coverage
+# via the ``GBTPGR`` BTP family over the ``/markets/historical``
+# endpoint. FR re-probe is tracked under CAL-CURVES-FR-TE-PROBE
+# (opened Sprint H).
 #
 # Symbol quirks discovered empirically (do **not** normalise without a
 # fresh probe — TE symbol naming is non-uniform):
@@ -175,6 +181,12 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 # - JP: ``GJGB`` prefix with ``Y`` suffix for sub-10Y, no ``Y`` for 10Y.
 # - CA: ``GCAN`` prefix with ``Y`` suffix for sub-10Y (``GCAN1Y:IND``
 #   etc.), ``YR`` suffix for 10YR (``GCAN10YR:IND``).
+# - IT (Sprint H): ``GBTPGR`` prefix; ``M`` suffix for sub-year, ``Y``
+#   suffix for 1Y-7Y and 15Y-30Y, **no** suffix for 10Y (``GBTPGR10``).
+#   Probe-empty tenors (``GBTPGR2``, ``GBTPGR3``, ``GBTPGR5``, ``GBTPGR7``,
+#   ``GBTPGR15``, ``GBTPGR20``, ``GBTPGR30``, ``GBTPGR10YR``) were
+#   rejected — see Sprint H retro matrix. 12 tenors total (full 1M-30Y
+#   spectrum; Svensson-capable).
 TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
     "GB": {
         "1M": "GUKG1M:IND",
@@ -208,6 +220,20 @@ TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
         "1Y": "GCAN1Y:IND",
         "2Y": "GCAN2Y:IND",
         "10Y": "GCAN10YR:IND",
+    },
+    "IT": {
+        "1M": "GBTPGR1M:IND",
+        "3M": "GBTPGR3M:IND",
+        "6M": "GBTPGR6M:IND",
+        "1Y": "GBTPGR1Y:IND",
+        "2Y": "GBTPGR2Y:IND",
+        "3Y": "GBTPGR3Y:IND",
+        "5Y": "GBTPGR5Y:IND",
+        "7Y": "GBTPGR7Y:IND",
+        "10Y": "GBTPGR10:IND",
+        "15Y": "GBTPGR15Y:IND",
+        "20Y": "GBTPGR20Y:IND",
+        "30Y": "GBTPGR30Y:IND",
     },
 }
 
@@ -1842,11 +1868,13 @@ class TEConnector:
     ) -> dict[str, Observation]:
         """Multi-tenor sovereign nominal yield curve via TE Bloomberg symbols.
 
-        Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors).
-        Other non-EA T1 countries are deferred per CAL-CURVES-T1-SPARSE
-        (AU/NZ/CH/SE/NO/DK have insufficient tenor coverage on TE); EA
-        periphery deferred per per-country CAL items (see
-        :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
+        Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors),
+        IT (12 tenors, Sprint H). Other non-EA T1 countries are deferred
+        per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK have insufficient
+        tenor coverage on TE); EA periphery remainder (FR / NL / PT)
+        deferred per per-country CAL items (see
+        :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`). ES
+        ships in Sprint H Commit 2.
 
         Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
         latest trading day ≤ ``observation_date`` inside a 7-day window.
@@ -1865,11 +1893,12 @@ class TEConnector:
         if symbols is None:
             msg = (
                 f"TE yield curve only supports "
-                f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 empirical "
-                f"scope); got {country}. Other T1 countries defer per "
-                f"CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK) or per "
-                f"per-country CAL items (PT/IT/ES/FR/NL — see "
-                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS)."
+                f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 + Sprint H "
+                f"empirical scope); got {country}. Other T1 countries "
+                f"defer per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK) or "
+                f"per per-country CAL items (FR / NL / PT — see "
+                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS; IT "
+                f"closed Sprint H via TE cascade, ES lands Commit 2)."
             )
             raise ValueError(msg)
 
