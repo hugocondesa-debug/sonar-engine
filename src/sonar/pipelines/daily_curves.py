@@ -3,8 +3,14 @@
 Orchestrates a single ``(country, date)`` tuple end-to-end:
 L0 connector fetch → L2 NSS fit + derive (zero / forward / real) → L1 persist.
 
-Week 2 shipped US-only (``run_us``). Week 10 Sprint CAL-138 expands
-coverage via country-aware connector dispatch:
+Week 2 shipped US-only (``run_us``). Week 10 Sprint CAL-138 expanded
+coverage via country-aware connector dispatch; Week 10 Sprint E
+(CAL-CURVES-T1-SPARSE-INCLUSION, 2026-04-22) wires GB/JP/CA into the
+pipeline's ``--all-t1`` iteration via the new
+:data:`T1_CURVES_COUNTRIES` tuple — replacing the shared
+``T1_7_COUNTRIES`` convention for curves only, because the curve-fit
+surface differs from the per-country connector readiness of the other
+daily pipelines.
 
 - **US**  → :class:`~sonar.connectors.fred.FredConnector`
   (nominal DGS* + linker TIPS DFII*)
@@ -104,11 +110,26 @@ EXIT_CONVERGENCE = 2
 EXIT_DUPLICATE = 3
 EXIT_IO = 4
 
-# Canonical T1 tier (US + 6 EA members) — matches the 7-country
-# contract published by daily_overlays / daily_monetary_indices. Non-EA
-# T1 (GB/JP/CA/AU/NZ/CH/SE/NO/DK) opts in via ``--country <X>`` per
-# those pipelines' convention.
-T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+# Curve-pipeline-specific T1 scope — diverges from the canonical
+# ``T1_7_COUNTRIES`` convention (US + 6 EA members) shared by
+# daily_overlays / daily_monetary_indices / daily_economic_indices /
+# daily_credit_indices / daily_financial_indices / daily_cycles /
+# daily_cost_of_capital / cli.status because the curve pipeline has
+# different connector readiness per country (Week 10 Sprint E sparse
+# inclusion, 2026-04-22). Membership reflects ``CURVE_SUPPORTED_COUNTRIES``:
+#
+# - **US** via FRED (full DGS/DFII — nominal + linker)
+# - **DE** via Bundesbank (BBSIS zero-coupon 1Y-30Y)
+# - **EA** via ECB SDW (YC EA-AAA Svensson 3M-30Y aggregate)
+# - **GB / JP / CA** via TE ``/markets/historical`` Bloomberg symbols
+#   (CAL-138 empirical probe: GB 12 / JP 9 / CA 6 tenors)
+#
+# EA periphery members (PT/IT/ES/FR/NL) and AU/NZ/CH/SE/NO/DK are
+# deferred per per-country CAL items (``CAL-CURVES-PT-BPSTAT`` …) and
+# ``CAL-CURVES-T1-SPARSE`` respectively; passing them via ``--country <X>``
+# still raises ``InsufficientDataError`` with a CAL pointer — the sparse
+# inclusion change only concerns what ``--all-t1`` iterates.
+T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA")
 
 # Countries wired to a curve-fit path at CAL-138 Sprint close. A country
 # outside this set passed to ``--country`` raises InsufficientDataError
@@ -437,7 +458,7 @@ def main(
         sys.exit(EXIT_IO)
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    countries = list(T1_7_COUNTRIES) if all_t1 else [country.upper()]
+    countries = list(T1_CURVES_COUNTRIES) if all_t1 else [country.upper()]
     code = _run_sync(
         countries,
         obs_date,

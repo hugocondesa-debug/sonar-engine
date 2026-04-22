@@ -30,7 +30,7 @@ from sonar.db.models import Base, NSSYieldCurveSpot
 from sonar.overlays.exceptions import InsufficientDataError
 from sonar.pipelines.daily_curves import (
     CURVE_SUPPORTED_COUNTRIES,
-    T1_7_COUNTRIES,
+    T1_CURVES_COUNTRIES,
     _fetch_nominals_linkers,
     run_country,
 )
@@ -97,8 +97,14 @@ async def te(tmp_path: Path) -> AsyncIterator[TEConnector]:
 # ---------------------------------------------------------------------------
 
 
-def test_t1_7_tier_constant_matches_expected() -> None:
-    assert T1_7_COUNTRIES == ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+def test_t1_curves_tier_constant_matches_expected() -> None:
+    """Sprint E sparse inclusion (2026-04-22): ``--all-t1`` iterates the
+    six curve-capable T1 countries. Replaces the shared ``T1_7_COUNTRIES``
+    convention for this pipeline only — see module docstring for the
+    per-country connector dispatch.
+    """
+    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA")
+    assert set(T1_CURVES_COUNTRIES) == CURVE_SUPPORTED_COUNTRIES
 
 
 def test_curve_supported_countries_matches_cal138_scope() -> None:
