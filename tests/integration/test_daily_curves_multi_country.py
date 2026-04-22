@@ -244,3 +244,53 @@ async def test_daily_curves_ca_end_to_end(te: TEConnector, db_session: Session) 
     # MIN_OBSERVATIONS_FOR_SVENSSON=9 not met).
     assert 6 <= spot.observations_used < 9
     assert spot.source_connector == "te"
+
+
+# ---------------------------------------------------------------------------
+# Sprint E sparse-inclusion — full ``--all-t1`` iteration canary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+async def test_daily_curves_all_t1_sparse_inclusion(
+    bundesbank: BundesbankConnector,
+    ecb_sdw: EcbSdwConnector,
+    te: TEConnector,
+    db_session: Session,
+) -> None:
+    """``--all-t1`` iteration persists five non-US curves on one date.
+
+    Sprint E (CAL-CURVES-T1-SPARSE-INCLUSION 2026-04-22) expanded
+    ``T1_CURVES_COUNTRIES`` from (US, DE, PT, IT, ES, FR, NL) to
+    (US, DE, EA, GB, JP, CA). This canary validates the five non-US
+    countries (which do not need a FRED key) persist successfully in
+    a single run — mirroring the production ``sonar-daily-curves.service``
+    invocation.
+
+    US is exercised separately in ``test_daily_curves_pipeline.py`` to
+    keep this test independent of ``FRED_API_KEY`` presence.
+    """
+    obs_date = date(2024, 12, 30)
+    non_us = [c for c in T1_CURVES_COUNTRIES if c != "US"]
+    assert non_us == ["DE", "EA", "GB", "JP", "CA"]
+
+    for country in non_us:
+        await run_country(
+            country=country,
+            observation_date=obs_date,
+            session=db_session,
+            bundesbank=bundesbank,
+            ecb_sdw=ecb_sdw,
+            te=te,
+        )
+
+    persisted = {
+        row.country_code: row
+        for row in db_session.query(NSSYieldCurveSpot).filter_by(date=obs_date).all()
+    }
+    assert set(persisted) == set(non_us)
+    assert persisted["DE"].source_connector == "bundesbank"
+    assert persisted["EA"].source_connector == "ecb_sdw"
+    for country in ("GB", "JP", "CA"):
+        assert persisted[country].source_connector == "te"
+        assert persisted[country].observations_used >= 6
