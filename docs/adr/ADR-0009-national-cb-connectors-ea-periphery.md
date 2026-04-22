@@ -293,16 +293,120 @@ Dois pendentes: PT / NL. Overlays cascade de FR + IT + ES continua
 em EA-AAA proxy-fallback até que ≥ 1 dos {full impl / licensed feed
 / frequency-tier architecture} materialize.
 
+## Addendum Sprint H (2026-04-22) — TE Path 1 canonical (correcção do Sprint G)
+
+Sprint H (Week 10 Day 2 follow-up IT + ES via TE cascade, 2026-04-22)
+reabriu as conclusões HALT-0 do Sprint G após descobrir empiricamente
+que o brief §2 Sprint G **omitiu** TE (Trading Economics generic
+indicator API + `/markets/historical` Bloomberg-symbol endpoint) da
+lista de probes executados para IT + ES. Isto constituiu um erro
+material de scope: TE já servia GB + JP + CA desde CAL-138
+(2026-04-22) via a mesma mecânica `TE_YIELD_CURVE_SYMBOLS`, e a
+probe Sprint H 2026-04-22 confirmou que TE expõe as famílias BTP
+(`GBTPGR*`) e SPGB (`GSPG*`) com cobertura per-tenor suficiente
+para um fit Svensson em ambos os países.
+
+### Resultado empírico Sprint H probe (2026-04-22)
+
+| País | Família Bloomberg | Tenores confirmados | RMSE NSS fit (2024-12-30) | Confiança |
+|---|---|---|---|---|
+| **IT** | `GBTPGR` (BTP) | **12** (1M-30Y full spectrum; 10Y drops Y suffix: `GBTPGR10`) | **5.23 bps** | **1.0** |
+| **ES** | `GSPG` (SPGB) | **9** (missing 1M / 2Y / 20Y; YR-uniform suffix) | **4.41 bps** | **1.0** |
+
+Ambos os fits clearam o acceptance Sprint H §6 (RMSE ≤ 10 bps +
+confiança ≥ 0.9) com headroom material (~50 % em RMSE), reproduzível
+via `tests/integration/test_daily_curves_multi_country.py::test_daily_curves_it_end_to_end` +
+`test_daily_curves_es_end_to_end`.
+
+### Regra operacional Sprint H amendment (ADR-0009 v2)
+
+Consolidação da regra operacional já implícita em CAL-138 + formalizada
+aqui como consequência do Sprint G omission:
+
+**Qualquer sprint de country-data probe tem de incluir TE generic
+indicator API como Path 1 na matriz §2 pre-flight**, antes dos
+national-CB paths (BdF / BdI / BdE / BPstat / DNB / …). A razão é
+operacional: TE é o único feed unified-contract que já cobre
+simultaneamente 16 países T1, tem rate-limit generoso (Pro tier),
+ships per-tenor symbols via `/markets/historical`, e tem source-drift
+guards reutilizáveis (HistoricalDataSymbol validation). National-CB
+probes só devem ser invocados **após** TE exhaustion empiricamente
+confirmada (i.e. TE devolve < MIN_OBSERVATIONS=6 tenores ou non-daily
+frequency).
+
+Consequência retroactiva: Sprint G HALT-0 decisions para IT + ES
+ficam **corrigidas** — os probes Sprint G não eram "all 5 paths dead"
+(IT) nem "HTTP 200 + non-daily" (ES) quando TE Path 1 existe e
+funciona. O scaffold work (`banca_ditalia.py` + `banco_espana.py`)
+permanece como documentation-first + future direct-CB placeholder
+(unblock path se BdI / BdE publicarem daily feeds próprios), mas
+o daily_curves pipeline usa TE em Sprint H + forward.
+
+### Pattern library v2 — Path 1 canónico
+
+| Path | Ordem | Implementação | Quando escolher |
+|---|---|---|---|
+| **Path 1: TE generic cascade** | **Sempre primeiro** | Extend `TE_YIELD_CURVE_SYMBOLS` dict + run per-tenor probe matrix (template scripts em Sprint H brief §2) | Qualquer país T1 que não seja already covered em FRED / Bundesbank / ECB SDW. Cobertura provada 2026-04-22 para IT + ES; GB / JP / CA shipped CAL-138. Não-ship para AU / NZ / CH / SE / NO / DK (< 2 tenors empiricamente) — para esses CAL-CURVES-T1-SPARSE é o tracker. |
+| **Path 2: ECB SDW YC / IRS** | Segundo (EA members) | Existing `EcbSdwConnector.fetch_yield_curve_nominal` | EA aggregate (não por país) — já shipped CAL-138. |
+| **Path 3: National-CB direct** | Último (post-TE-exhaustion) | Scaffold per ADR-0009 sub-casos A / B / C | Apenas se Path 1 + Path 2 empiricamente inadequados. Bundesbank DE é o único sucesso comprovado do Path 3 entre T1. |
+
+### Updated EA periphery probe matrix (Path 1 canonical)
+
+| País | Path 1 (TE) | Path 3 (National CB) | Status |
+|---|---|---|---|
+| **DE-Bundesbank** | N/A (Path 3 pre-existing) | ✓ SUCCESS via `BBSIS` (CAL-138) | **SHIPPED** |
+| **FR-BDF** | Pending re-probe (`GFRN10` only 10Y per CAL-138 probe; mas CAL-138 não varreu per-tenor) — `CAL-CURVES-FR-TE-PROBE` abre Sprint H | HALT-0 sub-caso A (Sprint D) | BLOCKED pendente TE re-probe |
+| **IT-BDI** | ✓ **SUCCESS** 12 tenors (Sprint H 2026-04-22) | HALT-0 sub-caso B (Sprint G — corrigido por Sprint H) | **SHIPPED** via Path 1 (TE cascade) |
+| **ES-BDE** | ✓ **SUCCESS** 9 tenors (Sprint H 2026-04-22) | HALT-0 sub-caso C (Sprint G — corrigido por Sprint H) | **SHIPPED** via Path 1 (TE cascade) |
+| **PT-BPSTAT** | Pending probe (TE Path 1 obrigatório per amendment) | Pending probe | Pending |
+| **NL-DNB** | Pending probe (TE Path 1 obrigatório per amendment) | Pending probe | Pending |
+
+### Follow-ups (Sprint H addendum)
+
+1. **`CAL-CURVES-FR-TE-PROBE`** — aberto Sprint H. CAL-138 probe para
+   FR mostrou "TE single-tenor `GFRN10` only", mas essa probe **não
+   varreu per-tenor** o spectrum `GFRN1M / GFRN3M / … / GFRN30Y`. Sprint
+   H amendment requer varredura per-tenor completa antes de classificar
+   FR como "TE inadequate"; Week 11 candidate sprint para executar a
+   re-probe per ADR-0009 v2 disciplina.
+2. **PT + NL probes** devem começar com TE Path 1 per amendment.
+   Budget ajustado para ~2h CC cada se Path 1 sucede (pattern
+   replication); 4-5h CC se falha e cai para Path 3 (scaffold per
+   pre-existing sub-casos A / B / C).
+3. **Scaffolds Sprint G retidos** — `banca_ditalia.py` +
+   `banco_espana.py` permanecem in-repo como documentation-first +
+   future direct-CB placeholder. Não deleted; referenced explicitly
+   nos updated `CAL-CURVES-IT-BDI` + `CAL-CURVES-ES-BDE` entries como
+   histórico da tentativa Sprint G + unblock-path future (licensed
+   feed / BdI-BdE daily SDMX publication / browser-automation shim).
+
+### Post-Sprint H coverage state
+
+**T1 curves coverage 8/16** (US/DE/EA/GB/JP/CA **+ IT + ES**). Dois
+CAL items CLOSED via TE cascade (IT-BDI + ES-BDE). Um BLOCKED
+pendente TE re-probe (FR-BDF → `CAL-CURVES-FR-TE-PROBE`). Dois
+pendentes (PT-BPSTAT / NL-DNB). Overlays cascade de IT + ES em
+produção a partir de 2026-04-23 07:30 WEST (primeira execução
+post-merge); FR + PT + NL continuam em EA-AAA proxy-fallback.
+
+Pattern library v2 (CAL-138 TE canonical + Sprint H Path 1
+formalization) é a regra active para Week 11+ country-data probes.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
   hierarchy, §5 HALT-0 trigger, §7 report-back.
 - `docs/planning/week10-sprint-g-it-es-curves-brief.md` §2 pre-flight,
   §5 HALT-0 triggers, §7 report-back — Sprint G combined IT + ES pilot.
+- `docs/planning/week10-sprint-h-it-es-te-cascade-brief.md` §4 commits
+  1-5 — Sprint H IT + ES TE cascade (Sprint G amendment).
 - `docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md`
   — pilot retro (v3 format).
 - `docs/planning/retrospectives/week10-sprint-curves-it-es-report.md`
   — Sprint G combined retro (v3 format).
+- `docs/planning/retrospectives/week10-sprint-curves-it-es-te-report.md`
+  — Sprint H TE-cascade retro (v3 format; closes IT-BDI + ES-BDE via
+  Path 1 canonical).
 - `docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`
   — Sprint A precedent (ECB SDW periphery HALT).
 - `docs/planning/retrospectives/week10-sprint-cal138-report.md` —
