@@ -121,7 +121,10 @@ TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
 # connectors Phase 2+).
 #
 # EA periphery (PT/IT/ES/FR/NL) via TE 10Y-only (Bloomberg symbols
-# GFRN10/GBTPGR10/...) — deferred under CAL-CURVES-EA-PERIPHERY.
+# GFRN10/GBTPGR10/...) — deferred under per-country CAL items
+# (CAL-CURVES-PT-BPSTAT / CAL-CURVES-IT-BDI / CAL-CURVES-ES-BDE /
+# CAL-CURVES-FR-BDF / CAL-CURVES-NL-DNB) post Sprint A 2026-04-22
+# probe. TE symbol coverage alone is insufficient for NSS anyway.
 #
 # Symbol quirks discovered empirically (do **not** normalise without a
 # fresh probe — TE symbol naming is non-uniform):
@@ -1027,7 +1030,8 @@ class TEConnector:
         Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors).
         Other non-EA T1 countries are deferred per CAL-CURVES-T1-SPARSE
         (AU/NZ/CH/SE/NO/DK have insufficient tenor coverage on TE); EA
-        periphery deferred per CAL-CURVES-EA-PERIPHERY.
+        periphery deferred per per-country CAL items (see
+        :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
 
         Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
         latest trading day ≤ ``observation_date`` inside a 7-day window.
@@ -1048,7 +1052,9 @@ class TEConnector:
                 f"TE yield curve only supports "
                 f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 empirical "
                 f"scope); got {country}. Other T1 countries defer per "
-                f"CAL-CURVES-T1-SPARSE / CAL-CURVES-EA-PERIPHERY."
+                f"CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK) or per "
+                f"per-country CAL items (PT/IT/ES/FR/NL — see "
+                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS)."
             )
             raise ValueError(msg)
 

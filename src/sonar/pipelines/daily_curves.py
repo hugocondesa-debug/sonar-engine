@@ -17,10 +17,19 @@ coverage via country-aware connector dispatch:
   tenors per CAL-138 empirical probe; linker stub)
 
 Other T1 countries (AU/NZ/CH/SE/NO/DK + EA periphery PT/IT/ES/FR/NL)
-have insufficient tenor coverage on currently-wired connectors and are
-deferred under CAL-CURVES-T1-SPARSE / CAL-CURVES-EA-PERIPHERY. Pipeline
-raises :class:`~sonar.overlays.exceptions.InsufficientDataError` for
-those — in ``--all-t1`` mode the country is skipped and the orchestrator
+have insufficient tenor coverage on currently-wired connectors. The
+Week 10 Sprint A pre-flight probe (2026-04-22) confirmed that ECB SDW
+cannot serve per-country EA periphery curves — the ``YC`` dataflow is
+EA-aggregate only, ``FM`` lacks EA periphery ``REF_AREA``, and ``IRS``
+publishes a single 10Y point per country (below
+``MIN_OBSERVATIONS=6``). PT/IT/ES/FR/NL are therefore tracked under
+five per-country CAL items (``CAL-CURVES-PT-BPSTAT`` /
+``CAL-CURVES-IT-BDI`` / ``CAL-CURVES-ES-BDE`` /
+``CAL-CURVES-FR-BDF`` / ``CAL-CURVES-NL-DNB``) superseding the
+umbrella ``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
+``CAL-CURVES-T1-SPARSE``. Pipeline raises
+:class:`~sonar.overlays.exceptions.InsufficientDataError` for those —
+in ``--all-t1`` mode the country is skipped and the orchestrator
 continues; in ``--country <X>`` mode the exit code is
 ``EXIT_INSUFFICIENT_DATA`` (1).
 
@@ -96,13 +105,16 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA"})
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
-# see the exact CAL item to subscribe to.
+# see the exact CAL item to subscribe to. EA periphery members point to
+# their per-country CAL items (Sprint A 2026-04-22 probe superseded the
+# umbrella CAL-CURVES-EA-PERIPHERY with five national-CB integration
+# sprints, mirrored in :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
 _DEFERRAL_CAL_MAP: dict[str, str] = {
-    "PT": "CAL-CURVES-EA-PERIPHERY",
-    "IT": "CAL-CURVES-EA-PERIPHERY",
-    "ES": "CAL-CURVES-EA-PERIPHERY",
-    "FR": "CAL-CURVES-EA-PERIPHERY",
-    "NL": "CAL-CURVES-EA-PERIPHERY",
+    "PT": "CAL-CURVES-PT-BPSTAT",
+    "IT": "CAL-CURVES-IT-BDI",
+    "ES": "CAL-CURVES-ES-BDE",
+    "FR": "CAL-CURVES-FR-BDF",
+    "NL": "CAL-CURVES-NL-DNB",
     "AU": "CAL-CURVES-T1-SPARSE",
     "NZ": "CAL-CURVES-T1-SPARSE",
     "CH": "CAL-CURVES-T1-SPARSE",

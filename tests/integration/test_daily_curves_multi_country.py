@@ -2,7 +2,10 @@
 
 Covers the post-CAL-138 curve-fit surface: US (FRED, existing), DE
 (Bundesbank), EA (ECB SDW), GB/JP/CA (TE). Countries deferred per
-CAL-CURVES-EA-PERIPHERY / CAL-CURVES-T1-SPARSE raise
+the five per-country EA periphery CAL items (CAL-CURVES-PT-BPSTAT /
+CAL-CURVES-IT-BDI / CAL-CURVES-ES-BDE / CAL-CURVES-FR-BDF /
+CAL-CURVES-NL-DNB — superseded CAL-CURVES-EA-PERIPHERY post Sprint A
+2026-04-22 probe) or CAL-CURVES-T1-SPARSE raise
 :class:`InsufficientDataError` at dispatch — verified by unit tests of
 ``_fetch_nominals_linkers``; integration tests here exercise the live
 cascade end-to-end.
@@ -106,9 +109,21 @@ def test_curve_supported_countries_matches_cal138_scope() -> None:
 async def test_fetch_nominals_raises_for_periphery_with_cal_pointer(
     bundesbank: BundesbankConnector, ecb_sdw: EcbSdwConnector
 ) -> None:
-    """EA periphery countries raise InsufficientDataError pointing to CAL item."""
-    for country in ("PT", "IT", "ES", "FR", "NL"):
-        with pytest.raises(InsufficientDataError, match="CAL-CURVES-EA-PERIPHERY"):
+    """EA periphery raise InsufficientDataError with per-country CAL pointer.
+
+    Post Sprint A 2026-04-22 probe the umbrella ``CAL-CURVES-EA-PERIPHERY``
+    was superseded by five per-country items; the dispatch error now
+    cites the country-specific CAL (e.g. PT → ``CAL-CURVES-PT-BPSTAT``).
+    """
+    expected_pointers = {
+        "PT": "CAL-CURVES-PT-BPSTAT",
+        "IT": "CAL-CURVES-IT-BDI",
+        "ES": "CAL-CURVES-ES-BDE",
+        "FR": "CAL-CURVES-FR-BDF",
+        "NL": "CAL-CURVES-NL-DNB",
+    }
+    for country, pointer in expected_pointers.items():
+        with pytest.raises(InsufficientDataError, match=pointer):
             await _fetch_nominals_linkers(
                 country,
                 date(2024, 12, 30),

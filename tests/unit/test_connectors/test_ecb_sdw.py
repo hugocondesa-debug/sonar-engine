@@ -24,6 +24,7 @@ from sonar.connectors.ecb_sdw import (
     ECB_EUROSYSTEM_BS_DATAFLOW,
     ECB_EUROSYSTEM_BS_SERIES_ID,
     ECB_SERIES_TENORS,
+    PERIPHERY_CAL_POINTERS,
     EcbMonetaryObservation,
     EcbSdwConnector,
     _parse_time_period,
@@ -162,6 +163,67 @@ async def test_fetch_yield_curve_linker_rejects_non_ea(
     with pytest.raises(ValueError, match="only accepts country=EA"):
         await ecb_connector.fetch_yield_curve_linker(
             country="DE", observation_date=date(2024, 1, 2)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Sprint A 2026-04-22 periphery deferral — per-country CAL pointers
+# ---------------------------------------------------------------------------
+
+
+def test_periphery_cal_pointers_complete() -> None:
+    """Sprint A supersedes CAL-CURVES-EA-PERIPHERY with five per-country items."""
+    assert set(PERIPHERY_CAL_POINTERS) == {"PT", "IT", "ES", "FR", "NL"}
+    assert PERIPHERY_CAL_POINTERS["PT"] == "CAL-CURVES-PT-BPSTAT"
+    assert PERIPHERY_CAL_POINTERS["IT"] == "CAL-CURVES-IT-BDI"
+    assert PERIPHERY_CAL_POINTERS["ES"] == "CAL-CURVES-ES-BDE"
+    assert PERIPHERY_CAL_POINTERS["FR"] == "CAL-CURVES-FR-BDF"
+    assert PERIPHERY_CAL_POINTERS["NL"] == "CAL-CURVES-NL-DNB"
+
+
+@pytest.mark.parametrize(
+    ("country", "pointer"),
+    [
+        ("PT", "CAL-CURVES-PT-BPSTAT"),
+        ("IT", "CAL-CURVES-IT-BDI"),
+        ("ES", "CAL-CURVES-ES-BDE"),
+        ("FR", "CAL-CURVES-FR-BDF"),
+        ("NL", "CAL-CURVES-NL-DNB"),
+    ],
+)
+async def test_fetch_yield_curve_nominal_cites_per_country_cal_for_periphery(
+    httpx_mock: HTTPXMock,
+    ecb_connector: EcbSdwConnector,
+    country: str,
+    pointer: str,
+) -> None:
+    _ = httpx_mock
+    with pytest.raises(ValueError, match=pointer):
+        await ecb_connector.fetch_yield_curve_nominal(
+            country=country, observation_date=date(2024, 1, 2)
+        )
+
+
+@pytest.mark.parametrize(
+    ("country", "pointer"),
+    [
+        ("PT", "CAL-CURVES-PT-BPSTAT"),
+        ("IT", "CAL-CURVES-IT-BDI"),
+        ("ES", "CAL-CURVES-ES-BDE"),
+        ("FR", "CAL-CURVES-FR-BDF"),
+        ("NL", "CAL-CURVES-NL-DNB"),
+    ],
+)
+async def test_fetch_yield_curve_linker_cites_per_country_cal_for_periphery(
+    httpx_mock: HTTPXMock,
+    ecb_connector: EcbSdwConnector,
+    country: str,
+    pointer: str,
+) -> None:
+    _ = httpx_mock
+    with pytest.raises(ValueError, match=pointer):
+        await ecb_connector.fetch_yield_curve_linker(
+            country=country, observation_date=date(2024, 1, 2)
         )
 
 

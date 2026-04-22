@@ -8,8 +8,24 @@ Svensson par-rate curve into ``{tenor_label: Observation}`` per spec §2.
 ECB SDW is open (no API key). Endpoint: ``https://data-api.ecb.europa.eu``;
 CSV (``format=csvdata``) chosen over SDMX-XML/JSON for parser simplicity.
 
+Per-country EA periphery coverage is **empirically infeasible via ECB
+SDW** — confirmed by the Week 10 Sprint A pre-flight probe (2026-04-22):
+
+* ``YC`` dataflow: ``REF_AREA`` = ``U2`` only (EA aggregate AAA Svensson).
+* ``FM`` dataflow: ``REF_AREA`` ∈ {U2, DK, GB, JP, SE, US} — no EA
+  periphery sovereign series are published.
+* ``IRS`` dataflow: monthly 10Y Maastricht convergence rate per country
+  (single point, below NSS ``MIN_OBSERVATIONS=6`` so cannot fit a curve).
+
+PT/IT/ES/FR/NL therefore require national-CB connectors (analog to
+:class:`~sonar.connectors.bundesbank.BundesbankConnector` for DE);
+each country is tracked under its own CAL item (see
+:data:`PERIPHERY_CAL_POINTERS`). The Sprint A probe superseded the
+umbrella ``CAL-CURVES-EA-PERIPHERY`` with the five per-country items.
+
 Reference: ``docs/data_sources/monetary.md`` §3.2 ECB SDW; spec
-``docs/specs/overlays/nss-curves.md`` §2 T1 DE/EA-AAA.
+``docs/specs/overlays/nss-curves.md`` §2 T1 DE/EA-AAA;
+``docs/planning/retrospectives/week10-sprint-ea-periphery-report.md``.
 """
 
 from __future__ import annotations
@@ -66,6 +82,18 @@ ECB_DFR_DATAFLOW = "FM"
 ECB_DFR_SERIES_ID = "D.U2.EUR.4F.KR.DFR.LEV"
 ECB_EUROSYSTEM_BS_DATAFLOW = "ILM"
 ECB_EUROSYSTEM_BS_SERIES_ID = "W.U2.C.T000000.Z5.Z01"
+
+# Per-country CAL pointers for EA periphery members whose full yield
+# curves are not served by ECB SDW (Sprint A 2026-04-22 probe finding).
+# These supersede the umbrella CAL-CURVES-EA-PERIPHERY — each country
+# has its own national-CB integration path + estimate.
+PERIPHERY_CAL_POINTERS: dict[str, str] = {
+    "PT": "CAL-CURVES-PT-BPSTAT",
+    "IT": "CAL-CURVES-IT-BDI",
+    "ES": "CAL-CURVES-ES-BDE",
+    "FR": "CAL-CURVES-FR-BDF",
+    "NL": "CAL-CURVES-NL-DNB",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,16 +225,27 @@ class EcbSdwConnector(BaseConnector):
         served by the ``YC`` dataflow (which publishes a single
         EA-aggregate AAA Svensson fit); DE has a dedicated
         :class:`sonar.connectors.bundesbank.BundesbankConnector`, and
-        periphery coverage is tracked under CAL-CURVES-EA-PERIPHERY
-        (CAL-138 Sprint empirical finding).
+        periphery coverage is tracked under the five per-country CAL
+        items listed in :data:`PERIPHERY_CAL_POINTERS` (2026-04-22
+        Sprint A probe superseded the umbrella CAL-CURVES-EA-PERIPHERY).
         """
         if country != "EA":
-            msg = (
-                f"ECB SDW yield curve only supports country=EA "
-                f"(aggregate AAA Svensson); got {country}. "
-                f"For DE use BundesbankConnector; PT/IT/ES/FR/NL defer per "
-                f"CAL-CURVES-EA-PERIPHERY."
-            )
+            periphery_pointer = PERIPHERY_CAL_POINTERS.get(country)
+            if periphery_pointer is not None:
+                msg = (
+                    f"ECB SDW yield curve only supports country=EA "
+                    f"(aggregate AAA Svensson); got {country}. "
+                    f"{country} requires a national-CB connector — "
+                    f"tracked under {periphery_pointer}."
+                )
+            else:
+                msg = (
+                    f"ECB SDW yield curve only supports country=EA "
+                    f"(aggregate AAA Svensson); got {country}. "
+                    f"For DE use BundesbankConnector; PT/IT/ES/FR/NL defer "
+                    f"per their per-country CAL items (see "
+                    f"PERIPHERY_CAL_POINTERS)."
+                )
             raise ValueError(msg)
 
         window_days = 7
@@ -229,16 +268,25 @@ class EcbSdwConnector(BaseConnector):
     ) -> dict[str, Observation]:
         """Inflation-indexed (linker) curve stub for EA — returns empty dict.
 
-        The ``YC`` dataflow has no inflation-indexed counterpart; per-country
-        ILB series (OATei/BTP€i/Bonos-i/DBR-i/DSL-i) live in dedicated
-        national-CB feeds and are deferred to CAL-CURVES-EA-PERIPHERY
-        alongside nominal periphery curves. Callers receive an empty dict +
-        should emit a ``LINKER_UNAVAILABLE`` flag on the resulting
+        The ``YC`` dataflow has no inflation-indexed counterpart;
+        per-country ILB series (OATei/BTP€i/Bonos-i/DBR-i/DSL-i) live in
+        dedicated national-CB feeds and are tracked under the per-country
+        CAL items in :data:`PERIPHERY_CAL_POINTERS` (linker coverage is
+        bundled into each per-country sprint). Callers receive an empty
+        dict + should emit a ``LINKER_UNAVAILABLE`` flag on the resulting
         :class:`~sonar.overlays.nss.RealCurve` (method remains
         ``derived`` via BEI fallback where feasible).
         """
         if country != "EA":
-            msg = f"ECB SDW yield curve linker stub only accepts country=EA; got {country}."
+            periphery_pointer = PERIPHERY_CAL_POINTERS.get(country)
+            if periphery_pointer is not None:
+                msg = (
+                    f"ECB SDW yield curve linker stub only accepts "
+                    f"country=EA; got {country}. {country} linker "
+                    f"coverage tracked under {periphery_pointer}."
+                )
+            else:
+                msg = f"ECB SDW yield curve linker stub only accepts country=EA; got {country}."
             raise ValueError(msg)
         return {}
 

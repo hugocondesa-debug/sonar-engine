@@ -213,7 +213,10 @@ script for a clean teardown.
   `daily_curves` now supports `--all-t1` directly (iterates T1_7
   tier), so template units are no longer necessary for the curves
   step; periphery (PT/IT/ES/FR/NL) still skips with warnings until
-  CAL-CURVES-EA-PERIPHERY lands.
+  the five per-country national-CB CAL items ship
+  (`CAL-CURVES-PT-BPSTAT` / `CAL-CURVES-IT-BDI` /
+  `CAL-CURVES-ES-BDE` / `CAL-CURVES-FR-BDF` / `CAL-CURVES-NL-DNB` —
+  umbrella `CAL-CURVES-EA-PERIPHERY` superseded Sprint A 2026-04-22).
 - Email/webhook integration via `AlertSink` concrete impl is Phase 2.
 - DST transitions handled by UTC scheduling; if local-time semantics
   ever matter, systemd's `OnCalendar=` supports `Europe/Lisbon` etc.
