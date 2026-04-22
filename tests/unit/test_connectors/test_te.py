@@ -638,3 +638,25 @@ async def test_live_canary_es_yield_curve_multi_tenor(tmp_cache_dir: Path) -> No
             assert 0 < obs.yield_bps < 1000
     finally:
         await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_fr_yield_curve_multi_tenor(tmp_cache_dir: Path) -> None:
+    """Live probe — FR 10-tenor OAT curve via GFRN family (Sprint I)."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        target = date(2024, 12, 30)
+        curve = await conn.fetch_yield_curve_nominal(country="FR", observation_date=target)
+        # Allow 1-tenor headroom for TE gaps (probe matrix is 10/10).
+        assert len(curve) >= 9, f"FR curve thin: {list(curve)}"
+        # FR OAT 10Y sat in [-0.40, 7.0]% across 1990-2025; allow modest
+        # negative-rate cushion since the canary may be re-pointed at
+        # historical 2019-2021 windows in future runs.
+        for obs in curve.values():
+            assert obs.country_code == "FR"
+            assert -100 < obs.yield_bps < 1000
+    finally:
+        await conn.aclose()

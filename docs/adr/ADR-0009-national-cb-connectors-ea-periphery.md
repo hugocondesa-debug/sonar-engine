@@ -392,6 +392,117 @@ post-merge); FR + PT + NL continuam em EA-AAA proxy-fallback.
 Pattern library v2 (CAL-138 TE canonical + Sprint H Path 1
 formalization) é a regra active para Week 11+ country-data probes.
 
+## Addendum Sprint I (2026-04-22) — FR via TE Path 1 cascade (closes CAL-CURVES-FR-TE-PROBE)
+
+Sprint I (Week 10 Day 2 follow-up FR via TE per-tenor cascade,
+2026-04-22) executou a re-probe Path 1 mandatada pelo amendment v2 do
+Sprint H. Resultado: SUCCESS. FR ships via TE cascade — sétimo uso
+do pattern (CAL-138 GB / JP / CA + Sprint H IT / ES + Sprint I FR).
+
+### Resultado empírico Sprint I probe (2026-04-22)
+
+Per-tenor sweep da família `GFRN` em `/markets/historical`:
+
+| Tenor | Symbol | Status | Close 2024-12-31 |
+|---|---|---|---|
+| 1M  | `GFRN1M:IND`  | ✓ daily | 2.69800 |
+| 3M  | `GFRN3M:IND`  | ✓ daily | 2.68100 |
+| 6M  | `GFRN6M:IND`  | ✓ daily | 2.51050 |
+| 1Y  | `GFRN1Y:IND`  | ✓ daily | 2.34180 |
+| 2Y  | `GFRN2Y:IND`  | ✓ daily | 2.25750 |
+| 3Y  | —             | ✗ all variants empty | — |
+| 5Y  | `GFRN5Y:IND`  | ✓ daily | 2.65500 |
+| 7Y  | `GFRN7Y:IND`  | ✓ daily | 2.86750 |
+| 10Y | `GFRN10:IND`  | ✓ daily | 3.19350 |
+| 15Y | —             | ✗ all variants empty | — |
+| 20Y | `GFRN20Y:IND` | ✓ daily | 3.49850 |
+| 30Y | `GFRN30Y:IND` | ✓ daily | 3.72500 |
+
+**FR total: 10 tenors** — clears `MIN_OBSERVATIONS_FOR_SVENSSON=9`.
+Quirk: bare `Y` suffix uniformly em 1Y+ tenores disponíveis (vs ES
+`YR` ou IT mixed `Y` / no-suffix); 10Y drops o suffix como `GFRN10`
+(matching IT `GBTPGR10` / GB `GUKG10` / JP `GJGB10` precedent).
+Missing 3Y + 15Y empiricamente — não-uniformidade do TE Bloomberg
+mirror, não defeito da fonte.
+
+NSS fit live canary 2026-04-22 (TE_API_KEY-bearing env, 2024-12-30
+target): n=10 tenors · RMSE = **2.005 bps** · confidence = **1.000**
+· flags = `()`. Cleaner que IT (5.23) ou ES (4.41) na mesma
+pipeline — FR tem cobertura limpa do mid-curve via TE, sem o noise
+de 1Y-3Y benchmark-roll que afecta IT.
+
+### Sprint D HALT-0 reframe
+
+A Sprint D (Banque de France pilot, 2026-04-22) tinha concluído
+HALT-0 nos quatro paths probed (BdF SDMX legacy 404 + BdF
+OpenDatasoft monthly-archive only + AFT Cloudflare-challenged + TE
+"GFRN10 10Y-only"). **A entry "TE GFRN10 10Y-only" era ela própria um
+artifact de single-symbol probe** — `CAL-138` tinha catalogado FR
+apenas como 10Y-disponível porque o probe Bloomberg-symbol assumiu
+uniformidade family-wise; a Sprint D inheritou essa entry sem
+varrer per-tenor. Sprint H amendment v2 mandatou a re-probe
+(`CAL-CURVES-FR-TE-PROBE`); Sprint I executou e empiricamente
+confirmou 10 tenores daily. O direct-CB path (BdF SDMX legacy / BdF
+OpenDatasoft / AFT) continua dead conforme Sprint D — só a
+characterização "TE inadequate" foi corrigida.
+
+`CAL-CURVES-FR-BDF` (Sprint D pilot) **permanece BLOCKED** como
+direct-CB upgrade path; a Sprint I closure aplica-se apenas a
+`CAL-CURVES-FR-TE-PROBE`. Sprint I C4 sharpens o `CAL-CURVES-FR-BDF`
+description para registar a separação canónica entre os dois paths
+(Path 1 TE = production-serving; Path 3 national-CB = future
+direct-feed upgrade).
+
+### Per-country probe outcomes table (Sprint H + Sprint I)
+
+| País | Probe Path 1 (TE) | Probe Path 3 (national-CB) | Status produção |
+|---|---|---|---|
+| **GB** | ✓ 12 tenors (CAL-138) | n/a (não EA periphery) | ✓ shipped via TE |
+| **JP** | ✓ 9 tenors (CAL-138) | n/a (não EA periphery) | ✓ shipped via TE |
+| **CA** | ✓ 6 tenors (CAL-138 NS-reduced) | n/a (não EA periphery) | ✓ shipped via TE |
+| **IT** | ✓ 12 tenors (Sprint H) | HALT-0 sub-caso B (Sprint G — corrigido por Sprint H) | ✓ shipped via TE |
+| **ES** | ✓ 9 tenors (Sprint H) | HALT-0 sub-caso C (Sprint G — corrigido por Sprint H) | ✓ shipped via TE |
+| **FR** | ✓ **10 tenors (Sprint I)** | HALT-0 sub-caso A (Sprint D) | ✓ **shipped via TE** |
+| **PT** | Pending probe (TE Path 1 obrigatório per amendment) | Pending probe | Pending |
+| **NL** | Pending probe (TE Path 1 obrigatório per amendment) | Pending probe | Pending |
+
+### Pattern library v2.1 — Sprint I empirical reinforcement
+
+A Sprint I é a 7ª aplicação do TE Path 1 cascade pattern e o 3º
+caso onde TE Path 1 success **inverteu** uma conclusão prévia de
+HALT-0 baseada em probe incompleto (Sprint G IT + ES + Sprint D FR).
+Reforço empírico da regra v2 (TE primeiro sempre): **single-symbol
+ou single-path probes são insuficientes para concluir HALT-0**;
+apenas a varredura per-tenor + per-path completa autoriza essa
+conclusão. ADR-0009 v2.1 mantém a regra v2 (sem alteração textual);
+addendum v2.1 documenta apenas o probe outcome FR + reframe Sprint D.
+
+### Follow-ups (Sprint I addendum)
+
+1. **`CAL-CURVES-FR-TE-PROBE` CLOSED** — outcome SUCCESS, shipped
+   via TE cascade (Sprint I commits ``db8fe82`` C1 + ``93564bc`` C2 +
+   ``8e2f6c4`` C3 + C4-TBD).
+2. **`CAL-CURVES-FR-BDF` SHARPENED** — direct-CB national path
+   continua BLOCKED conforme Sprint D probe matrix; description
+   gains Sprint I addendum registando que daily-pipeline surface já
+   não depende deste CAL (TE cascade serve), só o future direct-feed
+   upgrade path.
+3. **PT + NL ADR-0009 successor sprints** — TE Path 1 probe
+   obrigatório per amendment v2 (regra inalterada Sprint I).
+
+### Post-Sprint I coverage state
+
+**T1 curves coverage 9/16** (US/DE/EA/GB/JP/CA **+ IT + ES + FR**).
+Três CAL items CLOSED via TE cascade (IT-BDI + ES-BDE Sprint H +
+FR-TE-PROBE Sprint I). Um BLOCKED conserved (FR-BDF — direct-CB
+upgrade path; daily pipeline já não depende). Dois pendentes
+(PT-BPSTAT / NL-DNB). Overlays cascade de FR em produção a partir
+de 2026-04-23 07:30 WEST (primeira execução post-merge); PT + NL
+continuam em EA-AAA proxy-fallback.
+
+Pattern library v2 mantém-se canonical para Week 11+; Sprint I é
+puro empirical reinforcement.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
@@ -400,8 +511,14 @@ formalization) é a regra active para Week 11+ country-data probes.
   §5 HALT-0 triggers, §7 report-back — Sprint G combined IT + ES pilot.
 - `docs/planning/week10-sprint-h-it-es-te-cascade-brief.md` §4 commits
   1-5 — Sprint H IT + ES TE cascade (Sprint G amendment).
+- `docs/planning/week10-sprint-i-fr-te-probe-brief.md` §4 commits
+  1-4 — Sprint I FR TE cascade (Sprint H amendment v2 successor).
 - `docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md`
   — pilot retro (v3 format).
+- `docs/planning/retrospectives/week10-sprint-curves-fr-te-probe-report.md`
+  — Sprint I FR TE-cascade retro (v3 format; closes
+  `CAL-CURVES-FR-TE-PROBE` via Path 1 canonical; sharpens
+  `CAL-CURVES-FR-BDF` per direct-CB / TE-cascade orthogonality).
 - `docs/planning/retrospectives/week10-sprint-curves-it-es-report.md`
   — Sprint G combined retro (v3 format).
 - `docs/planning/retrospectives/week10-sprint-curves-it-es-te-report.md`

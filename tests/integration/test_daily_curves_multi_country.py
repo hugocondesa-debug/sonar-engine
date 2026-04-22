@@ -308,6 +308,32 @@ async def test_daily_curves_es_end_to_end(te: TEConnector, db_session: Session) 
     assert spot.confidence >= 0.9
 
 
+@pytest.mark.slow
+async def test_daily_curves_fr_end_to_end(te: TEConnector, db_session: Session) -> None:
+    """FR 2024-12-30 via TE GFRN OAT family → Svensson fit persisted.
+
+    Sprint I empirical probe 2026-04-22 established 10-tenor FR OAT
+    coverage (1M-30Y minus 3Y / 15Y). 10 tenors clears
+    ``MIN_OBSERVATIONS_FOR_SVENSSON=9``; live canary 2026-04-22 observed
+    RMSE=2.005 bps + confidence=1.0 (cleaner than IT 5.23 / ES 4.41
+    via the same /markets/historical surface).
+    """
+    obs_date = date(2024, 12, 30)
+    result = await run_country(
+        country="FR",
+        observation_date=obs_date,
+        session=db_session,
+        te=te,
+    )
+    spot = db_session.query(NSSYieldCurveSpot).filter_by(country_code="FR", date=obs_date).one()
+    assert spot.fit_id == str(result.fit_id)
+    assert spot.observations_used >= 9  # Svensson-minimum reached (10-tenor curve)
+    assert spot.source_connector == "te"
+    # Sprint I brief §6 acceptance: RMSE ≤ 10 bps + confidence ≥ 0.9.
+    assert spot.rmse_bps <= 10
+    assert spot.confidence >= 0.9
+
+
 # ---------------------------------------------------------------------------
 # Sprint E sparse-inclusion — full ``--all-t1`` iteration canary
 # ---------------------------------------------------------------------------
