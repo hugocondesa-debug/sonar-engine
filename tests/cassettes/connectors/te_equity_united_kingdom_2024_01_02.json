@@ -1,0 +1,1352 @@
+[
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-06T00:00:00",
+    "Value": 7628.10000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-07T00:00:00",
+    "Value": 7624.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-08T00:00:00",
+    "Value": 7599.74000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-09T00:00:00",
+    "Value": 7562.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-12T00:00:00",
+    "Value": 7570.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-13T00:00:00",
+    "Value": 7594.78000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-14T00:00:00",
+    "Value": 7602.74000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-15T00:00:00",
+    "Value": 7628.26000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-16T00:00:00",
+    "Value": 7642.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-19T00:00:00",
+    "Value": 7588.48000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-20T00:00:00",
+    "Value": 7569.31000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-21T00:00:00",
+    "Value": 7559.18000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-22T00:00:00",
+    "Value": 7502.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-23T00:00:00",
+    "Value": 7461.87000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-26T00:00:00",
+    "Value": 7453.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-27T00:00:00",
+    "Value": 7461.46000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-28T00:00:00",
+    "Value": 7500.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-29T00:00:00",
+    "Value": 7471.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-30T00:00:00",
+    "Value": 7531.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-03T00:00:00",
+    "Value": 7527.26000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-04T00:00:00",
+    "Value": 7519.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-05T00:00:00",
+    "Value": 7442.10000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-06T00:00:00",
+    "Value": 7280.50000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-07T00:00:00",
+    "Value": 7256.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-10T00:00:00",
+    "Value": 7273.79000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-11T00:00:00",
+    "Value": 7282.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-12T00:00:00",
+    "Value": 7416.11000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-13T00:00:00",
+    "Value": 7440.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-14T00:00:00",
+    "Value": 7434.57000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-17T00:00:00",
+    "Value": 7406.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-18T00:00:00",
+    "Value": 7453.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-19T00:00:00",
+    "Value": 7588.20000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-20T00:00:00",
+    "Value": 7646.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-21T00:00:00",
+    "Value": 7663.73000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-24T00:00:00",
+    "Value": 7678.59000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-25T00:00:00",
+    "Value": 7691.80000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-26T00:00:00",
+    "Value": 7676.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-27T00:00:00",
+    "Value": 7692.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-28T00:00:00",
+    "Value": 7694.27000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-31T00:00:00",
+    "Value": 7699.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-01T00:00:00",
+    "Value": 7666.27000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-02T00:00:00",
+    "Value": 7561.63000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-03T00:00:00",
+    "Value": 7529.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-04T00:00:00",
+    "Value": 7564.37000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-07T00:00:00",
+    "Value": 7554.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-08T00:00:00",
+    "Value": 7527.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-09T00:00:00",
+    "Value": 7587.30000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-10T00:00:00",
+    "Value": 7618.60000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-11T00:00:00",
+    "Value": 7524.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-14T00:00:00",
+    "Value": 7507.15000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-15T00:00:00",
+    "Value": 7389.64000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-16T00:00:00",
+    "Value": 7356.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-17T00:00:00",
+    "Value": 7310.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-18T00:00:00",
+    "Value": 7262.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-21T00:00:00",
+    "Value": 7257.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-22T00:00:00",
+    "Value": 7270.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-23T00:00:00",
+    "Value": 7320.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-24T00:00:00",
+    "Value": 7333.63000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-25T00:00:00",
+    "Value": 7338.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-29T00:00:00",
+    "Value": 7464.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-30T00:00:00",
+    "Value": 7473.67000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-31T00:00:00",
+    "Value": 7439.13000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-01T00:00:00",
+    "Value": 7464.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-04T00:00:00",
+    "Value": 7452.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-05T00:00:00",
+    "Value": 7437.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-06T00:00:00",
+    "Value": 7426.14000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-07T00:00:00",
+    "Value": 7441.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-08T00:00:00",
+    "Value": 7478.19000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-11T00:00:00",
+    "Value": 7496.87000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-12T00:00:00",
+    "Value": 7527.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-13T00:00:00",
+    "Value": 7525.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-14T00:00:00",
+    "Value": 7673.08000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-15T00:00:00",
+    "Value": 7711.38000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-18T00:00:00",
+    "Value": 7652.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-19T00:00:00",
+    "Value": 7660.20000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-20T00:00:00",
+    "Value": 7731.65000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-21T00:00:00",
+    "Value": 7678.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-22T00:00:00",
+    "Value": 7683.91000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-25T00:00:00",
+    "Value": 7623.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-26T00:00:00",
+    "Value": 7625.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-27T00:00:00",
+    "Value": 7593.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-28T00:00:00",
+    "Value": 7601.85000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-29T00:00:00",
+    "Value": 7608.08000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-02T00:00:00",
+    "Value": 7510.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-03T00:00:00",
+    "Value": 7470.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-04T00:00:00",
+    "Value": 7412.45000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-05T00:00:00",
+    "Value": 7451.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-06T00:00:00",
+    "Value": 7494.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-09T00:00:00",
+    "Value": 7492.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-10T00:00:00",
+    "Value": 7628.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-11T00:00:00",
+    "Value": 7620.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-12T00:00:00",
+    "Value": 7644.78000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-13T00:00:00",
+    "Value": 7599.60000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-16T00:00:00",
+    "Value": 7630.63000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-17T00:00:00",
+    "Value": 7675.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-18T00:00:00",
+    "Value": 7588.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-19T00:00:00",
+    "Value": 7499.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-20T00:00:00",
+    "Value": 7402.14000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-23T00:00:00",
+    "Value": 7374.83000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-24T00:00:00",
+    "Value": 7389.70000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-25T00:00:00",
+    "Value": 7414.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-26T00:00:00",
+    "Value": 7354.57000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-27T00:00:00",
+    "Value": 7291.28000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-30T00:00:00",
+    "Value": 7327.39000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-31T00:00:00",
+    "Value": 7321.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-01T00:00:00",
+    "Value": 7342.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-02T00:00:00",
+    "Value": 7446.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-03T00:00:00",
+    "Value": 7417.73000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-06T00:00:00",
+    "Value": 7417.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-07T00:00:00",
+    "Value": 7410.04000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-08T00:00:00",
+    "Value": 7401.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-09T00:00:00",
+    "Value": 7455.67000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-10T00:00:00",
+    "Value": 7360.55000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-13T00:00:00",
+    "Value": 7425.83000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-14T00:00:00",
+    "Value": 7440.47000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-15T00:00:00",
+    "Value": 7486.91000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-16T00:00:00",
+    "Value": 7410.97000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-17T00:00:00",
+    "Value": 7504.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-20T00:00:00",
+    "Value": 7496.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-21T00:00:00",
+    "Value": 7481.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-22T00:00:00",
+    "Value": 7469.51000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-23T00:00:00",
+    "Value": 7483.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-24T00:00:00",
+    "Value": 7488.20000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-27T00:00:00",
+    "Value": 7460.70000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-28T00:00:00",
+    "Value": 7455.24000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-29T00:00:00",
+    "Value": 7423.46000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-30T00:00:00",
+    "Value": 7453.75000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-01T00:00:00",
+    "Value": 7529.35000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-04T00:00:00",
+    "Value": 7512.96000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-05T00:00:00",
+    "Value": 7489.84000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-06T00:00:00",
+    "Value": 7515.38000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-07T00:00:00",
+    "Value": 7513.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-08T00:00:00",
+    "Value": 7554.47000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-11T00:00:00",
+    "Value": 7544.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-12T00:00:00",
+    "Value": 7542.77000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-13T00:00:00",
+    "Value": 7548.44000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-14T00:00:00",
+    "Value": 7648.98000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-15T00:00:00",
+    "Value": 7576.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-18T00:00:00",
+    "Value": 7614.48000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-19T00:00:00",
+    "Value": 7638.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-20T00:00:00",
+    "Value": 7715.68000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-21T00:00:00",
+    "Value": 7694.73000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-22T00:00:00",
+    "Value": 7697.51000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-27T00:00:00",
+    "Value": 7724.95000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-28T00:00:00",
+    "Value": 7722.74000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-29T00:00:00",
+    "Value": 7733.24000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-02T00:00:00",
+    "Value": 7721.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-03T00:00:00",
+    "Value": 7682.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-04T00:00:00",
+    "Value": 7723.07000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  },
+  {
+    "Country": "United Kingdom",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-05T00:00:00",
+    "Value": 7689.61000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "UKX",
+    "LastUpdate": "2026-04-22T13:52:21.963"
+  }
+]

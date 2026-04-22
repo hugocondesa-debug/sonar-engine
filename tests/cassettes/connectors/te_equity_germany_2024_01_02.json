@@ -1,0 +1,1352 @@
+[
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-07T00:00:00",
+    "Value": 15960.56000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-08T00:00:00",
+    "Value": 15989.96000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-09T00:00:00",
+    "Value": 15949.84000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-12T00:00:00",
+    "Value": 16097.87000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-13T00:00:00",
+    "Value": 16230.68000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-14T00:00:00",
+    "Value": 16310.79000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-15T00:00:00",
+    "Value": 16290.12000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-16T00:00:00",
+    "Value": 16357.63000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-19T00:00:00",
+    "Value": 16201.20000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-20T00:00:00",
+    "Value": 16111.32000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-21T00:00:00",
+    "Value": 16023.13000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-22T00:00:00",
+    "Value": 15988.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-23T00:00:00",
+    "Value": 15829.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-26T00:00:00",
+    "Value": 15813.06000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-27T00:00:00",
+    "Value": 15846.86000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-28T00:00:00",
+    "Value": 15949.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-29T00:00:00",
+    "Value": 15946.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-30T00:00:00",
+    "Value": 16147.90000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-03T00:00:00",
+    "Value": 16081.04000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-04T00:00:00",
+    "Value": 16039.17000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-05T00:00:00",
+    "Value": 15937.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-06T00:00:00",
+    "Value": 15528.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-07T00:00:00",
+    "Value": 15603.40000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-10T00:00:00",
+    "Value": 15673.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-11T00:00:00",
+    "Value": 15790.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-12T00:00:00",
+    "Value": 16023.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-13T00:00:00",
+    "Value": 16141.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-14T00:00:00",
+    "Value": 16105.07000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-17T00:00:00",
+    "Value": 16068.65000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-18T00:00:00",
+    "Value": 16125.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-19T00:00:00",
+    "Value": 16108.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-20T00:00:00",
+    "Value": 16204.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-21T00:00:00",
+    "Value": 16177.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-24T00:00:00",
+    "Value": 16190.95000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-25T00:00:00",
+    "Value": 16211.59000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-26T00:00:00",
+    "Value": 16131.46000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-27T00:00:00",
+    "Value": 16406.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-28T00:00:00",
+    "Value": 16469.75000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-31T00:00:00",
+    "Value": 16446.83000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-01T00:00:00",
+    "Value": 16240.40000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-02T00:00:00",
+    "Value": 16020.02000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-03T00:00:00",
+    "Value": 15893.38000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-04T00:00:00",
+    "Value": 15951.86000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-07T00:00:00",
+    "Value": 15950.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-08T00:00:00",
+    "Value": 15774.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-09T00:00:00",
+    "Value": 15852.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-10T00:00:00",
+    "Value": 15996.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-11T00:00:00",
+    "Value": 15832.17000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-14T00:00:00",
+    "Value": 15904.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-15T00:00:00",
+    "Value": 15767.28000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-16T00:00:00",
+    "Value": 15789.45000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-17T00:00:00",
+    "Value": 15676.90000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-18T00:00:00",
+    "Value": 15574.26000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-21T00:00:00",
+    "Value": 15603.28000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-22T00:00:00",
+    "Value": 15705.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-23T00:00:00",
+    "Value": 15728.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-24T00:00:00",
+    "Value": 15621.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-25T00:00:00",
+    "Value": 15631.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-28T00:00:00",
+    "Value": 15792.61000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-29T00:00:00",
+    "Value": 15930.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-30T00:00:00",
+    "Value": 15891.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-31T00:00:00",
+    "Value": 15947.08000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-01T00:00:00",
+    "Value": 15840.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-04T00:00:00",
+    "Value": 15824.85000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-05T00:00:00",
+    "Value": 15771.71000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-06T00:00:00",
+    "Value": 15741.37000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-07T00:00:00",
+    "Value": 15718.66000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-08T00:00:00",
+    "Value": 15744.75000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-11T00:00:00",
+    "Value": 15800.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-12T00:00:00",
+    "Value": 15715.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-13T00:00:00",
+    "Value": 15654.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-14T00:00:00",
+    "Value": 15805.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-15T00:00:00",
+    "Value": 15893.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-18T00:00:00",
+    "Value": 15727.12000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-19T00:00:00",
+    "Value": 15664.48000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-20T00:00:00",
+    "Value": 15781.59000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-21T00:00:00",
+    "Value": 15571.86000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-22T00:00:00",
+    "Value": 15557.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-25T00:00:00",
+    "Value": 15405.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-26T00:00:00",
+    "Value": 15255.87000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-27T00:00:00",
+    "Value": 15217.45000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-28T00:00:00",
+    "Value": 15323.50000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-29T00:00:00",
+    "Value": 15386.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-02T00:00:00",
+    "Value": 15247.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-03T00:00:00",
+    "Value": 15085.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-04T00:00:00",
+    "Value": 15099.92000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-05T00:00:00",
+    "Value": 15070.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-06T00:00:00",
+    "Value": 15229.77000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-09T00:00:00",
+    "Value": 15128.11000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-10T00:00:00",
+    "Value": 15423.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-11T00:00:00",
+    "Value": 15460.01000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-12T00:00:00",
+    "Value": 15425.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-13T00:00:00",
+    "Value": 15186.66000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-16T00:00:00",
+    "Value": 15237.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-17T00:00:00",
+    "Value": 15251.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-18T00:00:00",
+    "Value": 15094.91000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-19T00:00:00",
+    "Value": 15045.23000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-20T00:00:00",
+    "Value": 14798.47000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-23T00:00:00",
+    "Value": 14800.72000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-24T00:00:00",
+    "Value": 14879.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-25T00:00:00",
+    "Value": 14892.18000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-26T00:00:00",
+    "Value": 14731.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-27T00:00:00",
+    "Value": 14687.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-30T00:00:00",
+    "Value": 14716.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-31T00:00:00",
+    "Value": 14810.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-01T00:00:00",
+    "Value": 14923.27000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-02T00:00:00",
+    "Value": 15143.60000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-03T00:00:00",
+    "Value": 15189.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-06T00:00:00",
+    "Value": 15135.97000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-07T00:00:00",
+    "Value": 15152.64000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-08T00:00:00",
+    "Value": 15229.60000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-09T00:00:00",
+    "Value": 15352.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-10T00:00:00",
+    "Value": 15234.39000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-13T00:00:00",
+    "Value": 15345.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-14T00:00:00",
+    "Value": 15614.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-15T00:00:00",
+    "Value": 15748.17000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-16T00:00:00",
+    "Value": 15786.61000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-17T00:00:00",
+    "Value": 15919.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-20T00:00:00",
+    "Value": 15901.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-21T00:00:00",
+    "Value": 15900.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-22T00:00:00",
+    "Value": 15957.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-23T00:00:00",
+    "Value": 15994.73000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-24T00:00:00",
+    "Value": 16029.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-27T00:00:00",
+    "Value": 15966.37000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-28T00:00:00",
+    "Value": 15992.67000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-29T00:00:00",
+    "Value": 16166.45000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-30T00:00:00",
+    "Value": 16215.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-01T00:00:00",
+    "Value": 16397.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-04T00:00:00",
+    "Value": 16404.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-05T00:00:00",
+    "Value": 16533.11000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-06T00:00:00",
+    "Value": 16656.44000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-07T00:00:00",
+    "Value": 16628.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-08T00:00:00",
+    "Value": 16759.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-11T00:00:00",
+    "Value": 16794.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-12T00:00:00",
+    "Value": 16791.74000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-13T00:00:00",
+    "Value": 16766.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-14T00:00:00",
+    "Value": 16752.23000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-15T00:00:00",
+    "Value": 16751.44000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-18T00:00:00",
+    "Value": 16650.55000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-19T00:00:00",
+    "Value": 16744.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-20T00:00:00",
+    "Value": 16733.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-21T00:00:00",
+    "Value": 16687.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-22T00:00:00",
+    "Value": 16706.18000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-27T00:00:00",
+    "Value": 16742.07000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-28T00:00:00",
+    "Value": 16701.55000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-29T00:00:00",
+    "Value": 16751.64000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-02T00:00:00",
+    "Value": 16769.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-03T00:00:00",
+    "Value": 16538.39000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-04T00:00:00",
+    "Value": 16617.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  },
+  {
+    "Country": "Germany",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-05T00:00:00",
+    "Value": 16594.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "DAX",
+    "LastUpdate": "2026-04-22T13:52:20.67"
+  }
+]

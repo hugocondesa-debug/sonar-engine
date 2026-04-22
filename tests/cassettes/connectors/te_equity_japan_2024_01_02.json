@@ -1,0 +1,1352 @@
+[
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-05-30T00:00:00",
+    "Value": 31328.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-05-31T00:00:00",
+    "Value": 30887.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-01T00:00:00",
+    "Value": 31148.01000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-02T00:00:00",
+    "Value": 31524.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-05T00:00:00",
+    "Value": 32217.43000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-06T00:00:00",
+    "Value": 32506.78000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-07T00:00:00",
+    "Value": 31913.74000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-08T00:00:00",
+    "Value": 31641.27000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-09T00:00:00",
+    "Value": 32265.17000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-12T00:00:00",
+    "Value": 32434.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-13T00:00:00",
+    "Value": 33018.65000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-14T00:00:00",
+    "Value": 33502.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-15T00:00:00",
+    "Value": 33485.49000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-16T00:00:00",
+    "Value": 33706.08000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-19T00:00:00",
+    "Value": 33370.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-20T00:00:00",
+    "Value": 33388.91000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-21T00:00:00",
+    "Value": 33575.14000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-22T00:00:00",
+    "Value": 33264.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-23T00:00:00",
+    "Value": 32781.54000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-26T00:00:00",
+    "Value": 32698.81000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-27T00:00:00",
+    "Value": 32538.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-28T00:00:00",
+    "Value": 33193.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-29T00:00:00",
+    "Value": 33234.14000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-06-30T00:00:00",
+    "Value": 33189.04000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-03T00:00:00",
+    "Value": 33753.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-04T00:00:00",
+    "Value": 33422.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-05T00:00:00",
+    "Value": 33338.70000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-06T00:00:00",
+    "Value": 32773.02000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-07T00:00:00",
+    "Value": 32388.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-10T00:00:00",
+    "Value": 32189.73000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-11T00:00:00",
+    "Value": 32203.57000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-12T00:00:00",
+    "Value": 31943.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-13T00:00:00",
+    "Value": 32419.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-14T00:00:00",
+    "Value": 32391.26000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-18T00:00:00",
+    "Value": 32493.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-19T00:00:00",
+    "Value": 32896.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-20T00:00:00",
+    "Value": 32490.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-21T00:00:00",
+    "Value": 32304.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-24T00:00:00",
+    "Value": 32700.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-25T00:00:00",
+    "Value": 32682.51000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-26T00:00:00",
+    "Value": 32668.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-27T00:00:00",
+    "Value": 32891.16000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-28T00:00:00",
+    "Value": 32759.23000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-07-31T00:00:00",
+    "Value": 33172.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-01T00:00:00",
+    "Value": 33476.58000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-02T00:00:00",
+    "Value": 32707.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-03T00:00:00",
+    "Value": 32159.28000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-04T00:00:00",
+    "Value": 32192.75000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-07T00:00:00",
+    "Value": 32254.56000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-08T00:00:00",
+    "Value": 32377.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-09T00:00:00",
+    "Value": 32204.33000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-10T00:00:00",
+    "Value": 32473.65000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-14T00:00:00",
+    "Value": 32059.91000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-15T00:00:00",
+    "Value": 32238.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-16T00:00:00",
+    "Value": 31766.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-17T00:00:00",
+    "Value": 31626.00000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-18T00:00:00",
+    "Value": 31450.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-21T00:00:00",
+    "Value": 31565.64000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-22T00:00:00",
+    "Value": 31856.71000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-23T00:00:00",
+    "Value": 32010.26000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-24T00:00:00",
+    "Value": 32287.21000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-25T00:00:00",
+    "Value": 31624.28000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-28T00:00:00",
+    "Value": 32169.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-29T00:00:00",
+    "Value": 32226.97000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-30T00:00:00",
+    "Value": 32333.46000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-08-31T00:00:00",
+    "Value": 32619.34000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-01T00:00:00",
+    "Value": 32710.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-04T00:00:00",
+    "Value": 32939.18000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-05T00:00:00",
+    "Value": 33036.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-06T00:00:00",
+    "Value": 33241.02000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-07T00:00:00",
+    "Value": 32991.08000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-08T00:00:00",
+    "Value": 32606.84000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-11T00:00:00",
+    "Value": 32467.76000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-12T00:00:00",
+    "Value": 32776.37000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-13T00:00:00",
+    "Value": 32706.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-14T00:00:00",
+    "Value": 33168.10000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-15T00:00:00",
+    "Value": 33533.09000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-19T00:00:00",
+    "Value": 33242.59000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-20T00:00:00",
+    "Value": 33023.78000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-21T00:00:00",
+    "Value": 32571.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-22T00:00:00",
+    "Value": 32402.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-25T00:00:00",
+    "Value": 32678.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-26T00:00:00",
+    "Value": 32315.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-27T00:00:00",
+    "Value": 32371.90000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-28T00:00:00",
+    "Value": 31872.52000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-09-29T00:00:00",
+    "Value": 31857.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-02T00:00:00",
+    "Value": 31759.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-03T00:00:00",
+    "Value": 31237.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-04T00:00:00",
+    "Value": 30526.88000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-05T00:00:00",
+    "Value": 31075.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-06T00:00:00",
+    "Value": 30994.67000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-10T00:00:00",
+    "Value": 31746.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-11T00:00:00",
+    "Value": 31936.51000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-12T00:00:00",
+    "Value": 32494.66000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-13T00:00:00",
+    "Value": 32315.99000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-16T00:00:00",
+    "Value": 31659.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-17T00:00:00",
+    "Value": 32040.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-18T00:00:00",
+    "Value": 32042.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-19T00:00:00",
+    "Value": 31430.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-20T00:00:00",
+    "Value": 31259.36000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-23T00:00:00",
+    "Value": 30999.55000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-24T00:00:00",
+    "Value": 31062.35000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-25T00:00:00",
+    "Value": 31269.92000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-26T00:00:00",
+    "Value": 30601.78000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-27T00:00:00",
+    "Value": 30991.69000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-30T00:00:00",
+    "Value": 30696.96000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-10-31T00:00:00",
+    "Value": 30858.85000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-01T00:00:00",
+    "Value": 31601.65000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-02T00:00:00",
+    "Value": 31949.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-06T00:00:00",
+    "Value": 32708.48000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-07T00:00:00",
+    "Value": 32271.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-08T00:00:00",
+    "Value": 32166.48000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-09T00:00:00",
+    "Value": 32646.46000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-10T00:00:00",
+    "Value": 32568.11000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-13T00:00:00",
+    "Value": 32585.11000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-14T00:00:00",
+    "Value": 32695.93000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-15T00:00:00",
+    "Value": 33519.70000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-16T00:00:00",
+    "Value": 33424.41000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-17T00:00:00",
+    "Value": 33585.20000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-20T00:00:00",
+    "Value": 33388.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-21T00:00:00",
+    "Value": 33354.14000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-22T00:00:00",
+    "Value": 33451.83000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-24T00:00:00",
+    "Value": 33625.53000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-27T00:00:00",
+    "Value": 33447.67000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-28T00:00:00",
+    "Value": 33408.39000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-29T00:00:00",
+    "Value": 33321.22000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-11-30T00:00:00",
+    "Value": 33486.89000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-01T00:00:00",
+    "Value": 33431.51000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-04T00:00:00",
+    "Value": 33231.27000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-05T00:00:00",
+    "Value": 32775.82000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-06T00:00:00",
+    "Value": 33445.90000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-07T00:00:00",
+    "Value": 32858.31000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-08T00:00:00",
+    "Value": 32307.86000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-11T00:00:00",
+    "Value": 32791.80000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-12T00:00:00",
+    "Value": 32843.70000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-13T00:00:00",
+    "Value": 32926.35000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-14T00:00:00",
+    "Value": 32686.25000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-15T00:00:00",
+    "Value": 32970.55000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-18T00:00:00",
+    "Value": 32758.98000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-19T00:00:00",
+    "Value": 33219.39000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-20T00:00:00",
+    "Value": 33675.94000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-21T00:00:00",
+    "Value": 33140.47000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-22T00:00:00",
+    "Value": 33169.05000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-25T00:00:00",
+    "Value": 33254.03000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-26T00:00:00",
+    "Value": 33305.85000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-27T00:00:00",
+    "Value": 33681.24000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-28T00:00:00",
+    "Value": 33539.62000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2023-12-29T00:00:00",
+    "Value": 33464.17000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-04T00:00:00",
+    "Value": 33288.29000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  },
+  {
+    "Country": "Japan",
+    "Category": "Stock Market",
+    "DateTime": "2024-01-05T00:00:00",
+    "Value": 33377.42000,
+    "Frequency": "Daily",
+    "HistoricalDataSymbol": "NKY",
+    "LastUpdate": "2026-04-22T13:52:23.277"
+  }
+]

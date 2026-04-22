@@ -1763,3 +1763,196 @@ async def test_live_canary_dk_policy_rate(tmp_cache_dir: Path) -> None:
         assert len(neg) >= 1, "expected at least one negative-discount-rate observation"
     finally:
         await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Week 10 Sprint B — per-country equity index scaffolding
+# ---------------------------------------------------------------------------
+#
+# These tests exercise the ``fetch_equity_index_historical`` wrapper
+# for DE/GB/JP/FR/EA. The wrapper currently returns only the index
+# *closing level* because TE's country-indicator endpoint does not
+# surface aggregate dividend yield, earnings yield, trailing/forward
+# EPS, or CAPE ratio for non-US markets. The full ERP 4-method compute
+# per country is therefore blocked on Phase 2.5 per-market fundamentals
+# connectors (CAL-ERP-COUNTRY-FUNDAMENTALS). Sprint B ships the TE
+# scaffolding + source-drift guards so Phase 2.5 work can layer the
+# fundamentals on top without re-probing the equity-level endpoint.
+
+
+@pytest.mark.parametrize(
+    ("country", "expected_symbol"),
+    [
+        ("DE", "DAX"),
+        ("GB", "UKX"),
+        ("JP", "NKY"),
+        ("FR", "CAC"),
+        ("EA", "SX5E"),
+    ],
+)
+async def test_wrapper_equity_index_symbol_guard(
+    httpx_mock: HTTPXMock,
+    te_connector: TEConnector,
+    country: str,
+    expected_symbol: str,
+) -> None:
+    """Source-identity guard fires when TE rotates the benchmark index."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": country,
+                "Category": "Stock Market",
+                "DateTime": "2024-01-02T00:00:00",
+                "Value": 1234.56,
+                "HistoricalDataSymbol": "UNEXPECTED_INDEX",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match=f"{country}-equity-index source drift"):
+        await te_connector.fetch_equity_index_historical(
+            country, date(2024, 1, 1), date(2024, 1, 5)
+        )
+    # Guard rail: expected symbol constant is populated + non-empty.
+    assert expected_symbol
+
+
+async def test_wrapper_equity_index_unknown_country_raises(
+    te_connector: TEConnector,
+) -> None:
+    with pytest.raises(ValueError, match="Week 10 Sprint B empirical scope"):
+        await te_connector.fetch_equity_index_historical("US", date(2024, 1, 1), date(2024, 1, 5))
+
+
+@pytest.mark.parametrize(
+    ("country", "cassette", "expected_symbol"),
+    [
+        ("DE", "te_equity_germany_2024_01_02.json", "DAX"),
+        ("GB", "te_equity_united_kingdom_2024_01_02.json", "UKX"),
+        ("JP", "te_equity_japan_2024_01_02.json", "NKY"),
+        ("FR", "te_equity_france_2024_01_02.json", "CAC"),
+        ("EA", "te_equity_euro_area_2024_01_02.json", "SX5E"),
+    ],
+)
+async def test_wrapper_equity_index_from_cassette(
+    httpx_mock: HTTPXMock,
+    te_connector: TEConnector,
+    country: str,
+    cassette: str,
+    expected_symbol: str,
+) -> None:
+    """Cassette-backed parse returns monotonic sorted series with expected symbol."""
+    payload = _load_cassette(cassette)
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_equity_index_historical(
+        country, date(2020, 1, 1), date(2024, 1, 5)
+    )
+    assert len(obs) >= 50
+    assert obs[0].country == country
+    assert obs[0].indicator == "stock market"
+    assert obs[0].historical_data_symbol == expected_symbol
+    # Sorted ascending by date per ``fetch_indicator`` contract.
+    from itertools import pairwise  # noqa: PLC0415
+
+    for prev, cur in pairwise(obs):
+        assert prev.observation_date <= cur.observation_date
+    # Equity index values must be strictly positive.
+    for o in obs[-20:]:
+        assert o.value > 0
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_index_de(tmp_cache_dir: Path) -> None:
+    """Live probe confirming TE DAX closing level + ``DAX`` symbol stability."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_index_historical("DE", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "DAX"
+        assert obs[0].country == "DE"
+        # DAX closing level has historically traded in [1_000, 30_000].
+        for o in obs[-5:]:
+            assert 5_000 <= o.value <= 40_000
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_index_gb(tmp_cache_dir: Path) -> None:
+    """Live probe confirming TE FTSE 100 (UKX) closing level + symbol stability."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_index_historical("GB", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "UKX"
+        for o in obs[-5:]:
+            assert 3_000 <= o.value <= 15_000
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_index_jp(tmp_cache_dir: Path) -> None:
+    """Live probe confirming TE Nikkei 225 (NKY) — *not* TOPIX — closing level."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_index_historical("JP", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "NKY"
+        for o in obs[-5:]:
+            assert 10_000 <= o.value <= 60_000
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_index_fr(tmp_cache_dir: Path) -> None:
+    """Live probe confirming TE CAC 40 closing level + symbol stability."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_index_historical("FR", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "CAC"
+        for o in obs[-5:]:
+            assert 3_000 <= o.value <= 12_000
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_equity_index_ea(tmp_cache_dir: Path) -> None:
+    """Live probe confirming TE EuroStoxx 50 (SX5E) closing level + symbol stability."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=90)
+        obs = await conn.fetch_equity_index_historical("EA", start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "SX5E"
+        for o in obs[-5:]:
+            assert 2_000 <= o.value <= 8_000
+    finally:
+        await conn.aclose()

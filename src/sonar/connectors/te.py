@@ -74,6 +74,10 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "FR": "france",
     "NL": "netherlands",
     "PT": "portugal",
+    # EA aggregate — TE publishes "euro area" under the ``stock market``
+    # indicator (SX5E symbol) + a handful of aggregate macros. Added
+    # Week 10 Sprint B equity index scaffolding (2026-04-22).
+    "EA": "euro area",
 }
 
 # Canonical TE indicator names (verified empirically Week 6 Sprint 1
@@ -89,6 +93,11 @@ TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT = "zew economic sentiment index"
 TE_INDICATOR_CONSUMER_CONFIDENCE = "consumer confidence"
 TE_INDICATOR_MICHIGAN_5Y_INFLATION = "michigan 5 year inflation expectations"
 TE_INDICATOR_INTEREST_RATE = "interest rate"
+# Per-country aggregate equity index (close price only — dividend yield
+# + EPS + PE not exposed via this endpoint per Week 10 Sprint B probe
+# 2026-04-22). Used as scaffolding for Phase 2.5 per-country ERP once
+# fundamentals connectors land (CAL-ERP-COUNTRY-FUNDAMENTALS).
+TE_INDICATOR_STOCK_MARKET = "stock market"
 
 # Expected HistoricalDataSymbol values for the wrappers. Used as a
 # source-identity guard: when TE reshuffles its catalogue, confirming
@@ -98,6 +107,30 @@ TE_INDICATOR_INTEREST_RATE = "interest rate"
 TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC = "CONCCONF"
 TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION = "USAM5YIE"
 TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
+# Per-country equity index source-identity guards (Week 10 Sprint B).
+# TE surfaces the closing level of each market's flagship index under
+# the country-indicator endpoint; the ``HistoricalDataSymbol`` pins the
+# concrete benchmark so we catch reassignments (e.g. DE rotating DAX
+# vs TecDAX) before quietly mis-attributing ERP inputs. Empirical
+# values probed 2026-04-22. For JP, TE surfaces the Nikkei 225 (NKY),
+# *not* TOPIX — retrospective notes the divergence from the original
+# Sprint B brief which presumed TOPIX.
+TE_EXPECTED_SYMBOL_DE_EQUITY_INDEX = "DAX"
+TE_EXPECTED_SYMBOL_GB_EQUITY_INDEX = "UKX"
+TE_EXPECTED_SYMBOL_JP_EQUITY_INDEX = "NKY"
+TE_EXPECTED_SYMBOL_FR_EQUITY_INDEX = "CAC"
+TE_EXPECTED_SYMBOL_EA_EQUITY_INDEX = "SX5E"
+
+# Aggregated lookup — used by :meth:`TEConnector.fetch_equity_index_historical`
+# to dispatch the guard symbol per ISO code without branching. Keyed on
+# SONAR 2-letter country code; ``EA`` is the euro-area aggregate.
+TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
+    "DE": TE_EXPECTED_SYMBOL_DE_EQUITY_INDEX,
+    "GB": TE_EXPECTED_SYMBOL_GB_EQUITY_INDEX,
+    "JP": TE_EXPECTED_SYMBOL_JP_EQUITY_INDEX,
+    "FR": TE_EXPECTED_SYMBOL_FR_EQUITY_INDEX,
+    "EA": TE_EXPECTED_SYMBOL_EA_EQUITY_INDEX,
+}
 
 # ---------------------------------------------------------------------------
 # Multi-tenor sovereign yield curve symbols (CAL-138 Sprint)
@@ -1017,6 +1050,66 @@ class TEConnector:
             adr="ADR-0007",
         )
         return await self.fetch_gb_bank_rate(start, end)
+
+    # -------------------------------------------------------------------
+    # Per-country equity index (Week 10 Sprint B scaffolding)
+    # -------------------------------------------------------------------
+
+    async def fetch_equity_index_historical(
+        self,
+        country: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[TEIndicatorObservation]:
+        """Fetch the flagship equity-index closing level for ``country``.
+
+        Supported ISO 2-letter codes (Week 10 Sprint B pre-flight probe):
+        ``DE`` (DAX), ``GB`` (UKX / FTSE 100), ``JP`` (NKY / Nikkei 225 —
+        *not* TOPIX despite the brief wording; TE's country-indicator
+        endpoint publishes NKY as the Japan stock-market headline),
+        ``FR`` (CAC 40), ``EA`` (SX5E / EuroStoxx 50 aggregate).
+
+        This is scaffolding only. TE's ``/historical/country/.../indicator/
+        stock market`` endpoint exposes only the index *closing level* —
+        dividend yield, earnings yield, trailing/forward EPS and CAPE
+        ratio are **not** surfaced for non-US markets. The full ERP
+        4-method compute per country is therefore blocked on Phase 2.5
+        per-market fundamentals connectors (CAL-ERP-COUNTRY-FUNDAMENTALS).
+        The Sprint B retrospective documents the empirical findings in
+        full.
+
+        Source-identity is guarded via the ``HistoricalDataSymbol`` field
+        (``DAX``, ``UKX``, ``NKY``, ``CAC``, ``SX5E``) — if TE rotates
+        the benchmark series (e.g. DE flipping from DAX to TecDAX),
+        :class:`DataUnavailableError` fires instead of quietly returning
+        a different index's closing level.
+        """
+        country_upper = country.upper()
+        expected_symbol = TE_EQUITY_INDEX_EXPECTED_SYMBOL.get(country_upper)
+        if expected_symbol is None:
+            msg = (
+                f"TE equity index only supports "
+                f"{sorted(TE_EQUITY_INDEX_EXPECTED_SYMBOL)} (Week 10 Sprint B "
+                f"empirical scope); got {country}. Other markets defer per "
+                f"CAL-ERP-COUNTRY-FUNDAMENTALS."
+            )
+            raise ValueError(msg)
+
+        obs = await self.fetch_indicator(
+            country_upper, TE_INDICATOR_STOCK_MARKET, start_date, end_date
+        )
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(expected_symbol)
+        ):
+            err = (
+                f"TE {country_upper}-equity-index source drift: expected "
+                f"{expected_symbol!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
 
     # -------------------------------------------------------------------
     # Multi-tenor yield curve (CAL-138 Sprint)
