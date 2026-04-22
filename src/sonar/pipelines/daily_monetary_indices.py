@@ -319,6 +319,13 @@ def _build_live_connectors(
     when the native host is up — the NZ RBNZ host currently
     perimeter-403s (CAL-NZ-RBNZ-TABLES) so NZ without TE lands on
     FRED with NZ_OCR_FRED_FALLBACK_STALE + CALIBRATION_STALE flags.
+
+    Sprint C (Week 10) adds the :class:`~sonar.connectors.oecd_eo.
+    OECDEOConnector` to the bundle. OECD EO is public (no auth) so it
+    is always instantiated — the M2 builders use it to fetch the
+    canonical annual output gap for the 8 Week-9 T1 countries
+    (JP / CA / AU / NZ / CH / NO / SE / DK). US stays on the CBO
+    GDPPOT quarterly path (strictly finer than OECD EO annual).
     """
     from sonar.connectors.boc import BoCConnector  # noqa: PLC0415
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
@@ -328,6 +335,7 @@ def _build_live_connectors(
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
     from sonar.connectors.nationalbanken import NationalbankenConnector  # noqa: PLC0415
     from sonar.connectors.norgesbank import NorgesBankConnector  # noqa: PLC0415
+    from sonar.connectors.oecd_eo import OECDEOConnector  # noqa: PLC0415
     from sonar.connectors.rba import RBAConnector  # noqa: PLC0415
     from sonar.connectors.rbnz import RBNZConnector  # noqa: PLC0415
     from sonar.connectors.riksbank import RiksbankConnector  # noqa: PLC0415
@@ -346,6 +354,7 @@ def _build_live_connectors(
     snb = SNBConnector(cache_dir=f"{cache_dir}/snb")
     norgesbank = NorgesBankConnector(cache_dir=f"{cache_dir}/norgesbank")
     nationalbanken = NationalbankenConnector(cache_dir=f"{cache_dir}/nationalbanken")
+    oecd_eo = OECDEOConnector(cache_dir=f"{cache_dir}/oecd_eo")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
     builder = MonetaryInputsBuilder(
         fred=fred,
@@ -361,6 +370,7 @@ def _build_live_connectors(
         norgesbank=norgesbank,
         nationalbanken=nationalbanken,
         te=te,
+        oecd_eo=oecd_eo,
     )
     connectors: list[object] = [
         fred,
@@ -374,6 +384,7 @@ def _build_live_connectors(
         snb,
         norgesbank,
         nationalbanken,
+        oecd_eo,
     ]
     if te is not None:
         connectors.append(te)

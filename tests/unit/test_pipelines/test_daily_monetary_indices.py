@@ -251,3 +251,44 @@ def test_run_one_nz_synthetic_persists_m1(session: Session) -> None:
     outcome = run_one(session, "NZ", date(2024, 12, 31), inputs_builder=_synthetic_builder)
     assert outcome.persisted["m1"] == 1
     assert session.query(M1Row).filter(M1Row.country_code == "NZ").count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Sprint C — OECD EO connector lifecycle in _build_live_connectors
+# ---------------------------------------------------------------------------
+
+
+async def test_build_live_connectors_includes_oecd_eo(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Sprint C: ``_build_live_connectors`` ships OECD EO in the bundle.
+
+    Verifies three properties without hitting any network:
+
+    - The returned :class:`MonetaryInputsBuilder` carries a non-None
+      ``oecd_eo`` attribute (so per-country M2 builders see the
+      connector during dispatch).
+    - OECD EO is enumerated in the connector list so lifecycle teardown
+      (pipeline ``finally`` block) ``await``s it.
+    - OECD EO is public — instantiation succeeds regardless of
+      ``te_api_key`` presence (passes empty TE key).
+    """
+    from sonar.connectors.oecd_eo import OECDEOConnector  # noqa: PLC0415
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _build_live_connectors,
+    )
+
+    builder, connectors = _build_live_connectors(
+        fred_api_key="fake-key",  # pragma: allowlist secret
+        te_api_key="",  # TE intentionally off to prove OECD EO is not TE-gated.
+        cache_dir=str(tmp_path / "connectors"),
+    )
+    try:
+        assert builder.oecd_eo is not None
+        assert isinstance(builder.oecd_eo, OECDEOConnector)
+        # ``connectors`` must include the OECD EO handle for aclose().
+        oecd_eo_handles = [c for c in connectors if isinstance(c, OECDEOConnector)]
+        assert len(oecd_eo_handles) == 1
+    finally:
+        for c in connectors:
+            aclose = getattr(c, "aclose", None)
+            if aclose is not None:
+                await aclose()
