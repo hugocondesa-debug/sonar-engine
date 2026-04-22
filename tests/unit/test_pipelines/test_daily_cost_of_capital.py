@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import sonar.db.session  # noqa: F401 — register fk-on pragma listener
+from sonar.connectors.damodaran import DamodaranMonthlyERPRow
 from sonar.db.models import Base, ERPCanonical
 from sonar.overlays.crp import CRPCanonical, build_canonical, compute_sov_spread
 from sonar.overlays.erp import METHODOLOGY_VERSION_CANONICAL
@@ -19,9 +20,11 @@ from sonar.pipelines.daily_cost_of_capital import (
     DAMODARAN_MATURE_ERP_DECIMAL,
     T1_7_COUNTRIES,
     _lookup_erp_canonical,
+    _MatureFallback,
     _normalize_country_code,
     _resolve_erp_bps,
     compose_k_e,
+    resolve_mature_erp_fallback,
 )
 
 if TYPE_CHECKING:
@@ -284,3 +287,113 @@ class TestComposeKEIntegratesErpFlags:
         )
         # 550 - 472 = 78 bps delta → 0.0078 lower k_e with live.
         assert stub.k_e_pct - live.k_e_pct == pytest.approx(0.0078, abs=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Week 10 Sprint B — Damodaran monthly live fallback wiring
+# ---------------------------------------------------------------------------
+
+
+def _mature_fallback(
+    *, erp_decimal: float = 0.0417, source_file: str = "ERPFeb26.xlsx"
+) -> _MatureFallback:
+    """Build an in-memory ``_MatureFallback`` with a canned Damodaran row."""
+    return _MatureFallback(
+        damodaran_row=DamodaranMonthlyERPRow(
+            start_of_month=date(2026, 2, 1),
+            implied_erp_decimal=erp_decimal,
+            implied_erp_t12m_decimal=erp_decimal + 0.0008,
+            sp500_level=6939.0,
+            tbond_rate_decimal=0.0426,
+            source_file=source_file,
+        )
+    )
+
+
+class TestResolveErpBpsWithLiveFallback:
+    def test_live_damodaran_preempts_static_stub_for_us(self, db_session: Session) -> None:
+        """No erp_canonical row → Damodaran monthly wins over static 5.5 %."""
+        bps, flags = _resolve_erp_bps(
+            db_session,
+            "US",
+            date(2024, 1, 2),
+            mature_fallback=_mature_fallback(erp_decimal=0.0417),
+        )
+        assert bps == 417
+        assert flags == ("ERP_MATURE_LIVE_DAMODARAN",)
+
+    def test_live_damodaran_preempts_static_stub_for_non_us(self, db_session: Session) -> None:
+        """Non-US also benefits — retains MATURE_ERP_PROXY_US alongside live flag."""
+        bps, flags = _resolve_erp_bps(
+            db_session,
+            "PT",
+            date(2024, 1, 2),
+            mature_fallback=_mature_fallback(erp_decimal=0.0425),
+        )
+        assert bps == 425
+        assert set(flags) == {"ERP_MATURE_LIVE_DAMODARAN", "MATURE_ERP_PROXY_US"}
+
+    def test_erp_canonical_still_wins_over_damodaran(self, db_session: Session) -> None:
+        """erp_canonical row is authoritative — Damodaran fallback untouched."""
+        _seed_erp_canonical(db_session, erp_median_bps=472)
+        bps, flags = _resolve_erp_bps(
+            db_session,
+            "US",
+            date(2024, 1, 2),
+            mature_fallback=_mature_fallback(erp_decimal=0.0417),
+        )
+        assert bps == 472
+        assert flags == ()
+        # Same for non-US (still proxy, using canonical not Damodaran).
+        bps, flags = _resolve_erp_bps(
+            db_session,
+            "DE",
+            date(2024, 1, 2),
+            mature_fallback=_mature_fallback(erp_decimal=0.0417),
+        )
+        assert bps == 472
+        assert flags == ("MATURE_ERP_PROXY_US",)
+
+    def test_empty_fallback_falls_through_to_static_stub(self, db_session: Session) -> None:
+        """``_MatureFallback(None)`` ≈ offline mode — static stub preserved."""
+        bps, flags = _resolve_erp_bps(
+            db_session,
+            "US",
+            date(2024, 1, 2),
+            mature_fallback=_MatureFallback(damodaran_row=None),
+        )
+        assert bps == DAMODARAN_MATURE_ERP_BPS
+        assert flags == ("ERP_STUB",)
+
+
+class TestResolveMatureErpFallbackDisabled:
+    def test_flag_disables_fetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("SONAR_DISABLE_DAMODARAN_LIVE", raising=False)
+        fb = resolve_mature_erp_fallback(date(2024, 1, 2), disabled=True)
+        assert fb.damodaran_row is None
+
+    def test_env_var_disables_fetch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SONAR_DISABLE_DAMODARAN_LIVE", "1")
+        fb = resolve_mature_erp_fallback(date(2024, 1, 2), disabled=False)
+        assert fb.damodaran_row is None
+
+
+class TestComposeKEWithDamodaranLiveFlag:
+    def test_live_damodaran_flag_does_not_deduct_confidence(self) -> None:
+        """Unlike ``ERP_STUB``, the Damodaran-live flag is a live signal."""
+        crp = build_canonical(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            currency="USD",
+        )
+        result = compose_k_e(
+            country_code="US",
+            observation_date=date(2024, 1, 2),
+            rf_local_decimal=0.04,
+            crp=crp,
+            erp_mature_bps=425,
+            erp_flags=("ERP_MATURE_LIVE_DAMODARAN",),
+        )
+        assert "ERP_MATURE_LIVE_DAMODARAN" in result.flags
+        # Confidence stays at CRP baseline — only ERP_STUB deducts.
+        assert result.confidence == pytest.approx(1.0)

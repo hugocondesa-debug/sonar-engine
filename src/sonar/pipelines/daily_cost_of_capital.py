@@ -7,9 +7,24 @@ Scope: compute for 7 T1 countries (US/DE/PT/IT/ES/FR/NL). CRP comes from
 Week 3.5C vol_ratio + existing CRP compute; ERP comes from the persisted
 ``erp_canonical`` row when available (US ships live ERP from erp-us c8
 onward). Non-US countries proxy the US ERP with a ``MATURE_ERP_PROXY_US``
-flag until per-country ERP overlays land (Week 4+). When no canonical
-row exists for the target (market, date), the pipeline falls back to
-the Damodaran-standard mature ERP 5.5% and emits the ``ERP_STUB`` flag.
+flag until per-country ERP overlays land (Week 4+).
+
+Mature-ERP resolution order (each country, each date):
+
+1. ``erp_canonical`` SPX row ≤ target date — SONAR's own compute-don't-
+   consume ERP. No flag for US; ``MATURE_ERP_PROXY_US`` for non-US.
+2. Damodaran monthly implied ERP for the target month (pulled live via
+   :class:`sonar.connectors.damodaran.DamodaranConnector`) — still "live"
+   in the sense that it reflects the latest S&P 500 market state.
+   Flag ``ERP_MATURE_LIVE_DAMODARAN`` (+ ``MATURE_ERP_PROXY_US`` for
+   non-US). Opt-in via ``--no-damodaran-live`` / env
+   ``SONAR_DISABLE_DAMODARAN_LIVE=1`` for tests + offline runs.
+3. Static Damodaran-standard 5.5 % mature ERP — last-resort fallback.
+   Flag ``ERP_STUB``.
+
+Width ``1 → 2`` replaces the pre-Week-10-Sprint-B behaviour where the
+static 5.5 % stub was the only fallback (leaving non-US k_e in a
+chronically-stale state when the SONAR ERP pipeline had not yet run).
 
 CLI:
 
@@ -30,7 +45,9 @@ Exit codes:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import sys
 from dataclasses import dataclass
 from datetime import date
@@ -40,6 +57,7 @@ import structlog
 import typer
 from sqlalchemy.exc import IntegrityError
 
+from sonar.connectors.damodaran import DamodaranConnector, DamodaranMonthlyERPRow
 from sonar.db.models import CostOfCapitalDaily, ERPCanonical, NSSYieldCurveSpot
 from sonar.db.persistence import DuplicatePersistError
 from sonar.db.session import SessionLocal
@@ -53,6 +71,8 @@ from sonar.overlays.crp import (
 from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sqlalchemy.orm import Session
 
     from sonar.overlays.crp import CRPCanonical
@@ -297,25 +317,115 @@ def persist_k_e(session: Session, result: KEResult) -> None:
 
 
 def _resolve_erp_bps(
-    session: Session, country_code: str, observation_date: date
+    session: Session,
+    country_code: str,
+    observation_date: date,
+    *,
+    mature_fallback: _MatureFallback | None = None,
 ) -> tuple[int, tuple[str, ...]]:
     """Lookup the mature-market ERP for ``(country, date)``.
 
     Returns ``(erp_bps, flags)``. Resolution order:
 
     1. erp_canonical row for country's mapped market_index → use live bps.
-    2. If non-US proxy chain maps to SPX, use SPX canonical → tag
-       MATURE_ERP_PROXY_US (per Week 3.5 scope).
-    3. No canonical row anywhere → Damodaran-standard stub 5.5 %, tag
-       ERP_STUB.
+    2. Damodaran monthly implied ERP (when ``mature_fallback`` carries
+       a live row) → tag ``ERP_MATURE_LIVE_DAMODARAN`` (+
+       ``MATURE_ERP_PROXY_US`` for non-US).
+    3. No canonical row anywhere and no Damodaran live row →
+       Damodaran-standard stub 5.5 %, tag ``ERP_STUB``.
+
+    ``mature_fallback`` is resolved once per pipeline invocation at
+    CLI entry (see :func:`main`) and carries either a live Damodaran
+    monthly row or ``None`` (offline mode).
     """
     market_index = COUNTRY_TO_ERP_MARKET_INDEX.get(country_code, "SPX")
     live_bps = _lookup_erp_canonical(session, market_index, observation_date)
     if live_bps is not None:
         flags = () if country_code == "US" else ("MATURE_ERP_PROXY_US",)
         return live_bps, flags
-    # No live canonical available → stub.
+    # No SONAR-computed canonical → try Damodaran monthly live first.
+    if mature_fallback is not None and mature_fallback.damodaran_row is not None:
+        live = mature_fallback.damodaran_row
+        mature_bps = round(live.implied_erp_decimal * 10_000)
+        base_flags: tuple[str, ...] = ("ERP_MATURE_LIVE_DAMODARAN",)
+        if country_code != "US":
+            base_flags = (*base_flags, "MATURE_ERP_PROXY_US")
+        return mature_bps, base_flags
+    # Last-resort static stub.
     return DAMODARAN_MATURE_ERP_BPS, ("ERP_STUB",)
+
+
+@dataclass(frozen=True, slots=True)
+class _MatureFallback:
+    """Per-run mature-market ERP fallback bundle.
+
+    When ``damodaran_row`` is populated the pipeline prefers the live
+    monthly implied ERP over the static 5.5 % stub. Resolved once at
+    CLI entry so every ``(country, date)`` tick within the run shares
+    a single Damodaran fetch + parse.
+    """
+
+    damodaran_row: DamodaranMonthlyERPRow | None
+
+
+def resolve_mature_erp_fallback(
+    observation_date: date,
+    *,
+    cache_dir: str | Path | None = None,
+    disabled: bool = False,
+) -> _MatureFallback:
+    """Fetch the Damodaran monthly implied ERP for ``observation_date``.
+
+    Runs the async connector under :func:`asyncio.run`; returns a
+    ``_MatureFallback`` whose ``damodaran_row`` is ``None`` when the
+    fallback is disabled, the fetch fails, or no file resolves within
+    the Damodaran lookback window. Errors are logged, never raised —
+    the caller continues with the static 5.5 % stub.
+    """
+    if disabled or os.environ.get("SONAR_DISABLE_DAMODARAN_LIVE") == "1":
+        log.debug(
+            "cost_of_capital.damodaran_live.disabled",
+            reason="env_or_flag",
+        )
+        return _MatureFallback(damodaran_row=None)
+
+    cache_path = (
+        str(cache_dir)
+        if cache_dir is not None
+        else os.environ.get("SONAR_CONNECTOR_CACHE_DIR", ".cache/connectors")
+    )
+
+    async def _run() -> DamodaranMonthlyERPRow | None:
+        conn = DamodaranConnector(cache_dir=cache_path)
+        try:
+            return await conn.fetch_monthly_implied_erp(
+                observation_date.year, observation_date.month
+            )
+        finally:
+            await conn.aclose()
+
+    try:
+        row = asyncio.run(_run())
+    except Exception as exc:  # degrade gracefully at boundary
+        log.warning(
+            "cost_of_capital.damodaran_live.fetch_error",
+            error=str(exc),
+            observation_date=observation_date.isoformat(),
+        )
+        return _MatureFallback(damodaran_row=None)
+    if row is None:
+        log.info(
+            "cost_of_capital.damodaran_live.no_row",
+            observation_date=observation_date.isoformat(),
+        )
+    else:
+        log.info(
+            "cost_of_capital.damodaran_live.resolved",
+            source_file=row.source_file,
+            mature_erp_bps=round(row.implied_erp_decimal * 10_000),
+            observation_date=observation_date.isoformat(),
+        )
+    return _MatureFallback(damodaran_row=row)
 
 
 def run_one(
@@ -325,6 +435,7 @@ def run_one(
     benchmark_code: str,
     *,
     beta: float = 1.0,
+    mature_fallback: _MatureFallback | None = None,
 ) -> KEResult:
     """Single (country, date) compute + persist. Idempotent when duplicate
     raises — caller decides continue-on-dup semantics at batch level.
@@ -332,6 +443,10 @@ def run_one(
     Deprecated ISO aliases (e.g. "UK") are normalised to canonical ("GB")
     at entry and emit a structlog deprecation warning. Removal Week 10
     Day 1 per ADR-0007.
+
+    ``mature_fallback`` is an optional pre-resolved Damodaran monthly
+    ERP bundle (see :func:`resolve_mature_erp_fallback`). When omitted
+    the resolver uses the static 5.5 % stub as before Week 10 Sprint B.
     """
     country_code = _normalize_country_code(country_code)
     rf_local = _fetch_nss_10y(session, country_code, observation_date)
@@ -342,7 +457,9 @@ def run_one(
         rf_local_decimal=rf_local,
         rf_benchmark_decimal=rf_benchmark,
     )
-    erp_bps, erp_flags = _resolve_erp_bps(session, country_code, observation_date)
+    erp_bps, erp_flags = _resolve_erp_bps(
+        session, country_code, observation_date, mature_fallback=mature_fallback
+    )
     k_e = compose_k_e(
         country_code=country_code,
         observation_date=observation_date,
@@ -374,6 +491,15 @@ def main(
         "--all-t1",
         help="Iterate over all 7 Week 3.5F T1 countries.",
     ),
+    disable_damodaran_live: bool = typer.Option(
+        False,  # noqa: FBT003 — typer Option requires positional default
+        "--no-damodaran-live",
+        help=(
+            "Skip the Damodaran monthly implied ERP fallback; use static "
+            "5.5 % stub when no erp_canonical row exists. Equivalent to "
+            "SONAR_DISABLE_DAMODARAN_LIVE=1."
+        ),
+    ),
 ) -> None:
     """Run the daily cost-of-capital pipeline."""
     try:
@@ -387,6 +513,11 @@ def main(
         typer.echo("Must pass --country or --all-t1", err=True)
         sys.exit(EXIT_IO)
 
+    # Resolve the live mature-market ERP once per invocation; every
+    # (country, date) tick shares the result so we don't re-parse the
+    # Damodaran workbook per country.
+    mature_fallback = resolve_mature_erp_fallback(obs_date, disabled=disable_damodaran_live)
+
     session = SessionLocal()
     exit_code = EXIT_OK
     try:
@@ -398,7 +529,7 @@ def main(
             c = _normalize_country_code(raw)
             benchmark = BENCHMARK_COUNTRIES_BY_CURRENCY[COUNTRY_TO_CURRENCY.get(c, "EUR")]
             try:
-                run_one(session, c, obs_date, benchmark)
+                run_one(session, c, obs_date, benchmark, mature_fallback=mature_fallback)
             except InsufficientDataError as exc:
                 log.error("cost_of_capital.insufficient_data", country=c, error=str(exc))
                 exit_code = EXIT_INSUFFICIENT_DATA
