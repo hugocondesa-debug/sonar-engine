@@ -14,7 +14,9 @@ from tenacity import wait_none
 
 from sonar.connectors.te import (
     TE_COUNTRY_NAME_MAP,
+    TE_CPI_YOY_EXPECTED_SYMBOL,
     TE_INDICATOR_IFO_HEADLINE,
+    TE_INDICATOR_INFLATION_RATE,
     TE_INDICATOR_ISM_MFG_HEADLINE,
     TE_INDICATOR_ISM_SVC_HEADLINE,
     TE_INDICATOR_MICHIGAN_5Y_INFLATION,
@@ -22,6 +24,7 @@ from sonar.connectors.te import (
     TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT,
     TEConnector,
     TEIndicatorObservation,
+    TEInflationForecast,
 )
 from sonar.overlays.exceptions import DataUnavailableError
 
@@ -1954,5 +1957,529 @@ async def test_live_canary_equity_index_ea(tmp_cache_dir: Path) -> None:
         assert obs[0].historical_data_symbol == "SX5E"
         for o in obs[-5:]:
             assert 2_000 <= o.value <= 8_000
+    finally:
+        await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Week 10 Sprint F — CPI YoY + inflation-forecast wrappers
+# CAL-CPI-INFL-T1-WRAPPERS. Commit 1 ships CA / AU / NZ; Commit 2 extends
+# to CH / SE / NO / DK / GB / JP; EA members + US wired in M2 builder commits.
+# ---------------------------------------------------------------------------
+
+
+def test_cpi_yoy_expected_symbol_covers_all_t1() -> None:
+    """Every T1 country (16) has a CPI-YoY symbol registered."""
+    expected = {
+        "US",
+        "DE",
+        "FR",
+        "IT",
+        "ES",
+        "NL",
+        "PT",
+        "GB",
+        "JP",
+        "CA",
+        "AU",
+        "NZ",
+        "CH",
+        "SE",
+        "NO",
+        "DK",
+    }
+    assert set(TE_CPI_YOY_EXPECTED_SYMBOL) == expected
+
+
+def test_cpi_yoy_expected_symbols_match_probe() -> None:
+    """Symbols verified 2026-04-22 pre-flight probe (brief §2 point 2)."""
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["US"] == "CPI YOY"  # literal space
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["CA"] == "CACPIYOY"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["AU"] == "AUCPIYOY"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["NZ"] == "NZCPIYOY"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["GB"] == "UKRPCJYR"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["SE"] == "SWCPYOY"  # no "I"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["PT"] == "PLCPYOY"
+    assert TE_CPI_YOY_EXPECTED_SYMBOL["DE"] == "GRBC20YY"
+
+
+def test_inflation_rate_indicator_constant() -> None:
+    assert TE_INDICATOR_INFLATION_RATE == "inflation rate"
+
+
+# --- CA CPI YoY -------------------------------------------------------------
+
+
+async def test_wrapper_ca_cpi_yoy_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``inflation rate`` for CA returns ``CACPIYOY`` (StatCan CPI YoY)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Canada",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-06-30T00:00:00",
+                "Value": 2.7,
+                "Frequency": "Monthly",
+                "HistoricalDataSymbol": "CACPIYOY",
+            },
+            {
+                "Country": "Canada",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 1.8,
+                "Frequency": "Monthly",
+                "HistoricalDataSymbol": "CACPIYOY",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_ca_cpi_yoy(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) == 2
+    assert obs[0].country == "CA"
+    assert obs[0].indicator == TE_INDICATOR_INFLATION_RATE
+    assert obs[0].historical_data_symbol == "CACPIYOY"
+    assert obs[0].frequency == "Monthly"
+    for o in obs:
+        assert -2.0 <= o.value <= 15.0
+
+
+async def test_wrapper_ca_cpi_yoy_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """A non-CACPIYOY symbol raises so M2 CA cascade surfaces drift cleanly."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Canada",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 1.8,
+                "HistoricalDataSymbol": "CAINFLN",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="CA-cpi-yoy source drift"):
+        await te_connector.fetch_ca_cpi_yoy(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ca_cpi_yoy_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_ca_cpi_yoy(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ca_cpi_yoy_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Real TE cassette — 1300+ monthly CACPIYOY observations back to 1915."""
+    payload = _load_cassette("te_ca_cpi_yoy_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_ca_cpi_yoy(date(2020, 1, 1), date(2025, 6, 30))
+    assert len(obs) >= 1_000
+    assert obs[0].historical_data_symbol == "CACPIYOY"
+    assert obs[0].country == "CA"
+    # CA inflation has stayed in [-2, 15]% across the full series since 1915;
+    # post-2020 observations in [-1, 9]%.
+    for o in obs[-24:]:
+        assert -1.5 <= o.value <= 10.0
+
+
+# --- CA inflation forecast --------------------------------------------------
+
+
+CA_FORECAST_PAYLOAD: list[dict[str, object]] = [
+    {
+        "Country": "Canada",
+        "Category": "Inflation Rate",
+        "Title": "Canada Inflation Rate",
+        "LatestValue": 2.40,
+        "LatestValueDate": "2026-03-31T00:00:00",
+        "q1": 2.80,
+        "q2": 2.00,
+        "q3": 2.00,
+        "q4": 2.10,
+        "YearEnd": 2.00,
+        "YearEnd2": 2.20,
+        "YearEnd3": 2.30,
+        "q1_date": "2026-06-30T00:00:00",
+        "q2_date": "2026-09-30T00:00:00",
+        "q3_date": "2026-12-31T00:00:00",
+        "q4_date": "2027-03-31T00:00:00",
+        "ForecastLastUpdate": "2026-01-14T15:48:00",
+        "Frequency": "Monthly",
+        "Unit": "percent",
+        "HistoricalDataSymbol": "CACPIYOY",
+    }
+]
+
+
+async def test_wrapper_ca_inflation_forecast_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``/forecast`` for CA returns a single projection row keyed on ``CACPIYOY``."""
+    httpx_mock.add_response(method="GET", json=CA_FORECAST_PAYLOAD)
+    fcst = await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+    assert isinstance(fcst, TEInflationForecast)
+    assert fcst.country == "CA"
+    assert fcst.indicator == TE_INDICATOR_INFLATION_RATE
+    assert fcst.historical_data_symbol == "CACPIYOY"
+    assert fcst.latest_value_pct == pytest.approx(2.40)
+    assert fcst.latest_value_date == date(2026, 3, 31)
+    assert fcst.forecast_12m_pct == pytest.approx(2.10)
+    assert fcst.forecast_12m_date == date(2027, 3, 31)
+    assert fcst.forecast_year_end_pct == pytest.approx(2.00)
+    assert fcst.forecast_year_end_2_pct == pytest.approx(2.20)
+    assert fcst.forecast_year_end_3_pct == pytest.approx(2.30)
+    assert fcst.forecast_q1_pct == pytest.approx(2.80)
+    assert fcst.frequency == "Monthly"
+    assert fcst.forecast_last_update == datetime(2026, 1, 14, 15, 48, tzinfo=UTC)
+
+
+async def test_wrapper_ca_inflation_forecast_caches(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Second call with the same anchor date hits the cache (no HTTP call)."""
+    httpx_mock.add_response(method="GET", json=CA_FORECAST_PAYLOAD)
+    await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+    # No additional add_response → second call must hit cache or explode.
+    fcst2 = await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+    assert fcst2.forecast_12m_pct == pytest.approx(2.10)
+
+
+async def test_wrapper_ca_inflation_forecast_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    drifted = [dict(CA_FORECAST_PAYLOAD[0]) | {"HistoricalDataSymbol": "CAINFLN"}]
+    httpx_mock.add_response(method="GET", json=drifted)
+    with pytest.raises(DataUnavailableError, match="CA-inflation-forecast source drift"):
+        await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+
+
+async def test_wrapper_ca_inflation_forecast_empty_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="TE forecast empty"):
+        await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+
+
+async def test_wrapper_ca_inflation_forecast_missing_critical_fields_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Missing q4 / LatestValue must surface as DataUnavailableError."""
+    broken = [dict(CA_FORECAST_PAYLOAD[0]) | {"q4": None, "q4_date": None}]
+    httpx_mock.add_response(method="GET", json=broken)
+    with pytest.raises(DataUnavailableError, match="missing critical fields"):
+        await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+
+
+async def test_wrapper_ca_inflation_forecast_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette("te_ca_inflation_forecast_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    fcst = await te_connector.fetch_ca_inflation_forecast(date(2026, 4, 22))
+    assert fcst.country == "CA"
+    assert fcst.historical_data_symbol == "CACPIYOY"
+    # TE Canada 12m-ahead forecast stays in [-2, 10]% post-2020 era.
+    assert -2.0 <= fcst.forecast_12m_pct <= 10.0
+
+
+@pytest.mark.slow
+async def test_live_canary_ca_cpi_yoy(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_ca_cpi_yoy(start, today)
+        assert len(obs) >= 12
+        assert obs[0].historical_data_symbol == "CACPIYOY"
+        for o in obs[-12:]:
+            assert -1.0 <= o.value <= 10.0
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_ca_inflation_forecast(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        fcst = await conn.fetch_ca_inflation_forecast(today)
+        assert fcst.country == "CA"
+        assert fcst.historical_data_symbol == "CACPIYOY"
+        assert -2.0 <= fcst.forecast_12m_pct <= 10.0
+        # YearEnd chain should be monotonic-ish (no nonsense like 50%).
+        assert -2.0 <= fcst.forecast_year_end_pct <= 10.0
+    finally:
+        await conn.aclose()
+
+
+# --- AU CPI YoY -------------------------------------------------------------
+
+
+async def test_wrapper_au_cpi_yoy_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``inflation rate`` for AU returns ``AUCPIYOY`` (ABS Monthly CPI Indicator)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Australia",
+                "Category": "Inflation Rate",
+                "DateTime": "2025-05-31T00:00:00",
+                "Value": 3.9,
+                "Frequency": "Monthly",
+                "HistoricalDataSymbol": "AUCPIYOY",
+            },
+            {
+                "Country": "Australia",
+                "Category": "Inflation Rate",
+                "DateTime": "2025-12-31T00:00:00",
+                "Value": 3.2,
+                "Frequency": "Monthly",
+                "HistoricalDataSymbol": "AUCPIYOY",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_au_cpi_yoy(date(2025, 1, 1), date(2025, 12, 31))
+    assert len(obs) == 2
+    assert obs[0].country == "AU"
+    assert obs[0].historical_data_symbol == "AUCPIYOY"
+
+
+async def test_wrapper_au_cpi_yoy_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Australia",
+                "Category": "Inflation Rate",
+                "DateTime": "2025-12-31T00:00:00",
+                "Value": 3.2,
+                "HistoricalDataSymbol": "AUSINFLN",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="AU-cpi-yoy source drift"):
+        await te_connector.fetch_au_cpi_yoy(date(2025, 1, 1), date(2025, 12, 31))
+
+
+async def test_wrapper_au_cpi_yoy_sparse_monthly_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """AU monthly CPI indicator is sparse on TE (11 observations at Sprint F probe)."""
+    payload = _load_cassette("te_au_cpi_yoy_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_au_cpi_yoy(date(2020, 1, 1), date(2025, 6, 30))
+    # Sprint F brief §5 HALT-0: AU sparse monthly is *known* scope narrow —
+    # downstream M2 builder must tolerate < 12 observations.
+    assert len(obs) >= 1
+    assert obs[0].historical_data_symbol == "AUCPIYOY"
+
+
+# --- AU inflation forecast --------------------------------------------------
+
+
+AU_FORECAST_PAYLOAD: list[dict[str, object]] = [
+    {
+        "Country": "Australia",
+        "Category": "Inflation Rate",
+        "LatestValue": 3.70,
+        "LatestValueDate": "2026-03-31T00:00:00",
+        "q1": 4.60,
+        "q2": 4.10,
+        "q3": 3.90,
+        "q4": 3.20,
+        "YearEnd": 3.60,
+        "YearEnd2": 2.80,
+        "YearEnd3": 2.50,
+        "q1_date": "2026-06-30T00:00:00",
+        "q2_date": "2026-09-30T00:00:00",
+        "q3_date": "2026-12-31T00:00:00",
+        "q4_date": "2027-03-31T00:00:00",
+        "ForecastLastUpdate": "2026-02-18T10:15:00",
+        "Frequency": "Monthly",
+        "HistoricalDataSymbol": "AUCPIYOY",
+    }
+]
+
+
+async def test_wrapper_au_inflation_forecast_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=AU_FORECAST_PAYLOAD)
+    fcst = await te_connector.fetch_au_inflation_forecast(date(2026, 4, 22))
+    assert fcst.country == "AU"
+    assert fcst.historical_data_symbol == "AUCPIYOY"
+    assert fcst.forecast_12m_pct == pytest.approx(3.20)
+
+
+async def test_wrapper_au_inflation_forecast_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    drifted = [dict(AU_FORECAST_PAYLOAD[0]) | {"HistoricalDataSymbol": "AUSINFLN"}]
+    httpx_mock.add_response(method="GET", json=drifted)
+    with pytest.raises(DataUnavailableError, match="AU-inflation-forecast source drift"):
+        await te_connector.fetch_au_inflation_forecast(date(2026, 4, 22))
+
+
+@pytest.mark.slow
+async def test_live_canary_au_cpi_yoy(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_au_cpi_yoy(start, today)
+        # Sparse monthly — accept ≥ 1 observation.
+        assert len(obs) >= 1
+        assert obs[0].historical_data_symbol == "AUCPIYOY"
+        for o in obs:
+            assert -1.0 <= o.value <= 15.0
+    finally:
+        await conn.aclose()
+
+
+# --- NZ CPI YoY -------------------------------------------------------------
+
+
+async def test_wrapper_nz_cpi_yoy_happy_path_quarterly(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """NZ CPI is quarterly (StatsNZ native cadence); frequency field pinned."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "New Zealand",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-09-30T00:00:00",
+                "Value": 2.2,
+                "Frequency": "Quarterly",
+                "HistoricalDataSymbol": "NZCPIYOY",
+            },
+            {
+                "Country": "New Zealand",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 2.2,
+                "Frequency": "Quarterly",
+                "HistoricalDataSymbol": "NZCPIYOY",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_nz_cpi_yoy(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) == 2
+    assert obs[0].historical_data_symbol == "NZCPIYOY"
+    assert obs[0].frequency == "Quarterly"  # key quirk
+
+
+async def test_wrapper_nz_cpi_yoy_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "New Zealand",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 2.2,
+                "HistoricalDataSymbol": "NZINFLN",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="NZ-cpi-yoy source drift"):
+        await te_connector.fetch_nz_cpi_yoy(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_nz_cpi_yoy_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette("te_nz_cpi_yoy_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_nz_cpi_yoy(date(2020, 1, 1), date(2025, 6, 30))
+    assert len(obs) >= 300  # quarterly since 1918 → 400+ obs
+    assert obs[0].historical_data_symbol == "NZCPIYOY"
+    assert obs[0].frequency == "Quarterly"
+
+
+# --- NZ inflation forecast --------------------------------------------------
+
+
+NZ_FORECAST_PAYLOAD: list[dict[str, object]] = [
+    {
+        "Country": "New Zealand",
+        "Category": "Inflation Rate",
+        "LatestValue": 3.10,
+        "LatestValueDate": "2026-03-31T00:00:00",
+        "q1": 3.10,
+        "q2": 3.20,
+        "q3": 2.80,
+        "q4": 2.50,
+        "YearEnd": 2.60,
+        "YearEnd2": 2.20,
+        "YearEnd3": 2.00,
+        "q1_date": "2026-06-30T00:00:00",
+        "q2_date": "2026-09-30T00:00:00",
+        "q3_date": "2026-12-31T00:00:00",
+        "q4_date": "2027-03-31T00:00:00",
+        "ForecastLastUpdate": "2026-02-18T09:00:00",
+        "Frequency": "Quarterly",
+        "HistoricalDataSymbol": "NZCPIYOY",
+    }
+]
+
+
+async def test_wrapper_nz_inflation_forecast_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=NZ_FORECAST_PAYLOAD)
+    fcst = await te_connector.fetch_nz_inflation_forecast(date(2026, 4, 22))
+    assert fcst.country == "NZ"
+    assert fcst.historical_data_symbol == "NZCPIYOY"
+    assert fcst.frequency == "Quarterly"
+    assert fcst.forecast_12m_pct == pytest.approx(2.50)
+
+
+async def test_wrapper_nz_inflation_forecast_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    drifted = [dict(NZ_FORECAST_PAYLOAD[0]) | {"HistoricalDataSymbol": "NZINFLN"}]
+    httpx_mock.add_response(method="GET", json=drifted)
+    with pytest.raises(DataUnavailableError, match="NZ-inflation-forecast source drift"):
+        await te_connector.fetch_nz_inflation_forecast(date(2026, 4, 22))
+
+
+@pytest.mark.slow
+async def test_live_canary_nz_cpi_yoy(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 5)
+        obs = await conn.fetch_nz_cpi_yoy(start, today)
+        assert len(obs) >= 4  # quarterly x 5Y >= 20 expected
+        assert obs[0].historical_data_symbol == "NZCPIYOY"
+        assert obs[0].frequency == "Quarterly"
     finally:
         await conn.aclose()

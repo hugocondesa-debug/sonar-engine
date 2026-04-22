@@ -93,6 +93,14 @@ TE_INDICATOR_ZEW_ECONOMIC_SENTIMENT = "zew economic sentiment index"
 TE_INDICATOR_CONSUMER_CONFIDENCE = "consumer confidence"
 TE_INDICATOR_MICHIGAN_5Y_INFLATION = "michigan 5 year inflation expectations"
 TE_INDICATOR_INTEREST_RATE = "interest rate"
+# Headline CPI year-over-year label per TE catalogue. Same slug powers
+# both the historical (``/historical/country/.../indicator/inflation%20rate``)
+# and forecast (``/forecast/country/.../indicator/inflation%20rate``)
+# endpoints; the per-country HistoricalDataSymbol differs and is tracked
+# individually in :data:`TE_CPI_YOY_EXPECTED_SYMBOL` so source drift
+# surfaces cleanly. Week 10 Sprint F empirical probe 2026-04-22
+# validated all 16 T1 countries via this slug.
+TE_INDICATOR_INFLATION_RATE = "inflation rate"
 # Per-country aggregate equity index (close price only — dividend yield
 # + EPS + PE not exposed via this endpoint per Week 10 Sprint B probe
 # 2026-04-22). Used as scaffolding for Phase 2.5 per-country ERP once
@@ -270,6 +278,77 @@ TE_EXPECTED_SYMBOL_SE_POLICY_RATE = "SWRRATEI"
 # 2021-03-31 → 2022-08-31 (min -0.60 %).
 TE_EXPECTED_SYMBOL_DK_POLICY_RATE = "DEBRDISC"
 
+# ---------------------------------------------------------------------------
+# CPI YoY per-country HistoricalDataSymbol guards (Week 10 Sprint F)
+# ---------------------------------------------------------------------------
+#
+# Empirical probe 2026-04-22 mapped the TE ``inflation rate`` indicator
+# to per-country symbols. Keyed on SONAR 2-letter code. All 16 T1
+# countries are covered — no EA member requires ECB SDW fallback at
+# this sprint's scope (brief §5 HALT-1 evaluated: not triggered).
+#
+# Frequency / coverage quirks documented individually:
+#
+# - **US** ``"CPI YOY"``: note the literal space in the symbol. Monthly
+#   cadence, 1914-12 → present (1335+ observations).
+# - **AU** ``AUCPIYOY``: monthly cadence **only since 2025-04-30** per
+#   ABS Monthly CPI Indicator (introduced 2022-11 by ABS but TE's
+#   coverage starts later). Quarterly headline CPI remains ABS's
+#   authoritative publication; AU consumers must tolerate a sparse
+#   monthly series (11 observations at Sprint F probe 2026-04-22). The
+#   downstream M2 AU builder emits ``AU_M2_CPI_SPARSE_MONTHLY`` when
+#   the returned window contains fewer than 12 observations.
+# - **NZ** ``NZCPIYOY``: **Quarterly** cadence (StatsNZ publishes CPI
+#   quarterly, and TE mirrors the native frequency — unlike most T1
+#   countries where the TE slug aggregates to monthly). 417
+#   observations back to 1918-09-30. The M2 NZ builder emits
+#   ``NZ_M2_CPI_QUARTERLY`` on every persist to record the lower
+#   cadence.
+# - **SE** ``SWCPYOY``: 7-character symbol (no ``I`` between ``W`` and
+#   ``C``) — empirically verified; do not "normalise" to ``SWCPIYOY``.
+# - **PT** ``PLCPYOY``: 7-character symbol prefixed ``PL`` (not ``PT``).
+#   TE's legacy convention retained across the Eurozone migration.
+# - **GB** ``UKRPCJYR``: **not** ``UKCPIYOY``. TE retains the "UK
+#   Retail Price Consumer — Jevons Year" code for the ONS headline
+#   CPI series even post ADR-0007 rename; values align with ONS CPIH
+#   ex-owner-occupied-housing (headline CPI). Do not confuse with
+#   RPI or RPIX — the series under this symbol is the modern CPI.
+TE_EXPECTED_SYMBOL_US_CPI_YOY = "CPI YOY"  # literal space — do not normalise
+TE_EXPECTED_SYMBOL_DE_CPI_YOY = "GRBC20YY"
+TE_EXPECTED_SYMBOL_FR_CPI_YOY = "FRCPIYOY"
+TE_EXPECTED_SYMBOL_IT_CPI_YOY = "ITCPNICY"
+TE_EXPECTED_SYMBOL_ES_CPI_YOY = "SPIPCYOY"
+TE_EXPECTED_SYMBOL_NL_CPI_YOY = "NECPIYOY"
+TE_EXPECTED_SYMBOL_PT_CPI_YOY = "PLCPYOY"
+TE_EXPECTED_SYMBOL_GB_CPI_YOY = "UKRPCJYR"
+TE_EXPECTED_SYMBOL_JP_CPI_YOY = "JNCPIYOY"
+TE_EXPECTED_SYMBOL_CA_CPI_YOY = "CACPIYOY"
+TE_EXPECTED_SYMBOL_AU_CPI_YOY = "AUCPIYOY"
+TE_EXPECTED_SYMBOL_NZ_CPI_YOY = "NZCPIYOY"
+TE_EXPECTED_SYMBOL_CH_CPI_YOY = "SZCPIYOY"
+TE_EXPECTED_SYMBOL_SE_CPI_YOY = "SWCPYOY"
+TE_EXPECTED_SYMBOL_NO_CPI_YOY = "NOCPIYOY"
+TE_EXPECTED_SYMBOL_DK_CPI_YOY = "DNCPIYOY"
+
+TE_CPI_YOY_EXPECTED_SYMBOL: dict[str, str] = {
+    "US": TE_EXPECTED_SYMBOL_US_CPI_YOY,
+    "DE": TE_EXPECTED_SYMBOL_DE_CPI_YOY,
+    "FR": TE_EXPECTED_SYMBOL_FR_CPI_YOY,
+    "IT": TE_EXPECTED_SYMBOL_IT_CPI_YOY,
+    "ES": TE_EXPECTED_SYMBOL_ES_CPI_YOY,
+    "NL": TE_EXPECTED_SYMBOL_NL_CPI_YOY,
+    "PT": TE_EXPECTED_SYMBOL_PT_CPI_YOY,
+    "GB": TE_EXPECTED_SYMBOL_GB_CPI_YOY,
+    "JP": TE_EXPECTED_SYMBOL_JP_CPI_YOY,
+    "CA": TE_EXPECTED_SYMBOL_CA_CPI_YOY,
+    "AU": TE_EXPECTED_SYMBOL_AU_CPI_YOY,
+    "NZ": TE_EXPECTED_SYMBOL_NZ_CPI_YOY,
+    "CH": TE_EXPECTED_SYMBOL_CH_CPI_YOY,
+    "SE": TE_EXPECTED_SYMBOL_SE_CPI_YOY,
+    "NO": TE_EXPECTED_SYMBOL_NO_CPI_YOY,
+    "DK": TE_EXPECTED_SYMBOL_DK_CPI_YOY,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class TEIndicatorObservation:
@@ -282,6 +361,49 @@ class TEIndicatorObservation:
     source: str = "TE"
     frequency: str = ""  # "Monthly", "Quarterly", etc.
     historical_data_symbol: str = ""  # TE "HistoricalDataSymbol" — source id
+
+
+@dataclass(frozen=True, slots=True)
+class TEInflationForecast:
+    """Projection row from TE's ``/forecast/country/.../indicator/inflation rate`` endpoint.
+
+    TE exposes four quarterly projections (``q1``..``q4``) plus three
+    year-end projections (``year_end``..``year_end_3``) per country.
+    The per-quarter dates anchor each value so downstream consumers do
+    not have to infer the publication offset (TE typically publishes q1
+    as "next quarter after the latest historical observation"; varies
+    per country by weeks). ``forecast_last_update`` records when TE
+    last revised the projection so consumers can enforce a freshness
+    SLA (M2 Taylor-gap consumers flag ``*_INFLATION_FORECAST_STALE``
+    when this timestamp is more than 90 days old).
+
+    ``forecast_12m_pct`` exposes the closest match to the 12-month-ahead
+    horizon M2 Taylor-forward variants consume. Empirically this is
+    ``q4`` (publishing offset of ~3 quarters from latest observation is
+    typical across TE's T1 coverage); if the publication schedule
+    shifts, consumers can fall back to ``year_end`` via
+    :attr:`forecast_year_end_pct`.
+    """
+
+    country: str  # ISO alpha-2, uppercase
+    indicator: str  # canonical lowercase TE name ("inflation rate")
+    historical_data_symbol: str  # matches the historical wrapper's guard
+    latest_value_pct: float  # most recent historical observation value
+    latest_value_date: date
+    forecast_12m_pct: float  # ≈ q4 (~12m-ahead horizon)
+    forecast_12m_date: date
+    forecast_year_end_pct: float  # current calendar year end
+    forecast_year_end_2_pct: float | None = None
+    forecast_year_end_3_pct: float | None = None
+    forecast_q1_pct: float | None = None
+    forecast_q1_date: date | None = None
+    forecast_q2_pct: float | None = None
+    forecast_q2_date: date | None = None
+    forecast_q3_pct: float | None = None
+    forecast_q3_date: date | None = None
+    frequency: str = ""
+    source: str = "TE"
+    forecast_last_update: datetime | None = None
 
 
 # SONAR 2-letter country code → TE 10Y Bloomberg symbol. GB is
@@ -512,6 +634,104 @@ class TEConnector:
         out.sort(key=lambda o: o.observation_date)
         self.cache.set(cache_key, out, ttl=DEFAULT_TTL_SECONDS)
         return out
+
+    # -------------------------------------------------------------------
+    # Forecast endpoint (Week 10 Sprint F — CAL-CPI-INFL-T1-WRAPPERS)
+    # -------------------------------------------------------------------
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=60),
+        retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
+    )
+    async def _fetch_forecast_raw(
+        self, country_name: str, indicator_name: str
+    ) -> list[dict[str, Any]]:
+        url = f"{self.BASE_URL}/forecast/country/{country_name}/indicator/{indicator_name}"
+        params = {"c": self.api_key, "f": "json"}
+        r = await self.client.get(url, params=params)
+        r.raise_for_status()
+        payload = r.json()
+        if not isinstance(payload, list):
+            err = (
+                f"TE forecast response non-list: country={country_name!r} "
+                f"indicator={indicator_name!r} type={type(payload).__name__}"
+            )
+            raise DataUnavailableError(err)
+        return cast("list[dict[str, Any]]", payload)
+
+    async def fetch_inflation_forecast(
+        self,
+        country_iso: str,
+        observation_date: date,
+    ) -> TEInflationForecast:
+        """Fetch TE's inflation-rate forecast for ``country_iso``.
+
+        Queries ``/forecast/country/{country}/indicator/inflation rate``
+        — the TE forecast surface for headline CPI YoY. The endpoint
+        returns a single projection row per country with:
+
+        - ``LatestValue`` + ``LatestValueDate``: the most recent
+          historical observation (matches the final row of the
+          ``fetch_indicator`` historical series).
+        - ``q1``..``q4`` + matching ``q*_date``: four quarterly
+          projections ahead of ``LatestValueDate``. q4 is the closest
+          stable proxy for a 12-month-ahead forecast (publishing offset
+          typically three quarters).
+        - ``YearEnd``..``YearEnd3``: current-calendar-year and next two
+          calendar-year-end forecasts. Used as fallback for 12m-ahead
+          when the quarterly offset is ambiguous (e.g. when TE delays
+          updating q4 beyond the 90-day freshness SLA).
+        - ``HistoricalDataSymbol``: matches the historical series;
+          callers asserting identity reuse the single per-country
+          symbol table :data:`TE_CPI_YOY_EXPECTED_SYMBOL`.
+
+        ``observation_date`` is used only for cache partitioning — the
+        TE forecast endpoint exposes the *current* projection, not a
+        historical snapshot, so we cache per anchor-date so that
+        integration tests and deterministic backtests see stable values
+        for a given date. Cache TTL matches the historical endpoint.
+
+        Empty response raises :class:`DataUnavailableError`.
+        """
+        country_upper = country_iso.upper()
+        country_name = TE_COUNTRY_NAME_MAP.get(country_upper)
+        if country_name is None:
+            msg = f"Unknown TE country mapping: {country_iso!r}"
+            raise ValueError(msg)
+
+        cache_key = (
+            f"te_fcst:{country_upper}:{TE_INDICATOR_INFLATION_RATE}:{observation_date.isoformat()}"
+        )
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug(
+                "te.forecast.cache_hit",
+                country=country_upper,
+                indicator=TE_INDICATOR_INFLATION_RATE,
+            )
+            return cast("TEInflationForecast", cached)
+
+        rows = await self._fetch_forecast_raw(country_name, TE_INDICATOR_INFLATION_RATE)
+        self._call_count += 1
+        log.info(
+            "te.forecast.call",
+            indicator=TE_INDICATOR_INFLATION_RATE,
+            country=country_upper,
+            cumulative_calls=self._call_count,
+        )
+
+        if not rows:
+            err = (
+                f"TE forecast empty: country={country_iso!r} "
+                f"indicator={TE_INDICATOR_INFLATION_RATE!r}"
+            )
+            raise DataUnavailableError(err)
+
+        row = rows[0]
+        parsed = _parse_forecast_row(row, country_upper, TE_INDICATOR_INFLATION_RATE)
+        self.cache.set(cache_key, parsed, ttl=DEFAULT_TTL_SECONDS)
+        return parsed
 
     # -------------------------------------------------------------------
     # CAL-targeted convenience wrappers (Week 6 Sprint 1 c2)
@@ -1052,6 +1272,202 @@ class TEConnector:
         return await self.fetch_gb_bank_rate(start, end)
 
     # -------------------------------------------------------------------
+    # Per-country CPI YoY + inflation forecast (Week 10 Sprint F)
+    # CAL-CPI-INFL-T1-WRAPPERS. TE ``inflation rate`` slug powers both
+    # endpoints; per-country HistoricalDataSymbol guards catch source
+    # drift before the M2 Taylor compute mis-attributes an unrelated
+    # series. Pre-flight probe 2026-04-22 mapped every T1 country's
+    # symbol individually (see :data:`TE_CPI_YOY_EXPECTED_SYMBOL`).
+    # -------------------------------------------------------------------
+
+    async def fetch_ca_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """CA headline CPI YoY — StatCan Consumer Price Index, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``canada`` returns the
+        StatCan all-items CPI year-on-year change directly
+        (HistoricalDataSymbol ``CACPIYOY``). Monthly cadence back-filled
+        to 1915-01-31 (~1335 observations at Sprint F probe
+        2026-04-22); each row is a month-end value, with the series
+        publishing two-to-three weeks after the reference month (StatCan
+        release calendar).
+
+        Chosen as the **primary** source for CA M2 Taylor-gap CPI
+        inputs per CAL-CPI-INFL-T1-WRAPPERS. TE mirrors StatCan without
+        a latency premium and exposes the same series as the BoC MPR
+        headline inflation chart. Native StatCan web-data service and
+        BoC Valet are candidate secondary slots but Phase 2+ scope —
+        per ADR-0010 Sprint F ships T1 complete via TE primary before
+        expanding to native-CB secondaries.
+
+        Guards source identity via the ``CACPIYOY`` symbol check
+        mirroring the CA / AU / NZ bank-rate wrappers; on drift raises
+        :class:`DataUnavailableError` so the M2 CA cascade can
+        surface the symbol drift cleanly.
+        """
+        obs = await self.fetch_indicator("CA", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_CA_CPI_YOY)
+        ):
+            err = (
+                "TE CA-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CA_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_ca_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """CA inflation-rate forecast — TE projection for Canada CPI YoY.
+
+        Returns the TE q1..q4 + YearEnd projection bundle anchored on
+        ``observation_date`` (used only for cache partitioning — the TE
+        forecast endpoint always returns the current projection). TE's
+        forecast blends BoC MPR published projections with TE's own
+        model output; the 12-month-ahead value
+        (:attr:`TEInflationForecast.forecast_12m_pct`) is the canonical
+        input for the M2 Taylor-forward variant.
+
+        Source-drift guard: ``historical_data_symbol`` must match
+        :data:`TE_EXPECTED_SYMBOL_CA_CPI_YOY` (``CACPIYOY``) — the
+        forecast endpoint returns the same symbol as the historical so
+        a single guard protects both surfaces.
+        """
+        fcst = await self.fetch_inflation_forecast("CA", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_CA_CPI_YOY
+        ):
+            err = (
+                "TE CA-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CA_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_au_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """AU headline CPI YoY — ABS Monthly CPI Indicator, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``australia`` returns the
+        ABS Monthly CPI Indicator year-on-year (HistoricalDataSymbol
+        ``AUCPIYOY``). The ABS Monthly CPI Indicator was introduced in
+        2022-11; TE's coverage however starts only at 2025-04-30 — just
+        11 observations at Sprint F probe 2026-04-22, spanning the
+        latest full year of monthly data. Consumers needing a longer
+        series should prefer the quarterly headline CPI (separate ABS
+        publication — TE exposes it under a different indicator slug
+        not in Sprint F scope).
+
+        The M2 AU builder emits ``AU_M2_CPI_SPARSE_MONTHLY`` when the
+        returned window contains fewer than 12 observations so
+        downstream consumers can surface the sparse coverage cleanly.
+
+        Chosen as the **primary** source for AU M2 Taylor-gap CPI
+        inputs per CAL-CPI-INFL-T1-WRAPPERS. The short history is
+        adequate for M2 because the Taylor compute only needs the
+        latest observation; the sparse `cpi_yoy_history` that M2
+        otherwise ingests falls back to the constant-inflation-target
+        scaffold in the absence of a full 10Y series.
+
+        Guards source identity via the ``AUCPIYOY`` symbol check
+        mirroring the country bank-rate wrappers.
+        """
+        obs = await self.fetch_indicator("AU", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_AU_CPI_YOY)
+        ):
+            err = (
+                "TE AU-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_AU_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_au_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """AU inflation-rate forecast — TE projection for Australia CPI YoY.
+
+        Returns the TE q1..q4 + YearEnd projection bundle. The AU
+        forecast surface blends RBA Statement on Monetary Policy (SoMP)
+        published projections with TE's own model output. 12m-ahead
+        value powers the M2 Taylor-forward variant.
+
+        Source-drift guard on ``AUCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("AU", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_AU_CPI_YOY
+        ):
+            err = (
+                "TE AU-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_AU_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_nz_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """NZ headline CPI YoY — StatsNZ Consumer Price Index, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``new zealand`` returns the
+        StatsNZ CPI year-on-year change (HistoricalDataSymbol
+        ``NZCPIYOY``) at **Quarterly** cadence — StatsNZ publishes CPI
+        quarterly and TE mirrors the native frequency (unlike most T1
+        countries where the TE slug returns monthly). 417 observations
+        back to 1918-09-30 at Sprint F probe 2026-04-22; values publish
+        approximately four weeks after each quarter-end (e.g. Q4 2024
+        published mid-January 2025).
+
+        The M2 NZ builder emits ``NZ_M2_CPI_QUARTERLY`` on every
+        compute to record the lower cadence — downstream consumers can
+        then surface the latency-vs-US-monthly delta to operators.
+
+        Chosen as the **primary** source for NZ M2 Taylor-gap CPI
+        inputs per CAL-CPI-INFL-T1-WRAPPERS. RBNZ Monetary Policy
+        Statement publishes matching projections; TE mirrors both the
+        historical and forecast surfaces at the same cadence.
+
+        Guards source identity via the ``NZCPIYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("NZ", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_NZ_CPI_YOY)
+        ):
+            err = (
+                "TE NZ-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NZ_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_nz_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """NZ inflation-rate forecast — TE projection for New Zealand CPI YoY.
+
+        Quarterly frequency mirrors the historical series. 12m-ahead
+        value powers the M2 Taylor-forward variant; RBNZ MPS-blended
+        projections inform the baseline path.
+
+        Source-drift guard on ``NZCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("NZ", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_NZ_CPI_YOY
+        ):
+            err = (
+                "TE NZ-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NZ_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    # -------------------------------------------------------------------
     # Per-country equity index (Week 10 Sprint B scaffolding)
     # -------------------------------------------------------------------
 
@@ -1216,6 +1632,78 @@ class TEConnector:
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
+
+
+def _parse_forecast_date(raw: Any) -> date | None:
+    """Parse TE forecast ``q*_date`` / ``LatestValueDate`` fields."""
+    if raw is None or raw == "":
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_forecast_timestamp(raw: Any) -> datetime | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_forecast_float(raw: Any) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_forecast_row(
+    row: dict[str, Any], country_iso: str, indicator_name: str
+) -> TEInflationForecast:
+    """Build :class:`TEInflationForecast` from a TE ``/forecast/...`` row.
+
+    Raises :class:`DataUnavailableError` when the required q4 projection
+    or LatestValue is missing — those fields power the 12m-ahead M2
+    Taylor-forward variant which is the M2-full-compute gate.
+    """
+    latest_value = _parse_forecast_float(row.get("LatestValue"))
+    latest_date = _parse_forecast_date(row.get("LatestValueDate"))
+    q4 = _parse_forecast_float(row.get("q4"))
+    q4_date = _parse_forecast_date(row.get("q4_date"))
+    year_end = _parse_forecast_float(row.get("YearEnd"))
+    if latest_value is None or latest_date is None or q4 is None or q4_date is None:
+        err = (
+            f"TE forecast missing critical fields: country={country_iso!r} "
+            f"indicator={indicator_name!r} latest_value={latest_value!r} "
+            f"latest_date={latest_date!r} q4={q4!r} q4_date={q4_date!r}"
+        )
+        raise DataUnavailableError(err)
+    year_end_fallback: float = year_end if year_end is not None else q4
+    return TEInflationForecast(
+        country=country_iso.upper(),
+        indicator=indicator_name,
+        historical_data_symbol=str(row.get("HistoricalDataSymbol", "")),
+        latest_value_pct=latest_value,
+        latest_value_date=latest_date,
+        forecast_12m_pct=q4,
+        forecast_12m_date=q4_date,
+        forecast_year_end_pct=year_end_fallback,
+        forecast_year_end_2_pct=_parse_forecast_float(row.get("YearEnd2")),
+        forecast_year_end_3_pct=_parse_forecast_float(row.get("YearEnd3")),
+        forecast_q1_pct=_parse_forecast_float(row.get("q1")),
+        forecast_q1_date=_parse_forecast_date(row.get("q1_date")),
+        forecast_q2_pct=_parse_forecast_float(row.get("q2")),
+        forecast_q2_date=_parse_forecast_date(row.get("q2_date")),
+        forecast_q3_pct=_parse_forecast_float(row.get("q3")),
+        forecast_q3_date=_parse_forecast_date(row.get("q3_date")),
+        frequency=str(row.get("Frequency", "")),
+        forecast_last_update=_parse_forecast_timestamp(row.get("ForecastLastUpdate")),
+    )
 
 
 def _parse_markets_rows(
