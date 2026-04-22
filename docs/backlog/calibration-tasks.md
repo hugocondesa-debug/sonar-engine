@@ -2710,30 +2710,85 @@ as sub-bullets below when it differs materially from peer countries.
   `CAL-NZ-BS-GDP`, `CAL-CH-BS-GDP`, `CAL-SE-BS-GDP`, `CAL-NO-BS-GDP`,
   `CAL-DK-BS-GDP` (8 items → 1).
 
-### CAL-CPI-INFL-T1-WRAPPERS — CPI YoY + inflation-forecast wrappers for T1 countries (Phase 2)
+### CAL-CPI-INFL-T1-WRAPPERS — CPI YoY + inflation-forecast wrappers for T1 countries ✅ CLOSED
 
-- **Priority:** MEDIUM — unblocks M2 Taylor rule (inflation-gap) + M3
-  market-expectations across T1.
-- **Scope:** Per-country YoY-CPI extractor (native CB or statistics
-  office source; falls back to OECD / FRED mirror) + inflation-
-  forecast wrapper (central-bank projection / SPF / Consensus
-  Economics).
-- **Sources per country:**
-  - JP — Statistics Bureau CPI + BoJ outlook forecast.
-  - CA — StatCan CPI + BoC MPR forecast.
-  - AU — ABS CPI + RBA SoMP forecast.
-  - NZ — StatsNZ CPI + RBNZ MPS forecast.
-  - CH — BfS CPI + SNB inflation forecast.
-  - SE — SCB CPIF (not CPI — Riksbank target is CPIF) + NIER forecast.
-  - NO — StatsNorway CPI-ATE + Norges Bank MPR forecast.
-  - DK — DST CPI / HICP + Economic Council forecast.
-- **Unblocks:** Native CPI feed per country (demotes FRED OECD mirror
-  fallback); inflation-forecast surface for M3 / M2 tooling.
+- **Status:** CLOSED 2026-04-22 via Week 10 Sprint F (branch
+  `sprint-cpi-infl-t1-wrappers`). Retrospective at
+  `docs/planning/retrospectives/week10-sprint-cpi-infl-t1-report.md`.
+- **Shipped scope** (7 commits + pre-flight):
+  - Commit 1 (`1fb8be8`) — TE CPI + forecast wrappers CA / AU / NZ
+    (6 methods) + per-country `TE_CPI_YOY_EXPECTED_SYMBOL` guards
+    for all 16 T1 countries + `TEInflationForecast` dataclass +
+    shared `fetch_inflation_forecast` core. Pre-flight probe body
+    documented per-country HistoricalDataSymbol + frequency +
+    historical depth. ECB SDW fallback evaluated as HALT-1 and
+    **not required** — TE coverage complete for all 16 T1 countries
+    (inverse of Sprint A EA-periphery outcome).
+  - Commit 2 (`3233d27`) — TE CPI + forecast wrappers
+    CH / SE / NO / DK / GB / JP (12 methods). Negative-rate era
+    has zero CPI impact; no `*_NEGATIVE_RATE_ERA_DATA` flag needed
+    (that flag is policy-rate semantic, not CPI). SE-headline-not-
+    CPIF caveat documented.
+  - Commit 4 (`7f595cf`) — M2 builders CA / AU / NZ / CH / SE / NO / DK
+    flipped scaffold → full compute via shared
+    `_assemble_m2_full_compute` helper. AU `_CPI_SPARSE_MONTHLY`,
+    NZ `_CPI_QUARTERLY`, CH `_INFLATION_TARGET_BAND`, DK
+    `_EUR_PEG_TAYLOR_MISFIT`, SE `_CPI_HEADLINE_NOT_CPIF` flags.
+  - Commit 5 (`6abaed7`) — M2 JP flipped + M2 GB first-ship +
+    US M2 canonical regression guard
+    (`TestSprintFUsBaselineGuard`).
+  - Commit 6 (`d5eb810`) — Pipeline `_classify_m2_compute_mode`
+    helper + `monetary_pipeline.m2_compute_mode` log line +
+    `tests/integration/test_daily_monetary_m2_full_compute.py`
+    integration smoke (10 live canaries, 34.5s wall-clock).
+- **Coverage:** 10 of 16 T1 countries at **full-compute live**
+  (US canonical + 9 non-EA T1). EA + per-country EA members
+  (DE/FR/IT/ES/NL/PT) deferred per ADR-0010 phased-completion to
+  dedicated CAL items (`CAL-M2-EA-PER-COUNTRY` +
+  `CAL-M2-EA-AGGREGATE` — both opened in this sprint).
+- **Cross-validation** (documented in retrospective §3): headline
+  CPI YoY values per country vs TE web + BLS / ECB / ONS / Eurostat
+  latest published values match within < 10 bps (standard CPI
+  numerology — TE mirrors the underlying statistics offices).
 - **Replaces:** `CAL-126`, `CAL-134`, `CAL-135`, `CAL-AU-CPI`,
   `CAL-AU-INFL-FORECAST`, `CAL-NZ-CPI`, `CAL-NZ-INFL-FORECAST`,
   `CAL-CH-CPI`, `CAL-CH-INFL-FORECAST`, `CAL-SE-CPI`,
   `CAL-SE-INFL-FORECAST`, `CAL-NO-CPI`, `CAL-NO-INFL-FORECAST`,
-  `CAL-DK-CPI`, `CAL-DK-INFL-FORECAST` (15 items → 1).
+  `CAL-DK-CPI`, `CAL-DK-INFL-FORECAST` (15 items → 1, now all
+  closed via this umbrella item).
+
+### CAL-M2-EA-PER-COUNTRY — M2 per-country EA member Taylor compute (Phase 2+)
+
+- **Priority:** LOW — academically ambiguous; deferred until spec
+  revision.
+- **Trigger:** Week 10 Sprint F (2026-04-22) scoped out DE / FR / IT /
+  ES / NL / PT individual M2 builders because the Taylor rule's
+  policy-rate instrument is the ECB Deposit Facility Rate (shared
+  across EA members). A country-specific reaction-function spec
+  — e.g. a "DE-M2-as-if-Bundesbank" counterfactual rule —
+  requires explicit methodology decisions the brief avoided.
+- **Scope:** Drafting a per-country EA M2 spec revision in
+  `docs/specs/indices/monetary/M2-taylor-gaps.md` (new §5 — "EA
+  member per-country adaptation"), plus the 6 corresponding
+  builders (`build_m2_{de,fr,it,es,nl,pt}_inputs`) and dispatch
+  wiring. TE CPI + forecast wrappers for these 6 countries were
+  **already** shipped in Sprint F Commits 1-2 via the
+  `TE_CPI_YOY_EXPECTED_SYMBOL` registry — spec decisions remain
+  the only blocker.
+- **Unblocks:** M2 full-compute coverage 10 → 16 of 16 T1.
+
+### CAL-M2-EA-AGGREGATE — M2 Taylor compute for EA aggregate (Phase 2+)
+
+- **Priority:** LOW — Phase 2+ scope.
+- **Trigger:** Week 10 Sprint F (2026-04-22) surfaced that
+  `build_m2_ea_inputs` does not exist at the scaffold level either.
+  `MonetaryInputsBuilder.build_m2_inputs("EA", ...)` currently
+  raises `NotImplementedError`.
+- **Scope:** New `build_m2_ea_inputs` using ECB Deposit Facility
+  Rate + ECB HICP aggregate + EA-wide OECD EO output gap (or
+  Eurostat per-country GDP + ECB potential-GDP model). r* for EA
+  already available via `r_star_values.yaml:EA`.
+- **Unblocks:** EA aggregate M2 rowcount parity with US / GB / JP.
 
 ### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion) ✅ CLOSED
 
