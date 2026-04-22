@@ -357,6 +357,16 @@ TE_EXPECTED_SYMBOL_DK_POLICY_RATE = "DEBRDISC"
 #   CPI series even post ADR-0007 rename; values align with ONS CPIH
 #   ex-owner-occupied-housing (headline CPI). Do not confuse with
 #   RPI or RPIX — the series under this symbol is the modern CPI.
+# - **EA** ``ECCPEMUY``: euro-area aggregate HICP YoY (Eurostat
+#   harmonised index — Monetary Union consumer prices). Monthly
+#   cadence back to 1991-01-31 (423 observations at Sprint L probe
+#   2026-04-22). Semantically HICP rather than CPI (EU-harmonised
+#   methodology) so the wrapper is named :meth:`fetch_ea_hicp_yoy`
+#   even though TE publishes it under the same ``inflation rate``
+#   indicator slug. Not included in :data:`TE_CPI_YOY_EXPECTED_SYMBOL`
+#   — that registry is scoped to the 16 T1 *per-country* symbols;
+#   EA is an aggregate and lives in
+#   :data:`TE_EXPECTED_SYMBOL_EA_HICP_YOY` (singleton).
 TE_EXPECTED_SYMBOL_US_CPI_YOY = "CPI YOY"  # literal space — do not normalise
 TE_EXPECTED_SYMBOL_DE_CPI_YOY = "GRBC20YY"
 TE_EXPECTED_SYMBOL_FR_CPI_YOY = "FRCPIYOY"
@@ -373,6 +383,12 @@ TE_EXPECTED_SYMBOL_CH_CPI_YOY = "SZCPIYOY"
 TE_EXPECTED_SYMBOL_SE_CPI_YOY = "SWCPYOY"
 TE_EXPECTED_SYMBOL_NO_CPI_YOY = "NOCPIYOY"
 TE_EXPECTED_SYMBOL_DK_CPI_YOY = "DNCPIYOY"
+
+# EA aggregate HICP YoY — separate from the per-country registry above.
+# Week 10 Sprint L (2026-04-22) adds EA aggregate M2 Taylor compute; TE
+# publishes the euro-area HICP under ``ECCPEMUY`` via the same
+# ``inflation rate`` indicator slug.
+TE_EXPECTED_SYMBOL_EA_HICP_YOY = "ECCPEMUY"
 
 TE_CPI_YOY_EXPECTED_SYMBOL: dict[str, str] = {
     "US": TE_EXPECTED_SYMBOL_US_CPI_YOY,
@@ -1812,6 +1828,94 @@ class TEConnector:
             err = (
                 "TE JP-inflation-forecast source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_JP_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    # -------------------------------------------------------------------
+    # EA aggregate HICP YoY + inflation forecast (Week 10 Sprint L
+    # CAL-M2-EA-AGGREGATE). TE ``inflation rate`` slug powers both
+    # endpoints for the euro-area aggregate; the HistoricalDataSymbol
+    # ``ECCPEMUY`` guards source identity. Empirical probe 2026-04-22
+    # returned 423 monthly observations 1991-01-31 → 2026-03-31; the
+    # forecast endpoint surfaces q1..q4 + YearEnd projections.
+    # -------------------------------------------------------------------
+
+    async def fetch_ea_hicp_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """EA aggregate HICP YoY — Eurostat harmonised CPI, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``euro area`` returns the
+        Eurostat Harmonised Index of Consumer Prices (Monetary Union
+        HICP) year-on-year (HistoricalDataSymbol ``ECCPEMUY``). Monthly
+        cadence back-filled to 1991-01-31 (~423 observations at Sprint
+        L probe 2026-04-22); Eurostat publishes the flash estimate the
+        final working day of the reference month and the final value
+        two weeks later.
+
+        Chosen as the **primary** source for EA aggregate M2 Taylor-
+        gap CPI inputs per CAL-M2-EA-AGGREGATE. TE mirrors Eurostat
+        without a latency premium and the ECB Governing Council
+        explicitly uses this headline measure when assessing the 2 %
+        medium-term HICP target. ECB SDW ``ICP`` dataflow remains a
+        Phase 2+ secondary slot (HALT-1 inversion Sprint L — TE
+        coverage proved complete during the pre-flight probe).
+
+        Guards source identity via the ``ECCPEMUY`` symbol check
+        mirroring the per-country CPI wrappers; on drift raises
+        :class:`DataUnavailableError` so the M2 EA cascade can surface
+        the symbol drift cleanly.
+
+        Semantically this wrapper is *HICP* rather than CPI (EU-
+        harmonised methodology vs per-country statistics-office CPI);
+        the naming preserves the methodological distinction at the
+        boundary even though TE exposes both under the same
+        ``inflation rate`` indicator slug.
+        """
+        obs = await self.fetch_indicator("EA", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_EA_HICP_YOY)
+        ):
+            err = (
+                "TE EA-hicp-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_EA_HICP_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_ea_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """EA aggregate inflation forecast — TE projection for euro-area HICP YoY.
+
+        Returns the TE q1..q4 + YearEnd projection bundle anchored on
+        ``observation_date`` (used only for cache partitioning — the TE
+        forecast endpoint always returns the current projection). TE's
+        forecast blends ECB Macroeconomic Projection Exercise
+        (quarterly) + Consensus Economics projections with TE's own
+        model output; the 12-month-ahead value
+        (:attr:`TEInflationForecast.forecast_12m_pct`) is the canonical
+        input for the M2 EA aggregate Taylor-forward variant.
+
+        Source-drift guard: ``historical_data_symbol`` must match
+        :data:`TE_EXPECTED_SYMBOL_EA_HICP_YOY` (``ECCPEMUY``) — the
+        forecast endpoint returns the same symbol as the historical so
+        a single guard protects both surfaces.
+
+        The ECB Survey of Professional Forecasters (SPF) publishes a
+        quarterly EA inflation forecast that could serve as a native
+        fallback; Sprint L defers that wiring to Phase 2+ per HALT-1
+        inversion (TE coverage proved sufficient during the Commit 1
+        pre-flight probe).
+        """
+        fcst = await self.fetch_inflation_forecast("EA", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_EA_HICP_YOY
+        ):
+            err = (
+                "TE EA-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_EA_HICP_YOY!r}, got "
                 f"{fcst.historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)

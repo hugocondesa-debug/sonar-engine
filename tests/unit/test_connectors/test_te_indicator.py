@@ -2670,3 +2670,199 @@ async def test_live_canary_c2_cpi_yoy(iso: str, tmp_cache_dir: Path) -> None:
             assert -2.0 <= o.value <= 15.0
     finally:
         await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# EA aggregate HICP YoY + inflation forecast (Week 10 Sprint L)
+# ---------------------------------------------------------------------------
+
+
+_EA_HISTORICAL_PAYLOAD: list[dict[str, object]] = [
+    {
+        "Country": "Euro Area",
+        "Category": "Inflation Rate",
+        "DateTime": "2024-11-30T00:00:00",
+        "Value": 2.2,
+        "Frequency": "Monthly",
+        "HistoricalDataSymbol": "ECCPEMUY",
+    },
+    {
+        "Country": "Euro Area",
+        "Category": "Inflation Rate",
+        "DateTime": "2024-12-31T00:00:00",
+        "Value": 2.4,
+        "Frequency": "Monthly",
+        "HistoricalDataSymbol": "ECCPEMUY",
+    },
+]
+
+
+_EA_FORECAST_PAYLOAD: list[dict[str, object]] = [
+    {
+        "Country": "Euro Area",
+        "Category": "Inflation Rate",
+        "Title": "Euro Area Inflation Rate",
+        "LatestValue": 2.60,
+        "LatestValueDate": "2026-03-31T00:00:00",
+        "q1": 3.00,
+        "q2": 2.80,
+        "q3": 2.70,
+        "q4": 2.60,
+        "YearEnd": 2.70,
+        "YearEnd2": 2.40,
+        "YearEnd3": 2.20,
+        "q1_date": "2026-06-30T00:00:00",
+        "q2_date": "2026-09-30T00:00:00",
+        "q3_date": "2026-12-31T00:00:00",
+        "q4_date": "2027-03-31T00:00:00",
+        "ForecastLastUpdate": "2026-04-13T10:04:00",
+        "Frequency": "Monthly",
+        "Unit": "percent",
+        "HistoricalDataSymbol": "ECCPEMUY",
+    }
+]
+
+
+async def test_wrapper_ea_hicp_yoy_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``inflation rate`` for EA returns ``ECCPEMUY`` (Eurostat HICP)."""
+    httpx_mock.add_response(method="GET", json=_EA_HISTORICAL_PAYLOAD)
+    obs = await te_connector.fetch_ea_hicp_yoy(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) == 2
+    assert obs[0].country == "EA"
+    assert obs[0].indicator == TE_INDICATOR_INFLATION_RATE
+    assert obs[0].historical_data_symbol == "ECCPEMUY"
+    assert obs[0].frequency == "Monthly"
+    for o in obs:
+        assert -2.0 <= o.value <= 15.0
+
+
+async def test_wrapper_ea_hicp_yoy_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """A non-ECCPEMUY symbol raises so M2 EA cascade surfaces drift cleanly."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Euro Area",
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 2.4,
+                "HistoricalDataSymbol": "EAINFLN",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="EA-hicp-yoy source drift"):
+        await te_connector.fetch_ea_hicp_yoy(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ea_hicp_yoy_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_ea_hicp_yoy(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_ea_hicp_yoy_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Real TE cassette — 423+ monthly ECCPEMUY observations back to 1991."""
+    payload = _load_cassette("te_ea_hicp_yoy_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_ea_hicp_yoy(date(2020, 1, 1), date(2025, 6, 30))
+    assert len(obs) >= 400
+    assert obs[0].historical_data_symbol == "ECCPEMUY"
+    assert obs[0].country == "EA"
+    # EA HICP has stayed within [-1, 11]% across the 1991-2026 window
+    # (2022 peak ~10.6 %; pre-2022 secular range [-0.6, 5]%).
+    for o in obs[-24:]:
+        assert -2.0 <= o.value <= 15.0
+
+
+async def test_wrapper_ea_inflation_forecast_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``/forecast`` for EA returns a single projection row keyed on ``ECCPEMUY``."""
+    httpx_mock.add_response(method="GET", json=_EA_FORECAST_PAYLOAD)
+    fcst = await te_connector.fetch_ea_inflation_forecast(date(2026, 4, 22))
+    assert isinstance(fcst, TEInflationForecast)
+    assert fcst.country == "EA"
+    assert fcst.indicator == TE_INDICATOR_INFLATION_RATE
+    assert fcst.historical_data_symbol == "ECCPEMUY"
+    assert fcst.latest_value_pct == pytest.approx(2.60)
+    assert fcst.latest_value_date == date(2026, 3, 31)
+    assert fcst.forecast_12m_pct == pytest.approx(2.60)
+    assert fcst.forecast_12m_date == date(2027, 3, 31)
+    assert fcst.forecast_year_end_pct == pytest.approx(2.70)
+    assert fcst.forecast_year_end_2_pct == pytest.approx(2.40)
+    assert fcst.forecast_year_end_3_pct == pytest.approx(2.20)
+    assert fcst.forecast_q1_pct == pytest.approx(3.00)
+    assert fcst.frequency == "Monthly"
+    assert fcst.forecast_last_update == datetime(2026, 4, 13, 10, 4, tzinfo=UTC)
+
+
+async def test_wrapper_ea_inflation_forecast_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    drifted = [dict(_EA_FORECAST_PAYLOAD[0]) | {"HistoricalDataSymbol": "EAINFLN"}]
+    httpx_mock.add_response(method="GET", json=drifted)
+    with pytest.raises(DataUnavailableError, match="EA-inflation-forecast source drift"):
+        await te_connector.fetch_ea_inflation_forecast(date(2026, 4, 22))
+
+
+async def test_wrapper_ea_inflation_forecast_empty_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="TE forecast empty"):
+        await te_connector.fetch_ea_inflation_forecast(date(2026, 4, 22))
+
+
+async def test_wrapper_ea_inflation_forecast_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette("te_ea_inflation_forecast_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    fcst = await te_connector.fetch_ea_inflation_forecast(date(2026, 4, 22))
+    assert fcst.country == "EA"
+    assert fcst.historical_data_symbol == "ECCPEMUY"
+    # EA 12m-ahead forecast stays in [-2, 10]% post-2020 era.
+    assert -2.0 <= fcst.forecast_12m_pct <= 10.0
+
+
+@pytest.mark.slow
+async def test_live_canary_ea_hicp_yoy(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        obs = await conn.fetch_ea_hicp_yoy(start, today)
+        assert len(obs) >= 12
+        assert obs[0].historical_data_symbol == "ECCPEMUY"
+        for o in obs[-12:]:
+            assert -2.0 <= o.value <= 15.0
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_ea_inflation_forecast(tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        fcst = await conn.fetch_ea_inflation_forecast(today)
+        assert fcst.country == "EA"
+        assert fcst.historical_data_symbol == "ECCPEMUY"
+        assert -2.0 <= fcst.forecast_12m_pct <= 10.0
+        assert -2.0 <= fcst.forecast_year_end_pct <= 10.0
+    finally:
+        await conn.aclose()
