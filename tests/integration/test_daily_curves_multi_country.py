@@ -1,10 +1,11 @@
 """Integration tests — daily-curves multi-country dispatch.
 
-Covers the post-Sprint-H curve-fit surface (2026-04-22): US (FRED,
-existing), DE (Bundesbank), EA (ECB SDW), GB/JP/CA/IT/ES (TE). The
+Covers the post-Sprint-I curve-fit surface (2026-04-22): US (FRED,
+existing), DE (Bundesbank), EA (ECB SDW), GB/JP/CA/IT/ES/FR (TE). The
 Sprint H TE cascade closed ``CAL-CURVES-IT-BDI`` +
-``CAL-CURVES-ES-BDE``; the EA periphery remainder (PT / FR / NL) +
-sparse T1 members (AU/NZ/CH/SE/NO/DK) continue to raise
+``CAL-CURVES-ES-BDE``; Sprint I closed ``CAL-CURVES-FR-TE-PROBE`` via
+the same cascade. The remaining EA periphery (PT / NL) + sparse T1
+members (AU/NZ/CH/SE/NO/DK) continue to raise
 :class:`InsufficientDataError` at dispatch — verified by unit tests
 of ``_fetch_nominals_linkers``; integration tests here exercise the
 live cascade end-to-end.
@@ -97,20 +98,23 @@ async def te(tmp_path: Path) -> AsyncIterator[TEConnector]:
 
 
 def test_t1_curves_tier_constant_matches_expected() -> None:
-    """Sprint H IT + ES TE cascade (2026-04-22): ``--all-t1`` iterates
-    the eight curve-capable T1 countries. First six entries preserve
-    Sprint E ordering (journal/tool compatibility); IT + ES append
-    at the tail.
+    """Sprint I FR TE cascade (2026-04-22): ``--all-t1`` iterates the
+    nine curve-capable T1 countries. First eight entries preserve the
+    Sprint H ordering (journal/tool compatibility); FR appends at the
+    tail.
     """
-    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
+    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR")
     assert set(T1_CURVES_COUNTRIES) == CURVE_SUPPORTED_COUNTRIES
 
 
-def test_curve_supported_countries_matches_sprint_h_scope() -> None:
-    """Post-Sprint-H ship list: US (FRED) + DE (BB) + EA (ECB) +
-    GB/JP/CA/IT/ES (TE — 5 countries via Bloomberg-symbol cascade).
+def test_curve_supported_countries_matches_sprint_i_scope() -> None:
+    """Post-Sprint-I ship list: US (FRED) + DE (BB) + EA (ECB) +
+    GB/JP/CA/IT/ES/FR (TE — 6 countries via Bloomberg-symbol cascade).
     """
-    assert frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES"}) == CURVE_SUPPORTED_COUNTRIES
+    assert (
+        frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"})
+        == CURVE_SUPPORTED_COUNTRIES
+    )
 
 
 async def test_fetch_nominals_raises_for_periphery_with_cal_pointer(
@@ -120,15 +124,16 @@ async def test_fetch_nominals_raises_for_periphery_with_cal_pointer(
     country CAL pointer.
 
     Post-Sprint-H (2026-04-22) IT + ES are no longer deferred — they
-    ship via TE cascade and therefore route into the dispatcher's TE
-    branch (which raises "requires TEConnector" when te=None is passed,
-    not a CAL pointer). Only PT / FR / NL remain with CAL pointers
-    at dispatch; the umbrella ``CAL-CURVES-EA-PERIPHERY`` was
-    superseded by per-country items (Sprint A 2026-04-22 probe).
+    ship via TE cascade. Sprint I (2026-04-22) moved FR out via the
+    same cascade. Only PT / NL remain with CAL pointers at dispatch;
+    the umbrella ``CAL-CURVES-EA-PERIPHERY`` was superseded by
+    per-country items (Sprint A 2026-04-22 probe). FR's remaining
+    ``CAL-CURVES-FR-BDF`` tracks the orthogonal national-CB
+    direct-connector path (still BLOCKED) — not the daily-pipeline
+    surface.
     """
     expected_pointers = {
         "PT": "CAL-CURVES-PT-BPSTAT",
-        "FR": "CAL-CURVES-FR-BDF",
         "NL": "CAL-CURVES-NL-DNB",
     }
     for country, pointer in expected_pointers.items():
@@ -315,22 +320,23 @@ async def test_daily_curves_all_t1_sparse_inclusion(
     te: TEConnector,
     db_session: Session,
 ) -> None:
-    """``--all-t1`` iteration persists seven non-US curves on one date.
+    """``--all-t1`` iteration persists eight non-US curves on one date.
 
     Sprint E (CAL-CURVES-T1-SPARSE-INCLUSION 2026-04-22) expanded
     ``T1_CURVES_COUNTRIES`` to (US, DE, EA, GB, JP, CA). Sprint H
     (IT + ES TE cascade, 2026-04-22) further expanded to eight
-    (US, DE, EA, GB, JP, CA, IT, ES). This canary validates the seven
-    non-US countries (which do not need a FRED key) persist
-    successfully in a single run — mirroring the production
-    ``sonar-daily-curves.service`` invocation.
+    (US, DE, EA, GB, JP, CA, IT, ES). Sprint I (FR TE cascade,
+    2026-04-22) extends to nine. This canary validates the eight non-US
+    countries (which do not need a FRED key) persist successfully in a
+    single run — mirroring the production ``sonar-daily-curves.service``
+    invocation.
 
     US is exercised separately in ``test_daily_curves_pipeline.py`` to
     keep this test independent of ``FRED_API_KEY`` presence.
     """
     obs_date = date(2024, 12, 30)
     non_us = [c for c in T1_CURVES_COUNTRIES if c != "US"]
-    assert non_us == ["DE", "EA", "GB", "JP", "CA", "IT", "ES"]
+    assert non_us == ["DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"]
 
     for country in non_us:
         await run_country(
@@ -349,14 +355,14 @@ async def test_daily_curves_all_t1_sparse_inclusion(
     assert set(persisted) == set(non_us)
     assert persisted["DE"].source_connector == "bundesbank"
     assert persisted["EA"].source_connector == "ecb_sdw"
-    for country in ("GB", "JP", "CA", "IT", "ES"):
+    for country in ("GB", "JP", "CA", "IT", "ES", "FR"):
         assert persisted[country].source_connector == "te"
         assert persisted[country].observations_used >= 6
-    # Sprint H NSS quality guards (per-country) — aligned with Sprint H
-    # brief §6 acceptance (RMSE ≤ 10 bps + confidence ≥ 0.9). Live
-    # canary 2026-04-22 observed IT 5.23 bps + ES 4.41 bps at 1.0
+    # NSS quality guards (per-country) — aligned with the brief §6
+    # acceptance (RMSE ≤ 10 bps + confidence ≥ 0.9). Live canaries
+    # 2026-04-22 observed IT 5.23 / ES 4.41 / FR ~5 bps at 1.0
     # confidence; bound preserves the explicit brief target rather
     # than tightening to the observation.
-    for country in ("IT", "ES"):
+    for country in ("IT", "ES", "FR"):
         assert persisted[country].rmse_bps <= 10
         assert persisted[country].confidence >= 0.9

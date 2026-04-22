@@ -90,11 +90,12 @@ def test_t1_curves_countries_ordering_stable() -> None:
     """Preserve historical ordering so systemd journals and cassette
     filenames remain stable across sprints.
 
-    Sprint H (IT + ES TE cascade, 2026-04-22) appends IT + ES to the
-    tail; the first six entries remain bit-stable with the Sprint E
-    ordering for journal/tool compatibility.
+    Sprint H (IT + ES TE cascade, 2026-04-22) appended IT + ES; Sprint I
+    (FR TE cascade, 2026-04-22) appends FR. The first eight entries
+    remain bit-stable with the Sprint H ordering for journal/tool
+    compatibility.
     """
-    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
+    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR")
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +103,12 @@ def test_t1_curves_countries_ordering_stable() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR"])
 async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
     """GB/JP/CA dispatch lands on ``TEConnector`` (CAL-138 empirical
     probe 2026-04-22); IT + ES join the TE branch post Sprint H
     (2026-04-22) via the same per-country ``TE_YIELD_CURVE_SYMBOLS``
-    dispatch.
+    dispatch; FR joins post Sprint I (2026-04-22).
     """
     te = AsyncMock()
     te.fetch_yield_curve_nominal.return_value = _stub_nominals(country, source_series_prefix="TE")
@@ -133,7 +134,7 @@ async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
     assert linkers == {}
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR"])
 async def test_dispatch_raises_when_te_missing_for_non_ea_t1(country: str) -> None:
     """Missing TE connector for a TE-served country surfaces as
     ``InsufficientDataError`` with the country code cited — not a

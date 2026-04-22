@@ -18,22 +18,22 @@ daily pipelines.
   (BBSIS daily zero-coupon 9 tenors 1Y-30Y; linker stub)
 - **EA**  → :class:`~sonar.connectors.ecb_sdw.EcbSdwConnector`
   (YC dataflow EA-AAA Svensson 11 tenors 3M-30Y; linker stub)
-- **GB / JP / CA / IT / ES** → :class:`~sonar.connectors.te.TEConnector`
+- **GB / JP / CA / IT / ES / FR** → :class:`~sonar.connectors.te.TEConnector`
   (``/markets/historical`` Bloomberg symbols — GB 12 / JP 9 / CA 6
   tenors per CAL-138 empirical probe; IT 12 / ES 9 tenors per Sprint H
-  pre-flight 2026-04-22; linker stub)
+  pre-flight 2026-04-22; FR 10 tenors per Sprint I pre-flight
+  2026-04-22; linker stub)
 
 Other T1 countries (AU/NZ/CH/SE/NO/DK + EA periphery remainder
-PT/FR/NL) have insufficient tenor coverage on currently-wired
+PT/NL) have insufficient tenor coverage on currently-wired
 connectors. The Week 10 Sprint A pre-flight probe (2026-04-22)
 confirmed that ECB SDW cannot serve per-country EA periphery curves
 — the ``YC`` dataflow is EA-aggregate only, ``FM`` lacks EA
 periphery ``REF_AREA``, and ``IRS`` publishes a single 10Y point per
 country (below ``MIN_OBSERVATIONS=6``). The remaining periphery
-(PT / FR / NL) is tracked under per-country CAL items
-(``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-FR-BDF`` /
-``CAL-CURVES-NL-DNB``) superseding the umbrella
-``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
+(PT / NL) is tracked under per-country CAL items
+(``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-NL-DNB``) superseding the
+umbrella ``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
 ``CAL-CURVES-T1-SPARSE``. Pipeline raises
 :class:`~sonar.overlays.exceptions.InsufficientDataError` for those —
 in ``--all-t1`` mode the country is skipped and the orchestrator
@@ -70,9 +70,20 @@ therefore **ship via TE cascade** (this commit) and close both
 :mod:`sonar.connectors.banco_espana` connectors are retained as
 future direct-CB placeholders (Phase 2.5+ unblock paths documented
 in the Sprint G retro). PT-BPSTAT + NL-DNB remain pending (ADR-0009
-successor sprints 4 + 5); FR-BDF remains BLOCKED pending a TE
-per-tenor re-probe tracked under ``CAL-CURVES-FR-TE-PROBE``
-(opened Sprint H).
+successor sprints 4 + 5).
+
+Week 10 Sprint I (2026-04-22) closed ``CAL-CURVES-FR-TE-PROBE`` via
+the same ADR-0009 v2 cascade discipline: a per-tenor sweep across the
+``GFRN`` OAT family on ``/markets/historical`` returned 10 daily
+tenors (1M-30Y minus 3Y/15Y), well above
+``MIN_OBSERVATIONS_FOR_SVENSSON=9``. FR therefore ships via TE
+cascade alongside IT + ES; the Sprint D HALT-0 conclusion
+(``GFRN10`` 10Y-only, below ``MIN_OBSERVATIONS``) was a
+single-symbol-probe artifact superseded by the per-tenor sweep. The
+scaffolded :mod:`sonar.connectors.banque_de_france` connector is
+retained as a future direct-CB placeholder;
+``CAL-CURVES-FR-BDF`` remains BLOCKED for the national-CB direct path
+while the TE cascade serves the daily pipeline.
 
 CLI entrypoints:
 
@@ -141,37 +152,40 @@ EXIT_IO = 4
 # daily_cost_of_capital / cli.status because the curve pipeline has
 # different connector readiness per country (Week 10 Sprint E sparse
 # inclusion, 2026-04-22; Week 10 Sprint H IT + ES TE cascade,
-# 2026-04-22). Membership reflects ``CURVE_SUPPORTED_COUNTRIES``:
+# 2026-04-22; Week 10 Sprint I FR TE cascade, 2026-04-22). Membership
+# reflects ``CURVE_SUPPORTED_COUNTRIES``:
 #
 # - **US** via FRED (full DGS/DFII — nominal + linker)
 # - **DE** via Bundesbank (BBSIS zero-coupon 1Y-30Y)
 # - **EA** via ECB SDW (YC EA-AAA Svensson 3M-30Y aggregate)
-# - **GB / JP / CA / IT / ES** via TE ``/markets/historical`` Bloomberg
-#   symbols (CAL-138: GB 12 / JP 9 / CA 6 tenors; Sprint H: IT 12 /
-#   ES 9 tenors)
+# - **GB / JP / CA / IT / ES / FR** via TE ``/markets/historical``
+#   Bloomberg symbols (CAL-138: GB 12 / JP 9 / CA 6 tenors; Sprint H:
+#   IT 12 / ES 9 tenors; Sprint I: FR 10 tenors)
 #
-# EA periphery remainder (PT / FR / NL) and AU/NZ/CH/SE/NO/DK are
-# deferred per per-country CAL items (``CAL-CURVES-PT-BPSTAT`` …) and
+# EA periphery remainder (PT / NL) and AU/NZ/CH/SE/NO/DK are deferred
+# per per-country CAL items (``CAL-CURVES-PT-BPSTAT`` …) and
 # ``CAL-CURVES-T1-SPARSE`` respectively; passing them via ``--country <X>``
 # still raises ``InsufficientDataError`` with a CAL pointer — the sparse
 # inclusion change only concerns what ``--all-t1`` iterates.
-T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
+T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR")
 
-# Countries wired to a curve-fit path at Sprint H close. A country
+# Countries wired to a curve-fit path at Sprint I close. A country
 # outside this set passed to ``--country`` raises InsufficientDataError
 # with a pointer to the tracking CAL item.
 CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"}
 )
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
 # see the exact CAL item to subscribe to. EA periphery remainder (PT /
-# FR / NL) points to their per-country CAL items; Sprint H 2026-04-22
-# moved IT + ES out of the deferral map after TE cascade ship closed
-# ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``.
+# NL) points to their per-country CAL items; Sprint H 2026-04-22 moved
+# IT + ES out of the deferral map after TE cascade ship closed
+# ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``; Sprint I 2026-04-22
+# moved FR out via the same TE cascade (closed
+# ``CAL-CURVES-FR-TE-PROBE``; ``CAL-CURVES-FR-BDF`` remains BLOCKED
+# upstream as the national-CB direct-connector path).
 _DEFERRAL_CAL_MAP: dict[str, str] = {
     "PT": "CAL-CURVES-PT-BPSTAT",
-    "FR": "CAL-CURVES-FR-BDF",
     "NL": "CAL-CURVES-NL-DNB",
     "AU": "CAL-CURVES-T1-SPARSE",
     "NZ": "CAL-CURVES-T1-SPARSE",
@@ -457,8 +471,8 @@ def main(
         False,  # noqa: FBT003 — Typer convention
         "--all-t1",
         help=(
-            "Iterate the Sprint H curve-capable T1 set "
-            "(US/DE/EA/GB/JP/CA/IT/ES — 8 countries). Members without "
+            "Iterate the Sprint I curve-capable T1 set "
+            "(US/DE/EA/GB/JP/CA/IT/ES/FR — 9 countries). Members without "
             "curve support skip with a warning; exit 0 if at least "
             "one succeeds."
         ),
