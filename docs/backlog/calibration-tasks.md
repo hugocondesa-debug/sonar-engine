@@ -2465,6 +2465,299 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CAL-SE-GAP + CAL-SE-CPI closes M2 SE.
 - **Status:** OPEN.
 
+### CAL-DK — DK country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint Y-DK — M1 level)
+
+- **Priority:** CLOSED at M1; remaining M2/M3/M4 levels tracked as
+  separate CAL-DK-* items. Mirrors CAL-SE (Sprint W-SE) / CAL-NO
+  (Sprint X-NO) / CAL-CH (Sprint V) / CAL-AU (Sprint T) / CAL-129
+  (CA) / CAL-119 (JP) / CAL-118 (GB).
+- **Trigger:** DK was the eighth G10 country after the SE Sprint
+  W-SE close that still lacked M1 live, and the **third Nordic
+  country** after NO + SE. Sprint Y-DK ships DK as the eighth
+  country in the Sprint I-patch TE-primary cascade expansion — and
+  the **third negative-rate era cascade** after CH + SE (and the
+  **first EUR-peg country** in the family).
+- **Distinctive Sprint Y-DK novelty (two cross-cutting):**
+  - **Source-instrument divergence**: TE returns the legacy
+    DISCOUNT rate (`DEBRDISC` ≡ Statbank `ODKNAA`; only briefly
+    negative 2021-2022, min -0.60 %), while the Nationalbanken
+    native cascade slot returns the **CD rate** (`OIBNAA` —
+    `indskudsbevisrenten`, the active EUR-peg defence tool;
+    deeply negative across 2015-2022, min -0.75 % at 2015-04-07
+    with 2450 strictly-negative daily observations). The cascade
+    flag-emission contract (`*_TE_PRIMARY` vs
+    `*_NATIONALBANKEN_NATIVE`) makes the source observable so
+    downstream consumers can pick the right semantic — both
+    representations are operationally valid, the EUR-peg-defence
+    story is captured by the OIBNAA path. This is a first in the
+    cascade family — every prior country exposed the same single
+    policy-rate instrument across all cascade depths.
+  - **EUR-peg-imported inflation target**: DK has NO domestic
+    inflation target — Nationalbanken's mandate is exchange-rate
+    stability (DKK fixed to EUR at 7.46038 within ERM-II
+    ±2.25 %), and the de-facto inflation anchor is imported from
+    the ECB's 2 % HICP target via the peg. The cascade emits the
+    **DK-specific** `DK_INFLATION_TARGET_IMPORTED_FROM_EA` flag
+    (always) instead of the standard `EXPECTED_INFLATION_CB_TARGET`
+    flag the other countries emit. The convention is materialised
+    in `bc_targets.yaml` via the new `target_conventions` block +
+    a new `resolve_inflation_target_convention` resolver hook in
+    `_config.py` — generalisable to any future EUR-peg country.
+- **Scope delivered:**
+  - `NationalbankenConnector` for the Statistics Denmark Statbank.
+    dk public BULK CSV API (Sprint Y-DK C2) — public + scriptable
+    at `api.statbank.dk/v1/`; first central bank where the data
+    lands via a third-party-host API (Statistics Denmark hosts
+    Nationalbanken's monetary tables under the `DN` table prefix).
+    Four series wired from the `DNRENTD` table:
+    - `OIBNAA` (CD rate / indskudsbevisrenten — DK M1 cascade
+      secondary; the active EUR-peg defence tool)
+    - `ODKNAA` (discount rate / diskontoen — historical benchmark;
+      what TE primary returns; exposed for cross-validation)
+    - `OIRNAA` (lending rate / udlånsrenten — corridor ceiling;
+      reserved for M4 FCI)
+    - `OFONAA` (current-account deposit rate / foliorenten —
+      corridor floor; reserved for M4 FCI)
+  - `TEConnector.fetch_dk_policy_rate` wrapper with `DEBRDISC`
+    source-drift guard (Sprint Y-DK C1). The DEBRDISC symbol is
+    TE's legacy "Denmark Bank Rate Discount" identifier.
+  - `build_m1_dk_inputs` + `_dk_policy_rate_cascade` with TE →
+    Nationalbanken → FRED cascade (Sprint Y-DK C4) including
+    `DK_NEGATIVE_RATE_ERA_DATA` flag whenever the resolved window
+    contains ≥ 1 strictly-negative observation;
+    `build_m2_dk_inputs` + `build_m4_dk_inputs` wire-ready
+    scaffolds (Sprint Y-DK C4) referencing the new EUR-peg-
+    specific CAL items below.
+  - DK entries in `r_star_values.yaml` (0.75 % proxy per
+    Nationalbanken WP 152/2020 + Monetary Review 2024 neutral-
+    range midpoint synthesis; matches SE's Nordic low-r* cluster
+    magnitude; above CH because DKK lacks the CHF safe-haven
+    compression) + `bc_targets.yaml` (ECB 2 % via the new
+    `target_conventions: DK: imported_eur_peg` block) (Sprint
+    Y-DK C3).
+  - New `resolve_inflation_target_convention` loader hook +
+    `load_target_conventions` reader (Sprint Y-DK C3) — countries
+    absent default to "domestic"; DK lands "imported_eur_peg".
+    Generalisable to any future EUR-peg country.
+  - `daily_monetary_indices.py` DK country support +
+    Nationalbanken connector instantiation (Sprint Y-DK C5).
+  - `FredConnector.FRED_SERIES_TENORS` extended with
+    `IRSTCI01DKM156N` + `IRLTLT01DKM156N` (Sprint Y-DK C5).
+- **Resolution (Week 9 Sprint Y-DK, M1 level):** DK M1 live via
+  TE primary cascade; persisted row emits
+  `DK_POLICY_RATE_TE_PRIMARY` + `R_STAR_PROXY` +
+  `DK_INFLATION_TARGET_IMPORTED_FROM_EA` (NOT
+  `EXPECTED_INFLATION_CB_TARGET`) + `DK_BS_GDP_PROXY_ZERO` flags.
+  Nationalbanken Statbank native path **live** (daily cadence; no
+  `CALIBRATION_STALE`; no `*_MONTHLY` flag — matches the SE
+  Riksbank pattern, contrast CH SNB monthly secondary). FRED OECD
+  mirror (`IRSTCI01DKM156N`) demoted to last-resort with
+  `DK_POLICY_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE`
+  flags. When any cascade-resolved observation is strictly-
+  negative, cascade additionally emits `DK_NEGATIVE_RATE_ERA_DATA`.
+- **Known gap (spec §4 step 2 ZLB gate):** at negative / sub-ZLB
+  policy rates, M1 compute raises `InsufficientDataError` because
+  no Krippner shadow-rate connector is wired at Sprint Y-DK scope —
+  same spec-correct behaviour as Sprint V-CH / W-SE. Surfaced
+  during the C5 negative-rate canary with a 2021-09-30 anchor.
+  Krippner integration is Phase 2+ scope (CAL-KRIPPNER — bundled
+  with L5 regime-classifier enhancements; not opened Sprint Y-DK).
+- **Remaining:** M2/M4/M3 DK paths via CAL-DK-GAP / CAL-DK-M4-FCI
+  / CAL-DK-M3 + the DK-specific EUR-peg variants
+  (CAL-DK-M2-EUR-PEG-TAYLOR / CAL-DK-M4-EUR-PEG-FCI).
+- **Status:** PARTIALLY CLOSED — M1 only. Full close pending the
+  CAL-DK-* items below.
+
+### CAL-DK-CPI — DK CPI / HICP YoY wrapper (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** MEDIUM — required input for M2 DK Taylor gap.
+- **Trigger:** Sprint Y-DK C4 `build_m2_dk_inputs` scaffold lists
+  DK CPI / HICP YoY as one of three missing inputs. Statistics
+  Denmark publishes monthly CPI + HICP via the same Statbank.dk
+  REST API Sprint Y-DK C2 already wired for the monetary tables
+  (Statbank tables PRIS113 / PRIS9).
+- **Scope:**
+  - Wire `NationalbankenConnector.fetch_cpi_yoy` /
+    `fetch_hicp_yoy` (or split off into a `StatbankConnector`
+    sibling; same `api.statbank.dk` host).
+  - Probe TE generic `fetch_indicator("DK", "inflation rate", ...)`
+    as cross-validation source.
+  - Consume in `build_m2_dk_inputs` output. **Note:** for an
+    EUR-peg country the relevant inflation measure for the
+    monetary stance is HICP (the ECB target measure) rather than
+    CPI (the domestic measure) — the M2 spec revision required
+    for EUR-peg countries (CAL-DK-M2-EUR-PEG-TAYLOR) should pin
+    HICP as primary.
+- **Unblocks:** M2 DK inflation input; combined with CAL-DK-GAP +
+  CAL-DK-INFL-FORECAST closes M2 DK.
+- **Status:** OPEN.
+
+### CAL-DK-GAP — DK M2 output-gap source (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** MEDIUM — unblocks M2 DK Taylor-gap compute.
+- **Trigger:** Sprint Y-DK C4 shipped `build_m2_dk_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`; Statistics
+  Denmark + EU Commission DG-ECFIN publish the Danish output gap
+  quarterly but no scriptable endpoint exists at Sprint Y-DK
+  scope.
+- **Scope:**
+  - Probe OECD EO DK for cadence + coverage (canonical fallback
+    across the cascade family — same path SE/NO use).
+  - Probe Statistics Denmark for any structured output-gap series
+    on Statbank (NATR-prefixed national-accounts tables).
+  - Wire DK output-gap connector and populate
+    `M2TaylorGapsInputs.output_gap_pct`.
+- **Unblocks:** M2 DK persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-DK-INFL-FORECAST — DK inflation-forecast wrapper (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 DK compute; the ECB-
+  imported 2 % HICP target serves as proxy until this lands.
+- **Trigger:** Nationalbanken publishes "Outlook for the Danish
+  Economy" twice a year (PDF/HTML) but unwired at Sprint Y-DK
+  scope. M2 DK currently treats the imported ECB 2 % HICP target
+  as the inflation-forecast proxy via
+  `DK_INFLATION_TARGET_IMPORTED_FROM_EA`.
+- **Scope:**
+  - Probe Nationalbanken Outlook publication for scriptable
+    forecast series.
+  - Consider importing the ECB Survey of Professional Forecasters
+    EA-area inflation forecast as a structurally consistent
+    proxy (since DK inflation expectations are EUR-peg-anchored).
+  - Wire `fetch_dk_inflation_forecast` and consume in
+    `build_m2_dk_inputs` with new flag
+    `DK_INFLATION_FORECAST_NATIONALBANKEN_OUTLOOK` (or
+    `DK_INFLATION_FORECAST_ECB_SPF_PROXY` if the ECB SPF path is
+    chosen).
+- **Unblocks:** M2 DK second-cycle inflation input; combined with
+  CAL-DK-GAP + CAL-DK-CPI closes M2 DK.
+- **Status:** OPEN.
+
+### CAL-DK-M2-EUR-PEG-TAYLOR — DK M2 spec revision for EUR-peg regime (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** LOW — Phase 2+ research scope; not blocking M2 DK
+  numerical persistence (CAL-DK-CPI / CAL-DK-GAP /
+  CAL-DK-INFL-FORECAST close that), but blocking M2 DK *signal
+  validity* because the vanilla domestic Taylor rule will
+  systematically mis-fit a peg-defence policy regime.
+- **Trigger:** Sprint Y-DK C4 `build_m2_dk_inputs` docstring +
+  raise message call out that even when all three input sources
+  land, the M2 Taylor-gap formula will need a DK-specific
+  adaptation. Nationalbanken does not run an independent
+  monetary policy — the policy-rate response function is
+  dominated by the EUR-peg-defence imperative, not the standard
+  inflation-gap + output-gap weighting.
+- **Scope:**
+  - Spec a DK-specific Taylor-rule variant that incorporates the
+    DKK/EUR FX deviation as a third Taylor regressor (or
+    decompose into "ECB rate + DK-specific peg-defence spread").
+  - Backtest against the historical Nationalbanken decision
+    record (every CD-rate move 2014-now).
+  - Bump `methodology_version` MINOR for M2 DK (`M2_DK_v1.1`)
+    when shipped.
+  - Document the EUR-peg-coupling story in the M2 spec as the
+    canonical example (generalisable to any future EUR-peg
+    country addition — same spec applies).
+- **Unblocks:** M2 DK signal-validity sign-off.
+- **Status:** OPEN (Phase 2+).
+
+### CAL-DK-M4-FCI — DK M4 FCI 5-component bundle (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** MEDIUM — unblocks M4 DK custom-FCI compute.
+- **Trigger:** Sprint Y-DK C4 shipped `build_m4_dk_inputs` as
+  wire-ready scaffold raising `InsufficientDataError`; only 10Y
+  DGB via FRED `IRLTLT01DKM156N` OECD mirror (live at Sprint
+  Y-DK probe) and policy rate (via M1 cascade) + corridor floor /
+  ceiling (OFONAA / OIRNAA, shipped Sprint Y-DK C2) are mappable
+  at Sprint Y-DK scope, below the `MIN_CUSTOM_COMPONENTS == 5`
+  floor.
+- **Scope:** connectors/wrappers for the missing components:
+  - DK credit spread (DKK corp vs DGB; candidates: Nationalbanken
+    Financial Markets statistics (FNOR) or Statistics Denmark
+    credit aggregates — no FRED mirror known).
+  - DK vol index (no OMXC25 vol index on FRED; candidates: a
+    realised-vol proxy from `^OMXC25` returns via Yahoo Finance).
+  - DKK NEER (Nationalbanken publishes the effective exchange-
+    rate index; the EUR-peg keeps DKK NEER tightly coupled to
+    EUR NEER so a pragmatic alternative is the BIS Trade-Weighted
+    indices via existing `bis.py` connector).
+  - DK mortgage rate (Statbank MFI lending rates — candidate:
+    Nationalbanken DNREALKM or Statistics Denmark MFI-prefixed
+    tables).
+- **Unblocks:** M4 DK persistence end-to-end (numerically — see
+  CAL-DK-M4-EUR-PEG-FCI for signal-validity).
+- **Status:** OPEN.
+
+### CAL-DK-M4-EUR-PEG-FCI — DK M4 FCI hybrid DK + EA-area (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** LOW — Phase 2+ research scope; not blocking M4 DK
+  numerical persistence (CAL-DK-M4-FCI closes that), but informs
+  the *signal validity* of an FCI compose for an EUR-peg country.
+- **Trigger:** Sprint Y-DK C4 `build_m4_dk_inputs` docstring
+  notes that the DK FCI components (credit spread, vol, NEER,
+  mortgage rate) are heavily EUR-coupled — Danish credit /
+  vol / NEER all move with EUR-area cycles much more than would
+  be the case in an independent-monetary-policy country. A
+  hybrid FCI that blends DK-specific + EA-area inputs may carry
+  more signal than a pure DK FCI.
+- **Scope:**
+  - Empirical study of cross-correlation between DK FCI
+    components and EA-area equivalents during 2014-2025 (a
+    decade spanning EA negative-rate era + COVID stress + 2022
+    rate-hike cycle).
+  - Spec a hybrid M4 DK-EUR-PEG variant if the empirical study
+    supports it.
+  - Bump `methodology_version` MINOR (`M4_DK_v1.1`) when shipped.
+- **Unblocks:** M4 DK signal-validity sign-off.
+- **Status:** OPEN (Phase 2+).
+
+### CAL-DK-M3 — DK M3 market-expectations overlays (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** LOW — M3 depends on L2 persisted overlays per
+  country; analogous to CAL-105 (UK) / CAL-122 (JP) /
+  CAL-132 (CA) / CAL-AU-M3 / CAL-CH-M3 / CAL-SE-M3.
+- **Trigger:** M3 spec §2 requires persisted NSS forwards +
+  EXPINF rows per country; Sprint Y-DK did not ship DK NSS or DK
+  EXPINF overlays (Phase 2+ scope).
+- **Scope:**
+  - DK NSS overlay persistence (DGB tenor family via FRED
+    `IRLTLT01DKM156N` long-end + Nationalbanken DGB yield series
+    if available; NSS fit via existing overlay module).
+  - DK EXPINF overlay persistence — Denmark issues inflation-
+    linked government bonds (Indeksoblig) so breakeven
+    construction may be feasible. **Note:** for an EUR-peg
+    country, the structurally consistent EXPINF anchor is the
+    ECB EXPINF (already wired via the EA path) — the DK domestic
+    breakeven serves as an additional cross-validation source
+    rather than the primary anchor.
+  - `MonetaryDbBackedInputsBuilder.build_m3_inputs` DK path.
+- **Unblocks:** M3 DK persistence end-to-end.
+- **Status:** OPEN.
+
+### CAL-DK-BS-GDP — DK balance-sheet / GDP ratio wiring (Week 9 Sprint Y-DK surfaced)
+
+- **Priority:** LOW — closes the `DK_BS_GDP_PROXY_ZERO` flag on
+  M1 DK.
+- **Trigger:** Sprint Y-DK C4 zero-seeded DK balance-sheet
+  ratios because the Nationalbanken Monthly Statistical Bulletin
+  + Statistics Denmark nominal GDP are not wired at Sprint Y-DK
+  scope. Nationalbanken balance sheet expanded during the
+  2015-2022 EUR-peg defence (FX intervention) and again during
+  COVID-19 — the zero-seed is visibly inadequate for M1 BS
+  signal contribution. Note: for an EUR-peg country the
+  Nationalbanken BS dynamic is dominated by FX-intervention
+  flow (DKK reserves built up to defend the peg during EA QE
+  era; partially unwound 2022-2025) rather than QE per se — a
+  DK-specific reading may be required.
+- **Scope:** Nationalbanken MSB monthly total-assets series
+  combined with Statistics Denmark nominal GDP (or equivalent
+  FRED `DNKGDPNAD2GDQ`-style series).
+- **Unblocks:** M1 DK BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1
+  score is null).
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
