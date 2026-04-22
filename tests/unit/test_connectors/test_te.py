@@ -223,17 +223,18 @@ async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
 
 
 def test_yield_curve_symbols_supported_countries() -> None:
-    """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) empirical scope."""
-    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES"}
+    """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) + Sprint I (FR) empirical scope."""
+    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES", "FR"}
 
 
 def test_yield_curve_symbols_tenor_counts() -> None:
-    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12, ES=9."""
+    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12, ES=9, FR=10."""
     assert len(TE_YIELD_CURVE_SYMBOLS["GB"]) == 12
     assert len(TE_YIELD_CURVE_SYMBOLS["JP"]) == 9
     assert len(TE_YIELD_CURVE_SYMBOLS["CA"]) == 6
     assert len(TE_YIELD_CURVE_SYMBOLS["IT"]) == 12  # full 1M-30Y spectrum
     assert len(TE_YIELD_CURVE_SYMBOLS["ES"]) == 9  # missing 1M, 2Y, 20Y
+    assert len(TE_YIELD_CURVE_SYMBOLS["FR"]) == 10  # missing 3Y, 15Y
 
 
 def test_yield_curve_symbols_gb_spectrum() -> None:
@@ -299,6 +300,28 @@ def test_yield_curve_symbols_es_spectrum() -> None:
     assert es["10Y"] == "GSPG10YR:IND"  # YR suffix (empirical)
     assert es["1Y"] == "GSPG1YR:IND"
     assert es["30Y"] == "GSPG30YR:IND"
+
+
+def test_yield_curve_symbols_fr_spectrum() -> None:
+    """FR covers 1M-30Y minus 3Y/15Y (10 tenors; Sprint I).
+
+    Per empirical probe 2026-04-22 every available 1Y+ tenor uses the
+    bare ``Y`` suffix (unlike ES's uniform ``YR`` or IT's mixed
+    ``Y``/no-suffix); 10Y alone drops the suffix as ``GFRN10`` —
+    matching the IT / GB / JP 10Y precedent. 3Y + 15Y returned empty
+    across every probed spelling. 10 ≥ MIN_OBSERVATIONS_FOR_SVENSSON,
+    so Svensson-capable.
+    """
+    fr = TE_YIELD_CURVE_SYMBOLS["FR"]
+    assert set(fr) == {"1M", "3M", "6M", "1Y", "2Y", "5Y", "7Y", "10Y", "20Y", "30Y"}
+    assert fr["10Y"] == "GFRN10:IND"  # no Y suffix on 10Y (empirical)
+    assert fr["1Y"] == "GFRN1Y:IND"  # bare Y suffix on 1Y (vs ES's GSPG1YR)
+    assert fr["20Y"] == "GFRN20Y:IND"
+    assert fr["30Y"] == "GFRN30Y:IND"
+    # Drift guard: 10Y symbol matches the singleton in TE_10Y_SYMBOLS so
+    # the curve fetch and the legacy 10Y wrapper agree on the canonical
+    # series for FR.
+    assert TE_10Y_SYMBOLS["FR"] == fr["10Y"]
 
 
 def test_yield_curve_tenor_years_match_nss() -> None:
@@ -402,15 +425,40 @@ async def test_fetch_yield_curve_nominal_es_happy(
     assert all(obs.country_code == "ES" for obs in curve.values())
 
 
+async def test_fetch_yield_curve_nominal_fr_happy(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Happy path — 10-tenor FR OAT curve (Sprint I; Svensson-capable).
+
+    Mirrors the IT/ES Sprint H happy paths against the GFRN family.
+    """
+    base_yield_pct = 2.40
+    for idx, _item in enumerate(TE_YIELD_CURVE_SYMBOLS["FR"].items()):
+        httpx_mock.add_response(
+            method="GET",
+            json=[{"Date": "31/12/2024", "Close": base_yield_pct + idx * 0.07}],
+        )
+    curve = await te_connector.fetch_yield_curve_nominal(
+        country="FR", observation_date=date(2024, 12, 31)
+    )
+    assert set(curve.keys()) == set(TE_YIELD_CURVE_SYMBOLS["FR"].keys())
+    assert curve["10Y"].country_code == "FR"
+    assert curve["10Y"].source == "TE"
+    assert curve["10Y"].source_series_id == "GFRN10:IND"
+    assert curve["1Y"].source_series_id == "GFRN1Y:IND"  # bare-Y suffix
+    assert curve["20Y"].source_series_id == "GFRN20Y:IND"
+    assert all(obs.country_code == "FR" for obs in curve.values())
+
+
 async def test_fetch_yield_curve_nominal_rejects_unsupported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """AU/NZ/CH/SE/NO/DK + EA periphery remainder (FR/NL/PT) + US rejected.
+    """AU/NZ/CH/SE/NO/DK + EA periphery remainder (NL/PT) + US rejected.
 
-    IT + ES moved to the supported set in Sprint H.
+    IT + ES moved to the supported set in Sprint H; FR in Sprint I.
     """
     _ = httpx_mock
-    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "FR", "NL", "PT", "US"):
+    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "NL", "PT", "US"):
         with pytest.raises(ValueError, match="TE yield curve only supports"):
             await te_connector.fetch_yield_curve_nominal(
                 country=unsupported, observation_date=date(2024, 12, 31)

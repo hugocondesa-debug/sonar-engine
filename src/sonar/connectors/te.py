@@ -161,17 +161,20 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 # under CAL-CURVES-T1-SPARSE (ship path: native CB yield-curve
 # connectors Phase 2+).
 #
-# EA periphery remainder (FR / NL / PT) via TE 10Y-only (Bloomberg
-# symbols GFRN10 / GNTH10YR / GSPT10YR) — deferred under per-country
-# CAL items (CAL-CURVES-FR-BDF / CAL-CURVES-NL-DNB / CAL-CURVES-PT-BPSTAT)
-# post Sprint A 2026-04-22 probe. IT + ES were in the same deferred
-# cohort post Sprint G (national-CB HALT-0), but Sprint H (2026-04-22)
-# shipped both via TE per-tenor cascade — the Sprint G brief §2 probe
-# list had omitted TE (see Week 10 Sprint H retro + ADR-0009 addendum).
-# Sprint H probe 2026-04-22 empirically confirmed 12-tenor IT coverage
-# via the ``GBTPGR`` BTP family over the ``/markets/historical``
-# endpoint. FR re-probe is tracked under CAL-CURVES-FR-TE-PROBE
-# (opened Sprint H).
+# EA periphery remainder (NL / PT) via TE 10Y-only (Bloomberg symbols
+# GNTH10YR / GSPT10YR) — deferred under per-country CAL items
+# (CAL-CURVES-NL-DNB / CAL-CURVES-PT-BPSTAT) post Sprint A 2026-04-22
+# probe. IT + ES were in the same deferred cohort post Sprint G
+# (national-CB HALT-0), but Sprint H (2026-04-22) shipped both via TE
+# per-tenor cascade — the Sprint G brief §2 probe list had omitted TE
+# (see Week 10 Sprint H retro + ADR-0009 addendum). Sprint H probe
+# 2026-04-22 empirically confirmed 12-tenor IT coverage via the
+# ``GBTPGR`` BTP family over the ``/markets/historical`` endpoint.
+# Sprint I (2026-04-22) closed FR via the same per-tenor cascade — the
+# Sprint D HALT-0 conclusion ("TE GFRN10 10Y-only, below
+# MIN_OBSERVATIONS=6") was structurally the same omission as Sprint G's
+# (single-symbol probe vs full per-tenor sweep across the GFRN family).
+# CAL-CURVES-FR-TE-PROBE opened Sprint H, closed Sprint I.
 #
 # Symbol quirks discovered empirically (do **not** normalise without a
 # fresh probe — TE symbol naming is non-uniform):
@@ -194,6 +197,15 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 #   ``GSPG20YR``, ``GSPG30Y``, plus any bare-``Y`` spelling of 3-7Y)
 #   were rejected. 9 tenors total (missing 1M / 2Y / 20Y; still
 #   Svensson-capable).
+# - FR (Sprint I): ``GFRN`` prefix; ``M`` suffix for sub-year, ``Y``
+#   suffix uniformly for every 1Y+ tenor that has coverage, **no**
+#   suffix on 10Y (``GFRN10`` — same quirk as IT/GB/JP). Probe-empty
+#   tenors (any ``YR`` or no-suffix spelling of 1Y-7Y / 20Y-30Y, all
+#   spellings of 3Y / 4Y / 9M / 12M / 15Y / 25Y / 50Y) were rejected.
+#   10 tenors total (missing 3Y + 15Y; still ≥
+#   ``MIN_OBSERVATIONS_FOR_SVENSSON``). Sprint D HALT-0 conclusion was
+#   single-symbol-probe artifact — the per-tenor sweep matches the
+#   IT/ES cascade outcome shape.
 TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
     "GB": {
         "1M": "GUKG1M:IND",
@@ -252,6 +264,18 @@ TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
         "10Y": "GSPG10YR:IND",
         "15Y": "GSPG15YR:IND",
         "30Y": "GSPG30YR:IND",
+    },
+    "FR": {
+        "1M": "GFRN1M:IND",
+        "3M": "GFRN3M:IND",
+        "6M": "GFRN6M:IND",
+        "1Y": "GFRN1Y:IND",
+        "2Y": "GFRN2Y:IND",
+        "5Y": "GFRN5Y:IND",
+        "7Y": "GFRN7Y:IND",
+        "10Y": "GFRN10:IND",
+        "20Y": "GFRN20Y:IND",
+        "30Y": "GFRN30Y:IND",
     },
 }
 
@@ -1991,11 +2015,12 @@ class TEConnector:
         """Multi-tenor sovereign nominal yield curve via TE Bloomberg symbols.
 
         Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors),
-        IT (12 tenors, Sprint H), ES (9 tenors, Sprint H). Other non-EA
-        T1 countries are deferred per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/
-        NO/DK have insufficient tenor coverage on TE); EA periphery
-        remainder (FR / NL / PT) deferred per per-country CAL items
-        (see :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
+        IT (12 tenors, Sprint H), ES (9 tenors, Sprint H), FR (10 tenors,
+        Sprint I). Other non-EA T1 countries are deferred per
+        CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK have insufficient tenor
+        coverage on TE); EA periphery remainder (NL / PT) deferred per
+        per-country CAL items (see
+        :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
 
         Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
         latest trading day ≤ ``observation_date`` inside a 7-day window.
@@ -2014,12 +2039,12 @@ class TEConnector:
         if symbols is None:
             msg = (
                 f"TE yield curve only supports "
-                f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 + Sprint H "
-                f"empirical scope); got {country}. Other T1 countries "
-                f"defer per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK) or "
-                f"per per-country CAL items (FR / NL / PT — see "
+                f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 + Sprint H + "
+                f"Sprint I empirical scope); got {country}. Other T1 "
+                f"countries defer per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/"
+                f"NO/DK) or per per-country CAL items (NL / PT — see "
                 f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS; IT + "
-                f"ES closed Sprint H via TE cascade)."
+                f"ES closed Sprint H, FR closed Sprint I via TE cascade)."
             )
             raise ValueError(msg)
 
