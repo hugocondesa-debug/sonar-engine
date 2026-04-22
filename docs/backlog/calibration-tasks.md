@@ -2083,6 +2083,181 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   CAL-CH-GAP + CAL-CH-CPI closes M2 CH.
 - **Status:** OPEN.
 
+### CAL-NO — NO country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 9 Sprint X-NO — M1 level)
+
+- **Priority:** CLOSED at M1; remaining M2/M3/M4 levels tracked as
+  separate CAL-NO-* items. Mirrors CAL-CH (Sprint V) / CAL-AU (Sprint T)
+  / CAL-129 (CA) / CAL-119 (JP) / CAL-118 (GB).
+- **Trigger:** NO is the first Nordic country in the monetary cascade
+  family. Sprint X-NO ships NO as the sixth country in the Sprint
+  I-patch TE-primary cascade expansion and validates the standard
+  positive-only contract (contrast CH Sprint V which introduced the
+  first negative-rate era flag). Norway never ran a negative policy
+  rate across the full 35Y TE history — minimum is 0 % during the
+  2020-05-08 → 2021-09-24 COVID-response trough.
+- **Scope delivered:**
+  - `NorgesBankConnector` for the Norges Bank DataAPI (Sprint X-NO
+    C2) — SDMX-JSON REST at
+    `data.norges-bank.no/api/data/{flow}/{key}`; first SDMX-JSON
+    native connector in the monetary cascade family (contrast CSV
+    for SNB/RBA, JSON REST for BoC, BoE-gated IADB + BoJ-gated TSD
+    for GB/JP). Two dataflows wired: `IR/B.KPRA.SD.R` (key policy
+    rate — sight deposit rate) and `GOVT_GENERIC_RATES/B.10Y.GBON`
+    (10Y generic gov bond yield — reserved for M4 FCI NO).
+  - `TEConnector.fetch_no_policy_rate` wrapper with `NOBRDEP`
+    source-drift guard (Sprint X-NO C1). The NOBRDEP symbol has been
+    stable across Norges Bank's 1991-now history including the 2001
+    inflation-targeting regime kick-off and the 2018 target-level
+    revision (2.5 % → 2.0 %).
+  - `build_m1_no_inputs` + `_no_policy_rate_cascade` with TE →
+    Norges Bank → FRED cascade (Sprint X-NO C4). Flags:
+    `NO_POLICY_RATE_TE_PRIMARY` / `NO_POLICY_RATE_NORGESBANK_NATIVE`
+    / `NO_POLICY_RATE_FRED_FALLBACK_STALE + CALIBRATION_STALE`.
+    Always-present cross-cutting flags: `R_STAR_PROXY` +
+    `EXPECTED_INFLATION_CB_TARGET` + `NO_BS_GDP_PROXY_ZERO`. No
+    negative-rate flag (NO is positive-only).
+  - `build_m2_no_inputs` + `build_m4_no_inputs` scaffolds (Sprint
+    X-NO C4) raising `InsufficientDataError` until CPI / output-gap /
+    inflation-forecast / ≥5 FCI components are wired.
+  - `daily_monetary_indices` pipeline dispatches `--country NO`
+    (Sprint X-NO C5). `MONETARY_SUPPORTED_COUNTRIES` widens 10 → 11.
+  - `r_star_values.yaml` NO entry at 1.25 % real (Norges Bank MPR
+    1/2024 + Staff Memo 7/2023 neutral-range mid); `bc_targets.yaml`
+    Norges Bank entry at 2 % (post-2018-03-02 regime; pre-2018 was
+    2.5 %). Both YAMLs quote `"NO":` defensively to work around
+    YAML 1.1 parsing the bareword as boolean False.
+- **Remaining:** M2/M4/M3 NO paths via CAL-NO-CPI /
+  CAL-NO-M2-OUTPUT-GAP / CAL-NO-INFL-FORECAST / CAL-NO-M4-FCI /
+  CAL-NO-M3; NO balance-sheet signal via CAL-NO-BS-GDP.
+- **Unblocks:** Closes M1 NO M2 T1 Core item. Remaining tracked by
+  CAL-NO-CPI / CAL-NO-M2-OUTPUT-GAP / CAL-NO-INFL-FORECAST /
+  CAL-NO-M4-FCI / CAL-NO-M3 / CAL-NO-BS-GDP landing.
+
+### CAL-NO-M2-OUTPUT-GAP — NO M2 output-gap source (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** MEDIUM — blocks M2 NO Taylor-gap compute; OECD EO NO
+  is the natural mirror path via the existing FRED connector.
+- **Trigger:** Sprint X-NO shipped `build_m2_no_inputs` as a scaffold
+  that raises `InsufficientDataError` because NO output-gap source is
+  not wired. Statistics Norway + Norges Bank's own "regional network"
+  qualitative survey contribute the domestic input set but neither
+  is scriptable at quarterly cadence within Sprint X-NO scope.
+- **Scope:** Probe FRED's OECD EO mirror for the NO output-gap
+  series (pattern: `NORGDPGAPQPANA` or similar OECD suffix); wire
+  `fetch_no_output_gap` on the FRED connector; consume via the M2 NO
+  builder. Alternative (secondary): the Statistics Norway national-
+  accounts API at `data.ssb.no/api/v0/en/table/09190` could be
+  wrapped as a SSB-native connector if OECD proves unreliable.
+- **Unblocks:** M2 NO first-cycle output-gap input; combined with
+  CAL-NO-CPI + CAL-NO-INFL-FORECAST closes M2 NO.
+- **Status:** OPEN.
+
+### CAL-NO-M4-FCI — NO M4 FCI 5-component bundle (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** MEDIUM — NO lacks an NFCI-style direct aggregator so
+  the spec §4 custom-FCI path requires ≥5 components; 2 are wired.
+- **Trigger:** Sprint X-NO shipped `build_m4_no_inputs` as a scaffold
+  that raises `InsufficientDataError` because fewer than 5 of the
+  seven FCI inputs are available. Wired at close: policy-rate M1
+  cascade + 10Y generic gov-bond yield (Norges Bank
+  `GOVT_GENERIC_RATES/B.10Y.GBON`). Pending: credit spread + vol +
+  NOK NEER + mortgage rate.
+- **Scope:**
+  - NO credit spread: BBB NOK corp vs Norwegian gov — candidates
+    Nordic Credit Rating / Nordea indices, or SSB corporate-bond
+    yield table 12132 (quarterly).
+  - NO vol index: no OSE-VIX-analog published; proxy candidate
+    realised-vol from OBX 25 Index returns via Yahoo Finance.
+  - NOK NEER: Norges Bank `EXR` dataflow publishes the TWI-based
+    effective exchange rate as `I-44`; wire-ready via an additional
+    Norges Bank DataAPI call.
+  - NO mortgage rate: SSB table 10746 tracks monthly mortgage-rate
+    averages; no wrapper at Sprint X-NO scope.
+- **Petroleum context**: Norway's oil-NOK coupling is a structural
+  feature that future NO FCI work needs to address. Brent / WTI
+  price moves propagate into NOK exchange-rate and domestic
+  petroleum-sector credit conditions within trading days — tighter
+  than any other G10 FCI-component coupling. This is Phase 2+
+  research scope, not CAL-NO-M4-FCI scope.
+- **Unblocks:** M4 NO composite computation; closes final M-sub-index
+  for NO at M1/M2/M4 level (M3 is CAL-NO-M3).
+- **Status:** OPEN.
+
+### CAL-NO-M3 — NO M3 market-expectations overlays (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** LOW — M3 requires NO NSS forwards + EXPINF overlay
+  persistence which is Phase 2+ scope.
+- **Trigger:** Sprint X-NO did not ship M3 NO. Spec M3 market-
+  expectations composite requires NSS curve forwards + EXPINF series
+  resolution at daily cadence.
+- **Scope:** Wire NO NSS curve (Norges Bank publishes zero-coupon
+  yields via `SEC` dataflow — possible DB-backed landing), EXPINF
+  NO breakeven (not readily available; inflation-linked debt market
+  in Norway is thin), and consume in `MonetaryDbBackedInputsBuilder`
+  for M3 NO.
+- **Unblocks:** M3 NO composite computation.
+- **Status:** OPEN (Phase 2+).
+
+### CAL-NO-BS-GDP — NO balance-sheet / GDP ratio wiring (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** LOW — closes the `NO_BS_GDP_PROXY_ZERO` flag on M1 NO.
+- **Trigger:** Sprint X-NO C4 zero-seeded NO balance-sheet ratios
+  because Norges Bank balance-sheet + Statistics Norway GDP are not
+  wired. **Special context**: Norway's GPFG (Government Pension Fund
+  Global — NOK ~16 trillion) is legally offshore-invested so the
+  domestic central-bank balance-sheet is an order of magnitude
+  smaller than G10 peers' post-QE balances. Regime classifiers
+  consuming NO BS/GDP should treat the signal with caution until a
+  sovereign-fund-adjusted variant is wired (Phase 2+ research).
+- **Scope:** Norges Bank balance-sheet aggregate (dataflow TBD — the
+  `LIQUIDITY_STATISTICS` or `FINANCIAL_INDICATORS` flow are
+  candidates) combined with Statistics Norway nominal GDP (SSB
+  table 09842 — quarterly national accounts) or the equivalent FRED
+  OECD mirror.
+- **Unblocks:** M1 NO BS/GDP signal history populated (currently
+  seeded as zeros → balance_sheet_signal contribution to M1 score is
+  null).
+- **Status:** OPEN.
+
+### CAL-NO-CPI — NO CPI YoY wrapper (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** MEDIUM — blocks M2 NO inflation-gap compute; SSB
+  publishes scriptable monthly CPI.
+- **Trigger:** Sprint X-NO shipped M2 NO as a scaffold because no
+  `fetch_no_cpi_yoy` wrapper exists on either TE or FRED within
+  Sprint X-NO scope.
+- **Scope:** Probe Statistics Norway's CPI table 03013 at
+  `data.ssb.no/api/v0/en/table/03013` for a scriptable monthly CPI
+  YoY series; wire via a new SSB connector (or extend the FRED path
+  if a NORCPIALLMINMEI-equivalent exists). Consume in
+  `build_m2_no_inputs` with new flag `NO_CPI_YOY_SSB_NATIVE` or
+  `NO_CPI_YOY_FRED_OECD` depending on source.
+- **Unblocks:** M2 NO inflation input; combined with
+  CAL-NO-M2-OUTPUT-GAP + CAL-NO-INFL-FORECAST closes M2 NO.
+- **Status:** OPEN.
+
+### CAL-NO-INFL-FORECAST — NO inflation-forecast wrapper (Week 9 Sprint X-NO surfaced)
+
+- **Priority:** LOW — nice-to-have for M2 NO compute; Norges Bank
+  2 % CPI target (post-2018) serves as CB-target proxy until this
+  lands.
+- **Trigger:** Norges Bank publishes quarterly Monetary Policy
+  Report (MPR) forecasts — PDF + HTML-hosted, unwired Sprint X-NO
+  scope. M2 NO currently treats the 2 % target as the inflation-
+  forecast proxy via `EXPECTED_INFLATION_CB_TARGET`.
+- **Scope:**
+  - Probe Norges Bank MPR landing pages + appendix tables for a
+    scriptable forecast series. MPR forecast tables are typically
+    published quarterly in PDF — no SDMX dataflow at probe.
+  - Wire `fetch_no_inflation_forecast` (connector TBD — likely a
+    HTML-scrape or PDF-parse adapter on top of the base HTTP client).
+  - Consume in `build_m2_no_inputs` with new flag
+    `NO_INFLATION_FORECAST_NB_MPR` (replacing the
+    `EXPECTED_INFLATION_CB_TARGET` proxy flag when available).
+- **Unblocks:** M2 NO second-cycle inflation input; combined with
+  CAL-NO-M2-OUTPUT-GAP + CAL-NO-CPI closes M2 NO.
+- **Status:** OPEN.
+
 ### CAL-backfill-l5 — L5 retroactive classification script (CLOSED 2026-04-21 via Sprint M)
 
 - **Priority:** LOW — fewer than 30 production dates affected (Phase 1
