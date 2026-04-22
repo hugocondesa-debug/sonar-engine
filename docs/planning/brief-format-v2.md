@@ -1,4 +1,14 @@
-# Brief Format v2 (active from 2026-04-20)
+# Brief Format v2 (active 2026-04-20 → 2026-04-22)
+
+> **DEPRECATED (2026-04-22).** Superseded by
+> [`brief-format-v3.md`](./brief-format-v3.md), which adds mandatory
+> pre-merge checklist + merge execution + post-merge verification
+> sections after the Week 9 / Day 0 Week 10 merge incident inventory.
+>
+> This file is kept for historical reference. Briefs already written
+> in v2 (Week 4 → Week 9, Week 10 Day 0) complete their lifecycle on
+> v2 and ship as-is — **migration to v3 is forward-only; no retrofit**.
+> New sprints from Week 10 Day 1 onwards use v3.
 
 ## Purpose
 
