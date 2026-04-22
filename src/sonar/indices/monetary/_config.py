@@ -79,6 +79,34 @@ def load_country_to_target() -> Mapping[str, str]:
     return {str(k): str(v) for k, v in raw.items()}
 
 
+def load_target_conventions() -> Mapping[str, str]:
+    """Return ``{country_code: convention}`` map.
+
+    Countries absent default to ``"domestic"`` (the country's central
+    bank publishes the point or band-midpoint target the country
+    tracks). Sprint Y-DK introduces ``"imported_eur_peg"`` for DK to
+    capture the EUR-peg-coupling story — Nationalbanken's mandate is
+    exchange-rate stability + the de-facto inflation anchor is
+    imported from the ECB's 2 % HICP target via the DKK/EUR peg.
+    """
+    raw = _load_bc_targets().get("target_conventions") or {}
+    assert isinstance(raw, dict)
+    return {str(k): str(v) for k, v in raw.items()}
+
+
+def resolve_inflation_target_convention(country_code: str) -> str:
+    """Return the target-resolution convention for the country.
+
+    Defaults to ``"domestic"``. Returns ``"imported_eur_peg"`` for DK
+    (and any future country with the same ERM-II-style fixed-rate
+    regime). Cascade builders use this to pick the right flag —
+    ``EXPECTED_INFLATION_CB_TARGET`` for domestic vs
+    ``DK_INFLATION_TARGET_IMPORTED_FROM_EA`` for imported_eur_peg.
+    """
+    canonical = _canonicalize_country_code(country_code)
+    return load_target_conventions().get(canonical, "domestic")
+
+
 def resolve_r_star(country_code: str) -> tuple[float, bool]:
     """Return ``(r_star_pct, is_proxy)`` for the country.
 
@@ -141,6 +169,8 @@ __all__ = [
     "load_bc_targets",
     "load_country_to_target",
     "load_r_star_values",
+    "load_target_conventions",
     "resolve_inflation_target",
+    "resolve_inflation_target_convention",
     "resolve_r_star",
 ]

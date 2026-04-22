@@ -49,6 +49,13 @@ targets:
 # Country keys use ISO 3166-1 alpha-2 canonical codes (GB not UK per
 # ADR-0007). Legacy "UK" input still resolves via the loader alias
 # in _config.py with a structlog deprecation warning.
+#
+# Sprint Y-DK introduces the **imported_eur_peg** convention — see
+# the DK entry in `target_conventions` below + the resolver hook in
+# `sonar.indices.monetary._config.resolve_inflation_target`. Countries
+# with a DKK/EUR-style fixed-rate regime do not publish a domestic
+# inflation target; the de-facto anchor is imported from the central
+# bank that owns the peg currency (ECB for DK).
 country_to_target:
   US: Fed
   EA: ECB
@@ -66,6 +73,33 @@ country_to_target:
   CH: SNB
   "NO": Norges Bank   # quoted — YAML 1.1 treats unquoted NO as boolean False
   SE: Riksbank
+  # DK has NO domestic inflation target. Nationalbanken's mandate is
+  # exchange-rate stability — the DKK is fixed to EUR at 7.46038
+  # within the ERM-II ±2.25 % band (de facto narrow band ±2.25 %).
+  # The de-facto inflation anchor is imported from the ECB's 2 %
+  # HICP medium-term target via the peg. The cascade emits
+  # `DK_INFLATION_TARGET_IMPORTED_FROM_EA` on every persisted DK M1
+  # row to surface the convention to operators (vs the standard
+  # `EXPECTED_INFLATION_CB_TARGET` flag the other countries emit).
+  # The target value is the same 2 % the ECB targets — the
+  # difference is purely the SOURCE/CONVENTION which is what the
+  # `target_conventions` block + flag emission carries.
+  DK: ECB
+
+# Per-country target-resolution convention. Countries absent default
+# to "domestic" (the central bank in country_to_target publishes the
+# point or band-midpoint target the country tracks). Sprint Y-DK
+# introduces "imported_eur_peg" for DK to capture the structural
+# EUR-peg-coupling story — Nationalbanken does not run an
+# independent monetary policy + does not publish a domestic
+# inflation target; the de-facto anchor is the ECB's 2 % HICP
+# target imported via the DKK/EUR peg. The resolver hook in
+# `sonar.indices.monetary._config.resolve_inflation_target_convention`
+# returns the convention string so cascade builders can attach the
+# right flag (`EXPECTED_INFLATION_CB_TARGET` for domestic /
+# `DK_INFLATION_TARGET_IMPORTED_FROM_EA` for imported_eur_peg).
+target_conventions:
+  DK: imported_eur_peg
 
 # EM countries without stable target → NO_TARGET flag (spec §4 step 2):
 # CN, IN, BR, TR, AR, MX, ZA, ID — compute skips M2 for those.

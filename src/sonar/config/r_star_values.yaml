@@ -183,3 +183,36 @@ SE:
   last_updated: "2026-03-31"
   source: "Riksbank Monetary Policy Report March 2026 + Studies Papers 2023-2024 — Swedish neutral-rate range synthesis (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+DK:
+  # Danmarks Nationalbanken does not publish an HLW-equivalent
+  # natural rate. The Danish r* is best understood as **imported from
+  # the EA via the DKK/EUR ERM-II peg** — Nationalbanken does not run
+  # an independent monetary policy, so the "domestic" neutral nominal
+  # rate is structurally tied to the EA neutral rate (EA r* ≈ -0.5 %
+  # real per HLW EA Q4 2024) plus a small DK-specific risk premium.
+  # Nationalbanken Working Paper 152/2020 ("The natural rate of
+  # interest and the equilibrium real exchange rate in Denmark") +
+  # the 2024 Monetary Review staff discussion bracket the Danish real
+  # neutral rate at roughly [0.25, 1.25] % — midpoint ~0.75 % real.
+  # The midpoint cleanly aligns with SE (Riksbank MPR March 2026
+  # midpoint also at 0.75 % real) reflecting the broader Nordic
+  # low-r* cluster. SONAR anchors at 0.75 % real as the midpoint of
+  # the Nationalbanken WP 152/2020 + Monetary Review 2024 range
+  # synthesis — matching SE's Nordic cluster magnitude and sitting
+  # above CH (0.25 %) because DKK lacks the CHF safe-haven
+  # compression. Downstream emits R_STAR_PROXY on every DK M1/M2
+  # call per spec §4 until an academic HLW-DK series or a
+  # Nationalbanken publication with a point estimate lands.
+  #
+  # Important context: the 2015-04-07 → 2022-09-15 negative-rate
+  # corridor (Nationalbanken CD rate as low as -0.75 %) was driven
+  # by EUR-peg defence — appreciation pressure on DKK during the
+  # ECB's deep negative-rate era forced Nationalbanken to mirror
+  # (and slightly under-cut) the ECB deposit rate to discourage
+  # capital inflows. This is a structural EUR-peg-coupling story,
+  # not a signal about the Danish structural r*.
+  r_star_pct: 0.0075      # 0.75 % — Nationalbanken WP 152/2020 + MR 2024 mid (SONAR Phase 1 proxy)
+  last_updated: "2024-12-31"
+  source: "Nationalbanken WP 152/2020 + Monetary Review 2024 — Danish neutral-rate range synthesis (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4

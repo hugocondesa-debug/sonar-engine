@@ -13,7 +13,9 @@ from sonar.indices.monetary._config import (
     load_bc_targets,
     load_country_to_target,
     load_r_star_values,
+    load_target_conventions,
     resolve_inflation_target,
+    resolve_inflation_target_convention,
     resolve_r_star,
 )
 
@@ -150,6 +152,24 @@ class TestRStarLoader:
         assert "Riksbank" in str(se["source"])
         assert se.get("proxy") is True
 
+    def test_dk_direct_with_proxy_flag(self) -> None:
+        """DK has its own entry marked ``proxy: true`` — Danish r*
+        is best understood as imported from the EA via the DKK/EUR
+        ERM-II peg. Value anchored at the Nationalbanken WP 152/2020
+        + Monetary Review 2024 neutral-range midpoint (0.75 % real),
+        matching SE's Nordic low-r* cluster magnitude and above CH
+        because DKK lacks the CHF safe-haven compression."""
+        r_star, is_proxy = resolve_r_star("DK")
+        assert r_star == pytest.approx(0.0075)
+        assert is_proxy is True
+
+    def test_dk_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        dk = values["DK"]
+        assert "source" in dk
+        assert "Nationalbanken" in str(dk["source"])
+        assert dk.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -224,6 +244,21 @@ class TestBcTargetsLoader:
         assert resolve_inflation_target("SE") == pytest.approx(0.02)
         assert load_country_to_target()["SE"] == "Riksbank"
 
+    def test_dk_resolves_to_ecb_target_via_eur_peg(self) -> None:
+        """DK monetary inputs resolve to the ECB 2 % HICP target
+        imported via the DKK/EUR ERM-II peg.
+
+        Sprint Y-DK introduces the ``imported_eur_peg`` convention —
+        Nationalbanken's mandate is exchange-rate stability + does
+        not publish a domestic inflation target, so the de-facto
+        anchor is the ECB target (same numeric value, but the
+        cascade emits ``DK_INFLATION_TARGET_IMPORTED_FROM_EA``
+        rather than the standard ``EXPECTED_INFLATION_CB_TARGET``
+        flag to surface the convention to operators).
+        """
+        assert resolve_inflation_target("DK") == pytest.approx(0.02)
+        assert load_country_to_target()["DK"] == "ECB"
+
     def test_targets_dict_ten_central_banks(self) -> None:
         targets = load_bc_targets()
         assert {
@@ -238,6 +273,19 @@ class TestBcTargetsLoader:
             "Norges Bank",
             "Riksbank",
         } <= set(targets.keys())
+
+
+class TestTargetConventions:
+    def test_dk_is_imported_eur_peg(self) -> None:
+        assert resolve_inflation_target_convention("DK") == "imported_eur_peg"
+        assert load_target_conventions().get("DK") == "imported_eur_peg"
+
+    def test_other_countries_default_domestic(self) -> None:
+        for c in ("US", "EA", "GB", "JP", "AU", "CA", "NZ", "CH", "NO", "SE"):
+            assert resolve_inflation_target_convention(c) == "domestic"
+
+    def test_unknown_country_defaults_domestic(self) -> None:
+        assert resolve_inflation_target_convention("XX") == "domestic"
 
 
 class TestStaleness:
