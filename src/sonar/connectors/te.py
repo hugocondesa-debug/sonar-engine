@@ -67,6 +67,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "NZ": "new zealand",
     "CH": "switzerland",
     "NO": "norway",
+    "SE": "sweden",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -119,6 +120,14 @@ TE_EXPECTED_SYMBOL_CH_POLICY_RATE = "SZLTTR"
 # across every regime (Norway never ran a negative policy rate; the
 # minimum observed is 0 % during the 2020-2022 COVID-response trough).
 TE_EXPECTED_SYMBOL_NO_POLICY_RATE = "NOBRDEP"
+# Riksbank policy rate ("styrränta"; called "repo rate" / "reporänta"
+# prior to 2022-06-08 but the series is continuous across the rename).
+# TE ships under ``SWRRATEI`` — the legacy "Swedish Repo Rate
+# Indicator" code preserved across the 2022 rename. Sprint W-SE
+# empirical probe 2026-04-22 confirmed all 463 observations
+# (1994-05-26 → 2026-04-30) carry ``SWRRATEI``, including the 58 rows
+# spanning the negative-rate era 2015-02-12 → 2019-11-30 (min -0.50 %).
+TE_EXPECTED_SYMBOL_SE_POLICY_RATE = "SWRRATEI"
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,6 +717,63 @@ class TEConnector:
             err = (
                 "TE NO-policy-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_NO_POLICY_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_se_policy_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """SE Policy Rate — Riksbank styrränta, TE-sourced.
+
+        TE ``interest rate`` indicator for ``sweden`` returns the
+        Riksbank policy rate directly (HistoricalDataSymbol
+        ``SWRRATEI`` — legacy "Swedish Repo Rate Indicator" code,
+        preserved by TE across the 2022-06-08 rename when Riksbank
+        dropped the "repo rate" label in favour of "policy rate"
+        (styrränta); the underlying instrument — the 7-day deposit /
+        borrowing rate banks transact with the Riksbank — is unchanged).
+        Daily cadence back-filled to 1994-05-26 (~463 observations at
+        Sprint W-SE probe, 2026-04-22); TE surfaces each rate-change
+        announcement plus the constant intervening quotes so a single
+        query returns the full decision history regardless of
+        ``d1``/``d2``.
+
+        **Negative-rate era preservation**: 58 rows across 2015-02-12 →
+        2019-11-30 carry negative values (minimum -0.50 %, roughly
+        two-thirds as deep as SNB's -0.75 % corridor). The wrapper (and
+        the downstream builder) preserve the sign throughout — the
+        ``int(round(value * 100))`` conversion at the Observation layer
+        handles negative yields naturally via Python's round-half-even
+        semantics, and no clamp is applied. Cascade callers emit
+        ``SE_NEGATIVE_RATE_ERA_DATA`` when the returned window contains
+        at least one strictly-negative observation, mirroring the CH
+        cascade pattern Sprint V-CH established.
+
+        Chosen as the **primary** source for SE M1 policy-rate inputs
+        (Sprint W-SE) per the Sprint I-patch cascade pattern — TE is
+        daily and Riksbank-sourced, while the Riksbank Swea native path
+        (Sprint W-SE C2) covers ``SECBREPOEFF`` (the Riksbank's own
+        canonical policy-rate series) at daily cadence as a first-class
+        robust fallback. FRED OECD mirror ``IRSTCI01SEM156N`` is
+        relegated to last-resort and is **discontinued at 2020-10-01**
+        (Sprint W-SE probe) — the series has been frozen for ~5.5 years
+        so the staleness flag pair fires on virtually every realistic
+        window.
+
+        Guards source identity via the ``SWRRATEI`` symbol check
+        mirroring the GB / JP / CA / AU / NZ / CH wrappers; on drift
+        raises :class:`DataUnavailableError` so the SE cascade can fall
+        back cleanly.
+        """
+        obs = await self.fetch_indicator("SE", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_SE_POLICY_RATE)
+        ):
+            err = (
+                "TE SE-policy-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_SE_POLICY_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
