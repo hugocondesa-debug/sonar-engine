@@ -86,11 +86,12 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I),
 # JP via BoJ → FRED cascade (sprint 8-L), CA via BoC Valet → FRED
 # cascade (sprint 9-S), AU via RBA F1 CSV → FRED cascade (sprint
-# 9-T), and CH via SNB zimoma/SARON → FRED cascade (sprint 9-V).
+# 9-T), CH via SNB zimoma/SARON → FRED cascade (sprint 9-V), and
+# NO via Norges Bank DataAPI SDMX-JSON → FRED cascade (sprint 9-X-NO).
 # All stay separate from T1_7_COUNTRIES so --all-t1 preserves the
 # historical 7-country semantics; callers opt in via --country GB
 # (or the deprecated "UK" alias — ADR-0007), --country JP, --country
-# CA, --country AU, or --country CH.
+# CA, --country AU, --country CH, or --country NO.
 #
 # Backward compat: "UK" preserved as deprecated alias per ADR-0007.
 # CLI emits a structlog deprecation warning when ``--country UK`` is
@@ -109,6 +110,7 @@ MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = (
     "AU",
     "NZ",
     "CH",
+    "NO",
 )
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
@@ -301,9 +303,10 @@ def _build_live_connectors(
     FRED (stale-flagged) for the JP cascade, BoC Valet → FRED
     (stale-flagged) for the CA cascade, RBA F1 CSV → FRED
     (stale-flagged) for the AU cascade, RBNZ B2 → FRED (stale-
-    flagged) for the NZ cascade, and SNB zimoma/SARON → FRED
-    (stale-flagged) for the CH cascade. Note the CA / AU / CH
-    secondary slots are all reachable public endpoints so
+    flagged) for the NZ cascade, SNB zimoma/SARON → FRED
+    (stale-flagged) for the CH cascade, and Norges Bank DataAPI →
+    FRED (stale-flagged) for the NO cascade. Note the CA / AU / CH /
+    NO secondary slots are all reachable public endpoints so
     --te-api-key="" still delivers fresh M1 rows for those countries
     when the native host is up — the NZ RBNZ host currently
     perimeter-403s (CAL-NZ-RBNZ-TABLES) so NZ without TE lands on
@@ -315,6 +318,7 @@ def _build_live_connectors(
     from sonar.connectors.cbo import CboConnector  # noqa: PLC0415
     from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
+    from sonar.connectors.norgesbank import NorgesBankConnector  # noqa: PLC0415
     from sonar.connectors.rba import RBAConnector  # noqa: PLC0415
     from sonar.connectors.rbnz import RBNZConnector  # noqa: PLC0415
     from sonar.connectors.snb import SNBConnector  # noqa: PLC0415
@@ -329,6 +333,7 @@ def _build_live_connectors(
     rba = RBAConnector(cache_dir=f"{cache_dir}/rba")
     rbnz = RBNZConnector(cache_dir=f"{cache_dir}/rbnz")
     snb = SNBConnector(cache_dir=f"{cache_dir}/snb")
+    norgesbank = NorgesBankConnector(cache_dir=f"{cache_dir}/norgesbank")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
     builder = MonetaryInputsBuilder(
         fred=fred,
@@ -340,9 +345,10 @@ def _build_live_connectors(
         rba=rba,
         rbnz=rbnz,
         snb=snb,
+        norgesbank=norgesbank,
         te=te,
     )
-    connectors: list[object] = [fred, ecb, boc, boe, boj, rba, rbnz, snb]
+    connectors: list[object] = [fred, ecb, boc, boe, boj, rba, rbnz, snb, norgesbank]
     if te is not None:
         connectors.append(te)
     return builder, connectors
