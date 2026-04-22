@@ -201,26 +201,130 @@ operacional para os quatro CAL items per-country successors:
    as 4 condições de unblock e os work-items Phase 2+ que as
    destravariam.
 
+## Addendum Sprint G (2026-04-22) — EA periphery probe outcomes matrix
+
+Sprint G (Week 10 Day 2 combined IT + ES pilot, 2026-04-22)
+executou sprints 2 + 3 dos quatro successors ADR-0009 em paralelo
+(worktree isolado, zero conflito de ficheiros com Sprint F / Sprint
+E). Ambos os probes aterraram em HALT-0, mas por sub-casos
+diferentes — o pattern library é agora ternário em vez de binário.
+
+### Matriz de resultados probe-first empírica (acumulativa)
+
+| País | Probe date | Sub-caso HALT-0 | Artefacto shipped | Unblock primário |
+|---|---|---|---|---|
+| **FR-BDF** | 2026-04-22 (Sprint D) | HTTP 4xx / deprecated (legacy SDMX decommissioned mid-2024 → OpenDatasoft monthly-archive-only) | `banque_de_france.py` scaffold + ADR-0009 original | BdF daily yield feed restore / licensed feed / browser shim |
+| **IT-BDI** | 2026-04-22 (Sprint G) | HTTP "all paths dead" (ECB legacy SDMX decommissioned; BdI Infostat API subdomains NXDOMAIN; MEF HTML-only; ECB SDW FM + IRS EA-aggregate; FRED 10Y-monthly) | `banca_ditalia.py` scaffold + esta addendum | BdI publishes public SDMX/REST / licensed feed / Infostat SPA browser shim |
+| **ES-BDE** | 2026-04-22 (Sprint G) | HTTP 200 + **non-daily** (BdE BIE REST `app.bde.es/bierest` live + publishes 11-tenor ES sovereign yields, but all at `codFrecuencia='M'` monthly) | `banco_espana.py` scaffold + esta addendum | BdE publishes daily Bono yields / `daily_curves` gains monthly-cadence path / parallel `monthly_curves` pipeline / licensed feed |
+| **PT-BPSTAT** | Pending | — | — | — |
+| **NL-DNB** | Pending | — | — | — |
+
+### Pattern library — três sub-casos HALT-0 distintos
+
+O Sprint D original codificou um binário "HTTP 200 + ≥ 6 tenores +
+daily + public" → full impl; **caso contrário** → scaffold. Sprint
+G revela que o segundo ramo tem estrutura interna relevante:
+
+| Sub-caso | Sinal empírico | Evidência | Exemplo |
+|---|---|---|---|
+| **A. 4xx / deprecated** | Host legacy retornou 404 + plataforma successora existe mas com dataset incompleto | HTTP 404 no legacy + 200 no successor com tenor/frequência-gap | FR-BDF (BdF → OpenDatasoft) |
+| **B. All paths dead** | Zero reachability + zero successor path | HTTP 000 / NXDOMAIN no legacy + nenhum REST público descoberto | IT-BDI (BdI Infostat SPA-only + subdomains NXDOMAIN) |
+| **C. HTTP 200 + non-daily** | Endpoint vivo, público, retorna dados solicitados, mas frequência abaixo do pipeline | HTTP 200 + `codFrecuencia='M'` quando pipeline exige `'D'` | ES-BDE (BdE BIE REST monthly-only) |
+
+O sub-caso **C** é o mais subtil porque "funciona" na superfície
+(HTTP 200, JSON bem-formado, 11 tenores de coverage) — a discovery
+exige verificação explícita da frequência em metadados da API, não
+apenas presence checks. Esta é uma lição directa para specs Week 11+
+de pipelines L8: todo probe tem de verificar **{reachability,
+auth, tenor-count, frequency, historical-depth}** separadamente, não
+colapsar em "endpoint responds 200".
+
+### Regra operacional actualizada
+
+ADR-0009 v2 (Sprint G addendum):
+
+1. **Probe matrix expandida** — cada probe tem de medir as cinco
+   dimensões acima, não só reachability. Template actualizado para
+   sprint briefs successores.
+2. **Sub-caso C requer decisão arquitectural explícita** — se um
+   probe devolve "HTTP 200 non-daily", o sprint tem de decidir se
+   estende o pipeline para aceitar cadência monthly (mudança pipeline-
+   wide com implicações de staleness) ou se scaffolds (Sprint G
+   escolha). Não é defensável "scaffold porque HALT-0" sem nomear o
+   sub-caso.
+3. **Pattern inversion a re-confirmar em cada país** — o facto de
+   Bundesbank (DE) ser o único successor `full impl` e três de
+   cinco successors serem HALT-0 (sub-casos A / B / C) sustenta que
+   o padrão DE **não generaliza** mesmo dentro da EU-19. O remaining
+   set {PT, NL} deve ser considerado à partida risco ≥ 0.5 de HALT-0,
+   com PT potencialmente mais baixo (BPstat é native REST não-migrado)
+   e NL mais alto (OpenDatasoft-cluster per Sprint D precedent).
+
+### Follow-ups (Sprint G addendum)
+
+Re-ordenação da §Consequências "Follow-ups requeridos" à luz dos
+dois novos probes:
+
+1. **Ordem de execução updated**:
+   - **PT-BPSTAT** (próximo; risco baixo-moderado). BPstat é native
+     REST `bpstat.bportugal.pt/data/v1` — nunca migrou; high-probabiity
+     de **full impl**. Candidato para "primeira vitória no pattern"
+     após 3-of-5 HALT-0.
+   - **NL-DNB** (último; risco elevado confirmado). DNB migrou para
+     OpenDatasoft mid-2024 — **mesma plataforma que revelou a gap
+     BdF**. Probability ≥ 0.6 de sub-caso **A** (HTTP 4xx / deprecated
+     ou dataset incompleto). Budget full 4-5h CC para scaffold path.
+2. **Alternative-data-source workstream** (Phase 2+, unchanged)
+   passa de "bloqueante potencial para todos os 5" para "bloqueante
+   confirmado para ≥ 3-of-5" após Sprint G. O cost-benefit de
+   licensed feed (Bloomberg BVAL / Refinitiv / FactSet) inclina-se
+   positivo a partir do threshold 3+ HALT-0s — Sprint G atravessa-o.
+3. **Frequency-tier architecture** — abrir ADR Phase 2+ sobre como
+   `daily_curves` convive com cadência monthly (sub-caso C). O
+   caminho mais provável: `monthly_curves` pipeline paralelo com
+   tier-aware overlay cascade (overlays aceitam ambas as cadências
+   com flag explícito de staleness).
+
+### Post-Sprint G coverage state
+
+T1 curves coverage unchanged 6/16 (US/DE/EA/GB/JP/CA). Três CAL items
+BLOCKED com scaffolds + probe matrix + pattern library: FR / IT / ES.
+Dois pendentes: PT / NL. Overlays cascade de FR + IT + ES continua
+em EA-AAA proxy-fallback até que ≥ 1 dos {full impl / licensed feed
+/ frequency-tier architecture} materialize.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
   hierarchy, §5 HALT-0 trigger, §7 report-back.
+- `docs/planning/week10-sprint-g-it-es-curves-brief.md` §2 pre-flight,
+  §5 HALT-0 triggers, §7 report-back — Sprint G combined IT + ES pilot.
 - `docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md`
   — pilot retro (v3 format).
+- `docs/planning/retrospectives/week10-sprint-curves-it-es-report.md`
+  — Sprint G combined retro (v3 format).
 - `docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`
   — Sprint A precedent (ECB SDW periphery HALT).
 - `docs/planning/retrospectives/week10-sprint-cal138-report.md` —
   CAL-138 precedent (TE periphery HALT).
 - `src/sonar/connectors/banque_de_france.py` — documentation-first
-  scaffold (module docstring carries full probe matrix).
+  scaffold (sub-caso A: 4xx / deprecated).
+- `src/sonar/connectors/banca_ditalia.py` — sub-caso B scaffold
+  (all paths dead).
+- `src/sonar/connectors/banco_espana.py` — sub-caso C scaffold
+  (HTTP 200 + non-daily).
 - `src/sonar/connectors/bundesbank.py` — functional national-CB
-  reference (DE, pattern that did not generalize).
+  reference (DE, pattern that did not generalize to periphery).
 - `src/sonar/connectors/ecb_sdw.py` `PERIPHERY_CAL_POINTERS` —
   per-country CAL routing (shared across all five periphery members).
-- `docs/backlog/calibration-tasks.md` — `CAL-CURVES-FR-BDF` (BLOCKED)
-  + four successors annotated with ADR-0009 probe discipline.
+- `docs/backlog/calibration-tasks.md` — `CAL-CURVES-FR-BDF` +
+  `CAL-CURVES-IT-BDI` + `CAL-CURVES-ES-BDE` (BLOCKED) + two
+  successors annotated with ADR-0009 probe discipline.
 - ADR-0005 (country-tiers) + ADR-0007 (ISO country codes) — enforce
   consistent country-code handling across the stack.
 - ADR-0008 (per-country ERP data constraints) — adjacent precedent
   of narrow-scope + CAL decomposition under data-availability
   constraints.
+- ADR-0010 (T1 complete product before T2 expansion) — Sprint G
+  work explicitly constrained to T1 scope; IT + ES are T1 per
+  ADR-0005 + `country_tiers.yaml`.
