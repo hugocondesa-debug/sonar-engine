@@ -98,6 +98,93 @@ TE_INDICATOR_INTEREST_RATE = "interest rate"
 TE_EXPECTED_SYMBOL_CONFERENCE_BOARD_CC = "CONCCONF"
 TE_EXPECTED_SYMBOL_MICHIGAN_5Y_INFLATION = "USAM5YIE"
 TE_EXPECTED_SYMBOL_GB_BANK_RATE = "UKBRBASE"
+
+# ---------------------------------------------------------------------------
+# Multi-tenor sovereign yield curve symbols (CAL-138 Sprint)
+# ---------------------------------------------------------------------------
+#
+# Bloomberg-style ``<PREFIX><TENOR>:IND`` symbols for TE
+# ``/markets/historical`` endpoint. Empirical probe 2026-04-22 (Sprint
+# CAL-138 Commit 1) mapped per-country tenor availability — only 3 of
+# 9 non-EA T1 countries return ≥ MIN_OBSERVATIONS (6) tenors needed
+# for any NSS fit:
+#
+# - **GB** (GUKG family): 12 tenors 1M-30Y — full Svensson.
+# - **JP** (GJGB family): 9 tenors 1M-10Y — Svensson-minimum
+#   (MIN_OBSERVATIONS_FOR_SVENSSON=9).
+# - **CA** (GCAN family): 6 tenors 1M-10YR — NS-reduced fit
+#   (MIN_OBSERVATIONS=6); large 2Y-10Y gap tracked under
+#   CAL-CURVES-CA-MIDCURVE.
+#
+# AU/NZ/CH/SE/NO/DK empirical coverage is 0-2 tenors via TE — deferred
+# under CAL-CURVES-T1-SPARSE (ship path: native CB yield-curve
+# connectors Phase 2+).
+#
+# EA periphery (PT/IT/ES/FR/NL) via TE 10Y-only (Bloomberg symbols
+# GFRN10/GBTPGR10/...) — deferred under CAL-CURVES-EA-PERIPHERY.
+#
+# Symbol quirks discovered empirically (do **not** normalise without a
+# fresh probe — TE symbol naming is non-uniform):
+# - GB: ``GUKG2:IND`` (no ``Y``), ``GUKG3Y:IND`` (with ``Y``),
+#   ``GUKG5Y:IND``/``GUKG7Y:IND`` (with ``Y``), ``GUKG10:IND``/
+#   ``GUKG15:IND``/``GUKG30:IND`` (no ``Y``), ``GUKG20Y:IND`` (with ``Y``).
+# - JP: ``GJGB`` prefix with ``Y`` suffix for sub-10Y, no ``Y`` for 10Y.
+# - CA: ``GCAN`` prefix with ``Y`` suffix for sub-10Y (``GCAN1Y:IND``
+#   etc.), ``YR`` suffix for 10YR (``GCAN10YR:IND``).
+TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
+    "GB": {
+        "1M": "GUKG1M:IND",
+        "3M": "GUKG3M:IND",
+        "6M": "GUKG6M:IND",
+        "1Y": "GUKG1Y:IND",
+        "2Y": "GUKG2:IND",
+        "3Y": "GUKG3Y:IND",
+        "5Y": "GUKG5Y:IND",
+        "7Y": "GUKG7Y:IND",
+        "10Y": "GUKG10:IND",
+        "15Y": "GUKG15:IND",
+        "20Y": "GUKG20Y:IND",
+        "30Y": "GUKG30:IND",
+    },
+    "JP": {
+        "1M": "GJGB1M:IND",
+        "3M": "GJGB3M:IND",
+        "6M": "GJGB6M:IND",
+        "1Y": "GJGB1Y:IND",
+        "2Y": "GJGB2Y:IND",
+        "3Y": "GJGB3Y:IND",
+        "5Y": "GJGB5Y:IND",
+        "7Y": "GJGB7Y:IND",
+        "10Y": "GJGB10:IND",
+    },
+    "CA": {
+        "1M": "GCAN1M:IND",
+        "3M": "GCAN3M:IND",
+        "6M": "GCAN6M:IND",
+        "1Y": "GCAN1Y:IND",
+        "2Y": "GCAN2Y:IND",
+        "10Y": "GCAN10YR:IND",
+    },
+}
+
+# Tenor label → years lookup for constructing Observation rows. Kept
+# local (duplicates the ``overlays.nss._TENOR_LABEL_TO_YEARS`` table)
+# to avoid a connector → overlay import; drift caught by the
+# ``test_te_yield_curve_tenor_years_match_nss`` sanity test.
+_TE_TENOR_YEARS: dict[str, float] = {
+    "1M": 1 / 12,
+    "3M": 0.25,
+    "6M": 0.5,
+    "1Y": 1.0,
+    "2Y": 2.0,
+    "3Y": 3.0,
+    "5Y": 5.0,
+    "7Y": 7.0,
+    "10Y": 10.0,
+    "15Y": 15.0,
+    "20Y": 20.0,
+    "30Y": 30.0,
+}
 # Deprecated alias for :data:`TE_EXPECTED_SYMBOL_GB_BANK_RATE` per
 # ADR-0007 (UK → GB canonical rename). Removed Week 10 Day 1.
 TE_EXPECTED_SYMBOL_UK_BANK_RATE = TE_EXPECTED_SYMBOL_GB_BANK_RATE
@@ -929,6 +1016,94 @@ class TEConnector:
         return await self.fetch_gb_bank_rate(start, end)
 
     # -------------------------------------------------------------------
+    # Multi-tenor yield curve (CAL-138 Sprint)
+    # -------------------------------------------------------------------
+
+    async def fetch_yield_curve_nominal(
+        self, country: str, observation_date: date
+    ) -> dict[str, Observation]:
+        """Multi-tenor sovereign nominal yield curve via TE Bloomberg symbols.
+
+        Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors).
+        Other non-EA T1 countries are deferred per CAL-CURVES-T1-SPARSE
+        (AU/NZ/CH/SE/NO/DK have insufficient tenor coverage on TE); EA
+        periphery deferred per CAL-CURVES-EA-PERIPHERY.
+
+        Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
+        latest trading day ≤ ``observation_date`` inside a 7-day window.
+        Tenors with no observations in window are omitted (caller decides
+        how to handle gaps; pipeline skips countries failing
+        :data:`sonar.overlays.nss.MIN_OBSERVATIONS`).
+
+        Each per-symbol fetch goes through :meth:`_fetch_raw` (cached
+        24h) + counted against the Pro-tier quota via ``_call_count``.
+
+        Raises:
+            ValueError: country not in :data:`TE_YIELD_CURVE_SYMBOLS`.
+        """
+        country_upper = country.upper()
+        symbols = TE_YIELD_CURVE_SYMBOLS.get(country_upper)
+        if symbols is None:
+            msg = (
+                f"TE yield curve only supports "
+                f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 empirical "
+                f"scope); got {country}. Other T1 countries defer per "
+                f"CAL-CURVES-T1-SPARSE / CAL-CURVES-EA-PERIPHERY."
+            )
+            raise ValueError(msg)
+
+        window_days = 7
+        start = observation_date - timedelta(days=window_days)
+        end = observation_date
+
+        out: dict[str, Observation] = {}
+        for tenor_label, symbol in symbols.items():
+            cache_key = f"te:{symbol}:{start.isoformat()}:{end.isoformat()}"
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                rows_parsed = cast("list[Observation]", cached)
+            else:
+                rows = await self._fetch_raw(symbol, start, end)
+                self._call_count += 1
+                rows_parsed = list(_parse_markets_rows(rows, country_upper, tenor_label, symbol))
+                rows_parsed.sort(key=lambda o: o.observation_date)
+                self.cache.set(cache_key, rows_parsed, ttl=DEFAULT_TTL_SECONDS)
+            usable = [o for o in rows_parsed if o.observation_date <= observation_date]
+            if not usable:
+                continue
+            out[tenor_label] = usable[-1]
+        log.info(
+            "te.yield_curve.fetched",
+            country=country_upper,
+            n_tenors=len(out),
+            date=observation_date.isoformat(),
+        )
+        return out
+
+    async def fetch_yield_curve_linker(
+        self,
+        country: str,
+        observation_date: date,  # noqa: ARG002 — stub; symmetric signature with nominal
+    ) -> dict[str, Observation]:
+        """Inflation-indexed (linker) curve stub — empty dict for all T1.
+
+        TE does not expose per-country inflation-linked bond yields
+        (confirmed CAL-138 empirical probe 2026-04-22); linker coverage
+        for GB gilts-IL / JP JGBi / CA RRB is deferred to native CB
+        feeds under CAL-CURVES-T1-LINKER. Callers receive an empty
+        dict; the NSS real-curve pipeline falls back to the ``derived``
+        method (BEI-based) when expected-inflation wiring lands.
+        """
+        country_upper = country.upper()
+        if country_upper not in TE_YIELD_CURVE_SYMBOLS:
+            msg = (
+                f"TE yield curve linker stub only accepts "
+                f"{sorted(TE_YIELD_CURVE_SYMBOLS)}; got {country}."
+            )
+            raise ValueError(msg)
+        return {}
+
+    # -------------------------------------------------------------------
     # Telemetry
     # -------------------------------------------------------------------
 
@@ -942,3 +1117,41 @@ class TEConnector:
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
+
+
+def _parse_markets_rows(
+    rows: list[dict[str, Any]],
+    country: str,
+    tenor_label: str,
+    symbol: str,
+) -> list[Observation]:
+    """Parse ``/markets/historical`` rows into :class:`Observation` instances.
+
+    TE format: ``{Symbol, Date (DD/MM/YYYY), Open, High, Low, Close}`` —
+    yields in percent. Converted to ``yield_bps`` via
+    ``round(close_pct * 100)`` per ``conventions/units.md`` §Spreads.
+    Malformed rows (bad date / non-float close) skipped silently.
+    """
+    tenor_years = _TE_TENOR_YEARS[tenor_label]
+    out: list[Observation] = []
+    for row in rows:
+        raw_date = row.get("Date")
+        raw_close = row.get("Close")
+        if not raw_date or raw_close is None:
+            continue
+        try:
+            obs_date = datetime.strptime(str(raw_date), "%d/%m/%Y").replace(tzinfo=UTC).date()
+            close_pct = float(raw_close)
+        except (ValueError, TypeError):
+            continue
+        out.append(
+            Observation(
+                country_code=country,
+                observation_date=obs_date,
+                tenor_years=tenor_years,
+                yield_bps=round(close_pct * 100),
+                source="TE",
+                source_series_id=symbol,
+            )
+        )
+    return out
