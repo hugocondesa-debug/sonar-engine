@@ -2600,9 +2600,12 @@ as sub-bullets below when it differs materially from peer countries.
     the CAL items below skip with ``InsufficientDataError`` + structlog
     warning, run exits 0 if at least one country persists.
 - **Deferred gaps** (opened as separate tracked items):
-  - ``CAL-CURVES-EA-PERIPHERY`` — PT/IT/ES/FR/NL per-country full
-    sovereign yield curves (ECB SDW YC is EA-aggregate AAA only;
-    national CB feeds needed).
+  - ``CAL-CURVES-EA-PERIPHERY`` — **SUPERSEDED** Week 10 Sprint A
+    (2026-04-22) by five per-country items
+    (``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-IT-BDI`` /
+    ``CAL-CURVES-ES-BDE`` / ``CAL-CURVES-FR-BDF`` /
+    ``CAL-CURVES-NL-DNB``) after ECB SDW FM-dataflow fallback
+    probe failed (no EA-periphery REF_AREA published).
   - ``CAL-CURVES-T1-SPARSE`` — AU/NZ/CH/SE/NO/DK full yield curves
     (TE exposes only 1-2 tenors per country; native CB connectors
     Phase 2+).
@@ -2615,24 +2618,86 @@ as sub-bullets below when it differs materially from peer countries.
   ``sonar-daily-overlays.service`` gains functional DE overlay
   cascade (ERP / CRP / rating-spread / expected-inflation).
 
-### CAL-CURVES-EA-PERIPHERY — EA periphery per-country sovereign yield curves (PT/IT/ES/FR/NL)
+### CAL-CURVES-EA-PERIPHERY — EA periphery per-country sovereign yield curves (PT/IT/ES/FR/NL) — **SUPERSEDED**
 
-- **Priority:** MEDIUM — unblocks per-country ERP/CRP/rating-spread for the 5 EA periphery members (vs AA-AAA-aggregate fallback currently emitting ``EA_AAA_PROXY_FALLBACK`` flag downstream).
-- **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 confirmed ECB SDW ``YC`` dataflow serves only the EA aggregate AAA Svensson fit — per-country 1Y-30Y sovereign yields live in national-CB feeds.
-- **Current behavior:** ``daily_curves --all-t1`` skips PT/IT/ES/FR/NL with ``InsufficientDataError`` + CAL-pointer warning. ``daily_overlays`` downstream falls back to EA-aggregate inputs for these countries; ERP computed via EA-aggregate ERP with ``EA_AAA_PROXY_COUNTRY`` flag.
+- **Status:** **SUPERSEDED** by five per-country items Week 10 Sprint A (2026-04-22) after the umbrella-scope brief's ECB SDW fallback path (HALT-0 "FM dataflow + SONAR NSS fit") was empirically invalidated: FM publishes no EA-periphery ``REF_AREA`` (live set: U2/DK/GB/JP/SE/US).
+- **Successor items:** ``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-IT-BDI`` / ``CAL-CURVES-ES-BDE`` / ``CAL-CURVES-FR-BDF`` / ``CAL-CURVES-NL-DNB`` (one per national CB; scoped individually so each can ship independently).
+- **Sprint artefact:** ``docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`` records the probe output + scope-narrow rationale.
+- **Original scope** (preserved for cross-reference):
+  - Priority MEDIUM — unblocks per-country ERP/CRP/rating-spread for the 5 EA periphery members (currently on ``EA_AAA_PROXY_FALLBACK``).
+  - Trigger: CAL-138 Sprint empirical probe 2026-04-22 first documented ECB SDW ``YC`` dataflow is EA-aggregate only.
+  - Original required work (now decomposed per-country):
+    1. Native connectors per periphery CB:
+       - PT → Banco de Portugal BPstat API (sovereign yields, OT benchmark maturities).
+       - IT → Banca d'Italia BDS (BTP zero-coupon curves).
+       - ES → Banco de España (BCE SeriesTemporales — Bonos y Obligaciones).
+       - FR → Banque de France Webstat (OAT zero-coupon 1Y-30Y).
+       - NL → DNB Statistics (DSL yields limited historical + ESS fallback).
+    2. NSS fit validation per country (credit spreads differ vs Bund so β0/β1 bounds likely unchanged, but sanity-check convergence on high-spread PT/IT periods).
+    3. Pipeline dispatch extension (add periphery branch alongside DE Bundesbank).
+    4. Live canaries per country (2024-12-30 baseline).
+- **Related:** CAL-138 (grandparent, closed); CAL-CURVES-T1-LINKER (linker coverage — will fold into the per-country sprints).
+
+### CAL-CURVES-FR-BDF — FR sovereign yield curve via Banque de France Webstat
+
+- **Priority:** MEDIUM-HIGH among the periphery five — Banque de France Webstat publishes the cleanest OAT zero-coupon spectrum of the group and OAT indexed-linkers (OATei) are the best-covered ILB of the periphery, so FR is the natural pilot for the superseded umbrella.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22 confirmed ECB SDW ``YC``/``FM``/``IRS`` cannot serve a ≥6-tenor nominal curve for FR (IRS publishes only the monthly 10Y Maastricht convergence rate).
+- **Current behavior:** ``daily_curves --country FR`` raises ``InsufficientDataError("daily_curves: no connector for country='FR' … Deferred per CAL-CURVES-FR-BDF.")``; ``--all-t1`` skips FR with the same deferral pointer.
+- **Data path (candidate):** Banque de France Webstat CSV download ``https://webstat.banque-france.fr/`` — OAT zero-coupon yields (benchmark 3M-30Y; confirm exact tenor list on pre-flight), plus OATei indexed series. No API key (CSV download). Parser style: French-locale CSV (``;`` separator, ``,`` decimal) per Bundesbank precedent.
 - **Required work:**
-  1. Native connectors per periphery CB:
-     - PT → Banco de Portugal BPstat API (sovereign yields, OT benchmark maturities).
-     - IT → Banca d'Italia BDS (BTP zero-coupon curves).
-     - ES → Banco de España (BCE SeriesTemporales — Bonos y Obligaciones).
-     - FR → Banque de France Webstat (OAT zero-coupon 1Y-30Y).
-     - NL → DNB Statistics (DSL yields limited historical + ESS fallback).
-  2. NSS fit validation per country (credit spreads differ vs Bund so β0/β1 bounds likely unchanged, but sanity-check convergence on high-spread PT/IT periods).
-  3. Pipeline dispatch extension (add periphery branch alongside DE Bundesbank).
-  4. Live canaries per country (2024-12-30 baseline).
-- **Impact if unresolved:** Overlays/cost-of-capital for PT/IT/ES/FR/NL remain on EA-aggregate proxy fallback with reduced precision on country-specific credit premium; ERP per-country skipped at pipeline level.
-- **Estimate:** 10-15h CC sprint (5 countries × ~2-3h each including native CB auth setup).
-- **Related:** CAL-138 (parent, closed); CAL-CURVES-T1-LINKER (linker coverage for these periphery).
+  1. L0 connector ``sonar/connectors/banque_de_france.py`` (mirror Bundesbank pattern: fetch_series → domain wrappers).
+  2. Pre-flight probe tenor coverage + dataset IDs; document series family constants.
+  3. ``fetch_yield_curve_nominal`` + ``fetch_yield_curve_linker`` (OATei).
+  4. Pipeline dispatch branch in ``daily_curves.run_country`` (alongside DE Bundesbank branch); remove FR from ``_DEFERRAL_CAL_MAP``.
+  5. Unit tests + @slow live canary (2024-12-30 baseline).
+  6. Persistence — confirm ``NSSYieldCurveSpot(country_code='FR')`` sibling rows.
+- **Impact if unresolved:** FR overlays (ERP / CRP / rating-spread) stay on EA-aggregate proxy; once FR lands, it becomes the reference template for IT/ES/PT/NL.
+- **Estimate:** 3-4h CC (Banque de France CSV format is documented; OATei tenors limited so linker scope is small).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` FR portion absorbed here.
+
+### CAL-CURVES-IT-BDI — IT sovereign yield curve via Banca d'Italia BDS
+
+- **Priority:** MEDIUM — IT has the widest sovereign-spread range of the periphery (post-2011 crisis, 2018 Lega spike, 2022 energy-war widening) so country-specific curves materially improve rating-spread precision.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22 (same empirical path as FR).
+- **Current behavior:** ``daily_curves --country IT`` raises ``InsufficientDataError`` citing ``CAL-CURVES-IT-BDI``; ``--all-t1`` skips.
+- **Data path (candidate):** Banca d'Italia BDS (``https://infostat.bancaditalia.it/``) — BTP zero-coupon curves (spot + forward; 3M-30Y typical spectrum). BTP€i indexed linker coverage post-2003, decent but thinner than OATei. Public CSV / XLS download; SDMX 2.1 REST also available. No API key.
+- **Required work:** mirror FR-BDF structure — L0 connector, pre-flight probe, nominal + linker wrappers, pipeline dispatch, tests + canary. Reuse Bundesbank-analog pattern.
+- **Impact if unresolved:** IT ERP/CRP per-country stuck on EA-aggregate proxy; rating-spread signal loses the Italy-specific credit premium that drives most of the peripheral spread variance.
+- **Estimate:** 3-4h CC (after FR-BDF ships — connector skeleton is reusable).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` IT portion absorbed here.
+
+### CAL-CURVES-ES-BDE — ES sovereign yield curve via Banco de España
+
+- **Priority:** MEDIUM — ES spread dynamics mirror IT on a smaller scale; country-specific curve needed once IT lands.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Current behavior:** ``daily_curves --country ES`` raises ``InsufficientDataError`` citing ``CAL-CURVES-ES-BDE``.
+- **Data path (candidate):** Banco de España ``SeriesTemporales`` / BE-Series feed (``https://www.bde.es/webbde/es/estadis/infoest/``) — Bonos y Obligaciones daily yields (3M-30Y spectrum; confirm 7Y / 15Y / 20Y availability on pre-flight). Bonos-i indexed linker coverage post-2014 limited (expect ``LINKER_UNAVAILABLE`` on historical runs pre-2014). Public CSV; no API key.
+- **Required work:** standard template (connector, probe, nominal + linker wrappers, dispatch, tests + canary).
+- **Impact if unresolved:** ES overlays on EA-aggregate proxy; linker path limited to DERIVED BEI fallback until ExpInf per-country ships.
+- **Estimate:** 3-4h CC.
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` ES portion absorbed here.
+
+### CAL-CURVES-PT-BPSTAT — PT sovereign yield curve via Banco de Portugal BPstat
+
+- **Priority:** MEDIUM (LOW-MEDIUM relative to FR/IT) — PT is Hugo's home market (operator interest) but overlay-cascade priority is lower because PT ERP rides on EA-aggregate cleanly for cost-of-capital baselines.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Current behavior:** ``daily_curves --country PT`` raises ``InsufficientDataError`` citing ``CAL-CURVES-PT-BPSTAT``.
+- **Data path (candidate):** Banco de Portugal BPstat (``https://bpstat.bportugal.pt/``) — OT benchmark yields 1Y-30Y. IGCP (Agência de Gestão da Tesouraria) publishes the benchmark curve with more tenor granularity than BPstat for the long end but has no open API (scrape required). No PT linker in open form — expect ``LINKER_UNAVAILABLE`` fallback.
+- **Required work:** standard template; BPstat REST API returns JSON (simpler parser than the French-locale CSV path). Optional enhancement: IGCP weekly auction data for intra-curve validation (not required for nominal fit).
+- **Impact if unresolved:** PT overlays on EA-aggregate proxy; linker path locked to DERIVED BEI fallback (no OT-indexed universe to hook).
+- **Estimate:** 3-4h CC.
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` PT portion = permanent ``LINKER_UNAVAILABLE``.
+
+### CAL-CURVES-NL-DNB — NL sovereign yield curve via De Nederlandsche Bank Statistics
+
+- **Priority:** LOW-MEDIUM — NL trades close to DE (AAA cluster) so country-specific curve gain vs DE-Bund proxy is smaller; still needed for per-country ERP cleanliness.
+- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22.
+- **Current behavior:** ``daily_curves --country NL`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NL-DNB``.
+- **Data path (candidate):** DNB Statistics portal (``https://www.dnb.nl/en/statistics/``) — DSL (Dutch State Loan) daily yields; tenor spectrum thinner than Bundesbank (2Y-30Y benchmarks; expect 3M/6M/1Y gaps — likely NS-reduced fit per CA precedent). No DSL indexed linker (confirm via probe; expect ``LINKER_UNAVAILABLE``).
+- **Required work:** standard template; potential fallback to ESMA-published AAA-EA aggregate for the short end if DNB publishes only benchmarks ≥2Y.
+- **Impact if unresolved:** NL overlays stay on EA-aggregate proxy (lowest-cost gap of the five since NL≈DE).
+- **Estimate:** 3-4h CC; could be the last of the five to ship given the tight cost-benefit.
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded parent); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
 
 ### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK)
 
@@ -2661,7 +2726,7 @@ as sub-bullets below when it differs materially from peer countries.
 - **Current behavior:** ``derive_real_curve`` receives None linker_yields for DE/EA/GB/JP/CA, returns None RealCurve. Persistence skips NSSYieldCurveReal sibling row.
 - **Required work per country:**
   - DE: Bundesbank BBSSY family (inflation-indexed Bund-i daily zero-coupon).
-  - EA: N/A (aggregate series do not exist; track per-country via CAL-CURVES-EA-PERIPHERY).
+  - EA: N/A (aggregate series do not exist; track per-country via ``CAL-CURVES-FR-BDF`` / ``CAL-CURVES-IT-BDI`` / ``CAL-CURVES-ES-BDE`` / ``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-NL-DNB`` — linker scope folded into each per-country sprint post Sprint A 2026-04-22 supersession).
   - GB: BoE Database IFBS series (index-linked gilt 5Y-30Y).
   - JP: BoJ JGBi (10Y-30Y, limited).
   - CA: BoC Real Return Bonds (2Y-30Y, partial).
