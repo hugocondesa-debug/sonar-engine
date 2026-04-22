@@ -144,3 +144,22 @@ async def test_fetch_yield_curve_rejects_non_de(
         await bb_connector.fetch_yield_curve_nominal(
             country="FR", observation_date=date(2024, 1, 2)
         )
+
+
+async def test_fetch_yield_curve_linker_returns_empty_for_de(
+    httpx_mock: HTTPXMock, bb_connector: BundesbankConnector
+) -> None:
+    """CAL-138 stub — DE inflation-indexed series not yet mapped."""
+    _ = httpx_mock
+    linkers = await bb_connector.fetch_yield_curve_linker(
+        country="DE", observation_date=date(2024, 1, 2)
+    )
+    assert linkers == {}
+
+
+async def test_fetch_yield_curve_linker_rejects_non_de(
+    httpx_mock: HTTPXMock, bb_connector: BundesbankConnector
+) -> None:
+    _ = httpx_mock
+    with pytest.raises(ValueError, match="only accepts country=DE"):
+        await bb_connector.fetch_yield_curve_linker(country="FR", observation_date=date(2024, 1, 2))

@@ -144,6 +144,27 @@ async def test_fetch_yield_curve_rejects_non_ea(
         )
 
 
+async def test_fetch_yield_curve_linker_returns_empty_for_ea(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    """CAL-138 stub — EA has no inflation-indexed YC aggregate."""
+    _ = httpx_mock
+    linkers = await ecb_connector.fetch_yield_curve_linker(
+        country="EA", observation_date=date(2024, 1, 2)
+    )
+    assert linkers == {}
+
+
+async def test_fetch_yield_curve_linker_rejects_non_ea(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    _ = httpx_mock
+    with pytest.raises(ValueError, match="only accepts country=EA"):
+        await ecb_connector.fetch_yield_curve_linker(
+            country="DE", observation_date=date(2024, 1, 2)
+        )
+
+
 # ---------------------------------------------------------------------------
 # M1-EA monetary series (CAL-098, week6 sprint 2b)
 # ---------------------------------------------------------------------------

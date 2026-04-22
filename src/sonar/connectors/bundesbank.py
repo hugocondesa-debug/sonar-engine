@@ -131,6 +131,25 @@ class BundesbankConnector(BaseConnector):
             out[tenor_label] = usable[-1]
         return out
 
+    async def fetch_yield_curve_linker(
+        self,
+        country: str,
+        observation_date: date,  # noqa: ARG002 — stub; symmetric signature with nominal
+    ) -> dict[str, Observation]:
+        """Inflation-indexed (DBR-i / Bund-i) stub for DE — returns empty dict.
+
+        DE does publish inflation-linked bonds (``BBSSY`` family) but the
+        daily zero-coupon derived series are not yet mapped. Callers receive
+        an empty dict and should emit a ``LINKER_UNAVAILABLE`` flag; the real
+        curve falls back to the ``derived`` path once the expected-inflation
+        overlay wires DE BEI. Tracked under CAL-CURVES-DE-LINKER
+        (CAL-138 Sprint).
+        """
+        if country != "DE":
+            msg = f"Bundesbank yield curve linker stub only accepts country=DE; got {country}"
+            raise ValueError(msg)
+        return {}
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()

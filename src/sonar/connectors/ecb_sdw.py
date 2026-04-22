@@ -191,9 +191,22 @@ class EcbSdwConnector(BaseConnector):
     async def fetch_yield_curve_nominal(
         self, country: str, observation_date: date
     ) -> dict[str, Observation]:
-        """EA AAA Svensson par-rate curve. ``country`` must be ``EA``."""
+        """EA AAA Svensson par-rate curve. ``country`` must be ``EA``.
+
+        Per-country EA members (DE / PT / IT / ES / FR / NL) are not
+        served by the ``YC`` dataflow (which publishes a single
+        EA-aggregate AAA Svensson fit); DE has a dedicated
+        :class:`sonar.connectors.bundesbank.BundesbankConnector`, and
+        periphery coverage is tracked under CAL-CURVES-EA-PERIPHERY
+        (CAL-138 Sprint empirical finding).
+        """
         if country != "EA":
-            msg = f"ECB SDW yield curve only supports country=EA; got {country}"
+            msg = (
+                f"ECB SDW yield curve only supports country=EA "
+                f"(aggregate AAA Svensson); got {country}. "
+                f"For DE use BundesbankConnector; PT/IT/ES/FR/NL defer per "
+                f"CAL-CURVES-EA-PERIPHERY."
+            )
             raise ValueError(msg)
 
         window_days = 7
@@ -208,6 +221,26 @@ class EcbSdwConnector(BaseConnector):
             usable.sort(key=lambda o: o.observation_date)
             out[tenor_label] = usable[-1]
         return out
+
+    async def fetch_yield_curve_linker(
+        self,
+        country: str,
+        observation_date: date,  # noqa: ARG002 — stub; symmetric signature with nominal
+    ) -> dict[str, Observation]:
+        """Inflation-indexed (linker) curve stub for EA — returns empty dict.
+
+        The ``YC`` dataflow has no inflation-indexed counterpart; per-country
+        ILB series (OATei/BTP€i/Bonos-i/DBR-i/DSL-i) live in dedicated
+        national-CB feeds and are deferred to CAL-CURVES-EA-PERIPHERY
+        alongside nominal periphery curves. Callers receive an empty dict +
+        should emit a ``LINKER_UNAVAILABLE`` flag on the resulting
+        :class:`~sonar.overlays.nss.RealCurve` (method remains
+        ``derived`` via BEI fallback where feasible).
+        """
+        if country != "EA":
+            msg = f"ECB SDW yield curve linker stub only accepts country=EA; got {country}."
+            raise ValueError(msg)
+        return {}
 
     async def aclose(self) -> None:
         await self.client.aclose()
