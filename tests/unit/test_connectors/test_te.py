@@ -223,19 +223,17 @@ async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
 
 
 def test_yield_curve_symbols_supported_countries() -> None:
-    """CAL-138 (GB/JP/CA) + Sprint H (IT) empirical scope.
-
-    ES lands in Commit 2 of the Sprint H pair (IT ships first).
-    """
-    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT"}
+    """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) empirical scope."""
+    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES"}
 
 
 def test_yield_curve_symbols_tenor_counts() -> None:
-    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12 tenors."""
+    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12, ES=9."""
     assert len(TE_YIELD_CURVE_SYMBOLS["GB"]) == 12
     assert len(TE_YIELD_CURVE_SYMBOLS["JP"]) == 9
     assert len(TE_YIELD_CURVE_SYMBOLS["CA"]) == 6
     assert len(TE_YIELD_CURVE_SYMBOLS["IT"]) == 12  # full 1M-30Y spectrum
+    assert len(TE_YIELD_CURVE_SYMBOLS["ES"]) == 9  # missing 1M, 2Y, 20Y
 
 
 def test_yield_curve_symbols_gb_spectrum() -> None:
@@ -286,6 +284,21 @@ def test_yield_curve_symbols_it_spectrum() -> None:
     assert it["2Y"] == "GBTPGR2Y:IND"
     assert it["15Y"] == "GBTPGR15Y:IND"
     assert it["30Y"] == "GBTPGR30Y:IND"
+
+
+def test_yield_curve_symbols_es_spectrum() -> None:
+    """ES covers 3M/6M + 1Y/3Y/5Y/7Y/10Y/15Y/30Y (9 tenors; Sprint H).
+
+    Missing 1M, 2Y, 20Y per empirical probe 2026-04-22 — the bare-``Y``
+    and no-suffix variants all returned empty on /markets/historical.
+    All 1Y+ tenors use the ``YR`` suffix uniformly (unlike IT's mixed
+    ``Y``/no-suffix quirk). Still Svensson-capable (> MIN_OBSERVATIONS).
+    """
+    es = TE_YIELD_CURVE_SYMBOLS["ES"]
+    assert set(es) == {"3M", "6M", "1Y", "3Y", "5Y", "7Y", "10Y", "15Y", "30Y"}
+    assert es["10Y"] == "GSPG10YR:IND"  # YR suffix (empirical)
+    assert es["1Y"] == "GSPG1YR:IND"
+    assert es["30Y"] == "GSPG30YR:IND"
 
 
 def test_yield_curve_tenor_years_match_nss() -> None:
@@ -369,13 +382,32 @@ async def test_fetch_yield_curve_nominal_it_happy(
     assert all(obs.country_code == "IT" for obs in curve.values())
 
 
+async def test_fetch_yield_curve_nominal_es_happy(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Happy path — 9-tenor ES SPGB curve (Sprint H; Svensson-capable)."""
+    base_yield_pct = 2.30
+    for idx, _item in enumerate(TE_YIELD_CURVE_SYMBOLS["ES"].items()):
+        httpx_mock.add_response(
+            method="GET",
+            json=[{"Date": "31/12/2024", "Close": base_yield_pct + idx * 0.08}],
+        )
+    curve = await te_connector.fetch_yield_curve_nominal(
+        country="ES", observation_date=date(2024, 12, 31)
+    )
+    assert set(curve.keys()) == set(TE_YIELD_CURVE_SYMBOLS["ES"].keys())
+    assert curve["10Y"].country_code == "ES"
+    assert curve["10Y"].source == "TE"
+    assert curve["10Y"].source_series_id == "GSPG10YR:IND"
+    assert all(obs.country_code == "ES" for obs in curve.values())
+
+
 async def test_fetch_yield_curve_nominal_rejects_unsupported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
     """AU/NZ/CH/SE/NO/DK + EA periphery remainder (FR/NL/PT) + US rejected.
 
-    IT moved to the supported set in Sprint H Commit 1; ES lands in
-    Commit 2.
+    IT + ES moved to the supported set in Sprint H.
     """
     _ = httpx_mock
     for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "FR", "NL", "PT", "US"):
@@ -535,6 +567,26 @@ async def test_live_canary_it_yield_curve_multi_tenor(tmp_cache_dir: Path) -> No
         # IT BTP 10Y sat in [0.4, 7.5]% across 2010-2025.
         for obs in curve.values():
             assert obs.country_code == "IT"
+            assert 0 < obs.yield_bps < 1000
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_es_yield_curve_multi_tenor(tmp_cache_dir: Path) -> None:
+    """Live probe — ES 9-tenor SPGB curve via GSPG family (Sprint H)."""
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        target = date(2024, 12, 30)
+        curve = await conn.fetch_yield_curve_nominal(country="ES", observation_date=target)
+        # Allow 1-tenor headroom for TE gaps (probe matrix is 9/9).
+        assert len(curve) >= 8, f"ES curve thin: {list(curve)}"
+        # ES SPGB 10Y sat in [0.05, 7.6]% across 2012-2025.
+        for obs in curve.values():
+            assert obs.country_code == "ES"
             assert 0 < obs.yield_bps < 1000
     finally:
         await conn.aclose()

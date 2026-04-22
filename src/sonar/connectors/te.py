@@ -187,6 +187,13 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 #   ``GBTPGR15``, ``GBTPGR20``, ``GBTPGR30``, ``GBTPGR10YR``) were
 #   rejected — see Sprint H retro matrix. 12 tenors total (full 1M-30Y
 #   spectrum; Svensson-capable).
+# - ES (Sprint H): ``GSPG`` prefix; ``M`` suffix for 3M/6M only (no 1M
+#   coverage), ``YR`` suffix for every 1Y+ tenor (the bare-``Y`` and
+#   no-suffix variants all returned empty). Probe-empty tenors
+#   (``GSPG1M``, ``GSPG1Y``, ``GSPG2Y``, ``GSPG2YR``, ``GSPG20Y``,
+#   ``GSPG20YR``, ``GSPG30Y``, plus any bare-``Y`` spelling of 3-7Y)
+#   were rejected. 9 tenors total (missing 1M / 2Y / 20Y; still
+#   Svensson-capable).
 TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
     "GB": {
         "1M": "GUKG1M:IND",
@@ -234,6 +241,17 @@ TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
         "15Y": "GBTPGR15Y:IND",
         "20Y": "GBTPGR20Y:IND",
         "30Y": "GBTPGR30Y:IND",
+    },
+    "ES": {
+        "3M": "GSPG3M:IND",
+        "6M": "GSPG6M:IND",
+        "1Y": "GSPG1YR:IND",
+        "3Y": "GSPG3YR:IND",
+        "5Y": "GSPG5YR:IND",
+        "7Y": "GSPG7YR:IND",
+        "10Y": "GSPG10YR:IND",
+        "15Y": "GSPG15YR:IND",
+        "30Y": "GSPG30YR:IND",
     },
 }
 
@@ -1869,12 +1887,11 @@ class TEConnector:
         """Multi-tenor sovereign nominal yield curve via TE Bloomberg symbols.
 
         Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors),
-        IT (12 tenors, Sprint H). Other non-EA T1 countries are deferred
-        per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK have insufficient
-        tenor coverage on TE); EA periphery remainder (FR / NL / PT)
-        deferred per per-country CAL items (see
-        :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`). ES
-        ships in Sprint H Commit 2.
+        IT (12 tenors, Sprint H), ES (9 tenors, Sprint H). Other non-EA
+        T1 countries are deferred per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/
+        NO/DK have insufficient tenor coverage on TE); EA periphery
+        remainder (FR / NL / PT) deferred per per-country CAL items
+        (see :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
 
         Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
         latest trading day ≤ ``observation_date`` inside a 7-day window.
@@ -1897,8 +1914,8 @@ class TEConnector:
                 f"empirical scope); got {country}. Other T1 countries "
                 f"defer per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK) or "
                 f"per per-country CAL items (FR / NL / PT — see "
-                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS; IT "
-                f"closed Sprint H via TE cascade, ES lands Commit 2)."
+                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS; IT + "
+                f"ES closed Sprint H via TE cascade)."
             )
             raise ValueError(msg)
 
