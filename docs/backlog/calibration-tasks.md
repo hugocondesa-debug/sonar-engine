@@ -2518,3 +2518,23 @@ Items encontrados em grep mas **não catalogáveis** como calibration tasks one-
 - [`../specs/conventions/methodology-versions.md`](../specs/conventions/methodology-versions.md) — bump rules
 - [`../specs/conventions/normalization.md`](../specs/conventions/normalization.md) — lookbacks per cycle
 - [`../specs/conventions/composite-aggregation.md`](../specs/conventions/composite-aggregation.md) — Policy 1 + cycle weights
+
+### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion)
+
+- **Priority:** HIGH — unblocks overlays/cost-of-capital cascades for 6 of 7 T1 countries (DE/PT/IT/ES/FR/NL)
+- **Trigger:** Week 9 Day 4 production first natural fire (2026-04-22 07:00 WEST) revealed daily_curves pipeline still hardcoded `--country US` (Week 2 scope). Service file attempted `--all-t1` flag unsupported by CLI. Reverted to US-only safe state.
+- **Current behavior:** `daily_curves` CLI rejects any country != "US" with EXIT_IO. Line 78 `src/sonar/pipelines/daily_curves.py`: `if country != "US": sys.exit(EXIT_IO)`. Code supports only FRED-sourced US yield curves via `run_us()`.
+- **Required work:**
+  1. Add country-aware connector dispatch in `daily_curves.py`:
+     - US: FRED DGS/DFII series (existing `run_us`)
+     - EA (DE/FR/IT/ES/NL/PT): ECB SDMX connector for sovereign yields
+     - Individual Tier 1 countries: TE `fetch_indicator(country=<>, indicator="government bond 10y")` with maturity spectrum
+  2. NSS fit validation per country (yield conventions differ EUR vs USD)
+  3. Linker data per country (DE inflation-indexed vs US TIPS — different series)
+  4. `--all-t1` flag added to CLI (mirror other 8 pipelines)
+  5. Update `sonar-daily-curves.service` to use `--all-t1`
+  6. Cassettes + live canaries for each new country
+  7. Update test_daily_curves.py to cover multi-country paths
+- **Impact if unresolved:** Overlays/cost-of-capital cascades persist US-only. 6 T1 countries lack ERP/CRP/rating-spread/expected-inflation for cycles integration.
+- **Estimate:** 6-8h CC sprint scope (comparable to M1 country additions Week 9)
+- **Related:** Blocks tomorrow 07:30 WEST `sonar-daily-overlays.service` from persisting DE/PT/IT/ES/FR/NL data.
