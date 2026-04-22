@@ -1,14 +1,15 @@
-# SESSION_CONTEXT — Week 9 close snapshot (in-repo proposal)
+# Week 9 close — phase state snapshot (2026-04-22)
 
-> **Scope note** — CLAUDE.md §8 declares the canonical `SESSION_CONTEXT.md`
-> external to this repo (lives in the claude.ai project). Sprint
-> Z-WEEK9-RETRO (brief §4 Commit 4) requested an in-repo update. This
-> file is the **Week 9 close-state proposal** drafted in-repo so Hugo
-> can merge it against the external authoritative copy at his
-> discretion. Prior-week sections are intentionally not reproduced here
-> — the retro artefact
-> (`docs/planning/retrospectives/week9-retrospective.md`) is the
-> canonical in-repo source of truth for Week 9 content.
+> **Scope note** — Historical snapshot (NOT canonical session bridge).
+> The canonical `SESSION_CONTEXT.md` lives externally in the claude.ai
+> project per CLAUDE.md §8. This file preserves a per-phase state
+> capture at Week 9 close for retrospective reference (e.g., future
+> comparisons at Phase 2 gate). Canonical in-repo Week 9 content lives
+> in `docs/planning/retrospectives/week9-retrospective.md`.
+>
+> Origin: migrated from repo-root `SESSION_CONTEXT.md` (Sprint Z-WEEK9-RETRO
+> advisory proposal) as part of Week 10 Day 0 canonicality resolution
+> (Option 2 — see CLAUDE.md §8).
 
 ## Phase 1 progress snapshot — 2026-04-22 (Week 9 close)
 
@@ -98,7 +99,7 @@ CAL-SE, CAL-NO; CAL-DK projected post-Y-DK.
 New this week: ~46 sub-CALs (6-7 per country × 6 countries) + CAL-137
 (BIS weekly canary) + CAL-138 (daily_curves multi-country).
 
-## Log de sessões — Week 9 summary entry (prose)
+## Week 9 narrative summary
 
 Week 9 closed the advanced-economy monetary M1 arc in five days: six
 native-CB connectors + BIS SDMX v2 migration fix + UK→GB overlay/cycle
@@ -121,11 +122,3 @@ closes that gap.
 
 Full day-by-day + pattern matrices + lessons:
 `docs/planning/retrospectives/week9-retrospective.md`.
-
-## Preserve from prior weeks
-
-Sections from Week 7 / Week 8 / prior phases in the canonical external
-SESSION_CONTEXT.md should be preserved intact — this file only
-touches the Week 9 snapshot, production deployment state, Week 10
-priorities refresh, CAL balance, and the Week 9 log entry. No other
-content proposed.

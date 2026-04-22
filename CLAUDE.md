@@ -65,7 +65,16 @@ Nunca inventar. Se specs não cobrem, perguntar ao Hugo.
 
 ## 8. SESSION_CONTEXT — pointer
 
-Contexto conversacional detalhado (log de sessões Claude chat, decisões históricas, infra setup) vive no projecto **claude.ai** como `SESSION_CONTEXT.md`, externo ao repo. Claude Code **não tem acesso directo** a esse ficheiro. Se precisares de contexto histórico não presente em `docs/`, perguntar ao Hugo — não inventar.
+Contexto conversacional detalhado (log de sessões Claude chat, decisões históricas, infra setup) é **canónico external ao repo**, mantido no projecto claude.ai como `SESSION_CONTEXT.md`. Hugo actualiza-o via paste dos retrospectives de phase-close. Claude Code **não tem acesso directo** a esse ficheiro.
+
+**Historical snapshots in-repo**: `docs/status/week{N}-close-state.md` — per-phase snapshots (NÃO canónicos, reference only) preservam estado em transições importantes. São artefactos históricos, não session bridges live.
+
+**Rationale**:
+- External canonical evita stale in-repo files (5-week staleness observado Week 4-9).
+- Hugo mantém Project Knowledge (claude.ai) como single source of truth para sessões Claude chat.
+- Historical snapshots agregam valor retrospectivo sem burden canonicality.
+
+Se precisares de contexto histórico não presente em `docs/` nem nos snapshots `docs/status/`, perguntar ao Hugo — não inventar.
 
 ## 9. Estado actual
 
