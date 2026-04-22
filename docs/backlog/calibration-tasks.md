@@ -2752,9 +2752,14 @@ as sub-bullets below when it differs materially from peer countries.
   - GB → TE GUKG family (new, 12 tenors 1M-30Y).
   - JP → TE GJGB family (new, 9 tenors 1M-10Y).
   - CA → TE GCAN family (new, 6 tenors NS-reduced).
-  - Pipeline ``--all-t1`` iterates T1_7 tier; countries deferred per
-    the CAL items below skip with ``InsufficientDataError`` + structlog
-    warning, run exits 0 if at least one country persists.
+  - Pipeline ``--all-t1`` originally iterated the shared T1_7 tier;
+    superseded Week 10 Sprint E (``CAL-CURVES-T1-SPARSE-INCLUSION``
+    2026-04-22) by a pipeline-local ``T1_CURVES_COUNTRIES`` tuple
+    ``(US, DE, EA, GB, JP, CA)`` that reflects the curve-capable
+    scope — the EA periphery members are dropped from iteration
+    because they always skipped (the five per-country CAL items
+    below are the re-entry path); AU/NZ/CH/SE/NO/DK remain deferred
+    under ``CAL-CURVES-T1-SPARSE``.
 - **Deferred gaps** (opened as separate tracked items):
   - ``CAL-CURVES-EA-PERIPHERY`` — **SUPERSEDED** Week 10 Sprint A
     (2026-04-22) by five per-country items
@@ -2871,7 +2876,7 @@ as sub-bullets below when it differs materially from peer countries.
 
 - **Priority:** MEDIUM — unblocks overlays / cost-of-capital per-country for 6 non-EA T1 countries currently curve-blind.
 - **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 confirmed TE ``/markets/historical`` exposes only 0-2 tenors per country for AU/NZ/CH/SE/NO/DK; country-indicator endpoint only publishes 10Y. ≥6-tenor NSS fit infeasible via TE alone.
-- **Current behavior:** ``daily_curves --all-t1`` iterates T1_7 tier only (US + 6 EA members); individual ``--country AU/NZ/CH/SE/NO/DK`` invocations raise ``InsufficientDataError`` with CAL pointer.
+- **Current behavior:** post Week 10 Sprint E (``CAL-CURVES-T1-SPARSE-INCLUSION`` 2026-04-22) ``daily_curves --all-t1`` iterates the six curve-capable countries (``T1_CURVES_COUNTRIES = (US, DE, EA, GB, JP, CA)`` — the shared ``T1_7_COUNTRIES`` 7-tuple is kept intact on the other seven daily pipelines); individual ``--country AU/NZ/CH/SE/NO/DK`` invocations still raise ``InsufficientDataError`` with the CAL-CURVES-T1-SPARSE pointer until the native CB connectors land.
 - **Required work:**
   1. Native CB yield-curve connectors per country:
      - AU → RBA F2.1/F16 tables (full AGB spectrum 3M-30Y).
