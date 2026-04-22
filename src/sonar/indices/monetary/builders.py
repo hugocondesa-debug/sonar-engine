@@ -289,6 +289,183 @@ def _m2_blocked_msg(
     return f"{core} {tail}Raises so the pipeline skips M2 {country_code} cleanly."
 
 
+async def _assemble_m2_full_compute(
+    *,
+    country_code: str,
+    observation_date: date,
+    policy_hist: Sequence[_DatedValue],
+    cascade_flags: tuple[str, ...],
+    cascade_sources: tuple[str, ...],
+    cpi_observations: Sequence[object],  # list[TEIndicatorObservation] — runtime dep
+    forecast_12m_pct: float | None,
+    forecast_flags: tuple[str, ...],
+    output_gap_pct: float | None,
+    history_years: int,
+    extra_flags: tuple[str, ...] = (),
+) -> M2TaylorGapsInputs:
+    """Assemble M2 inputs for a non-US T1 country in full-compute mode.
+
+    Week 10 Sprint F helper. All four Taylor-rule components
+    (policy_rate, inflation_yoy, output_gap, inflation_target + r* from
+    YAML) must be present; forecast + prev_policy are optional (the
+    Taylor-forward and Taylor-inertia variants degrade gracefully in
+    :mod:`m2_taylor_gaps`).
+
+    Raises :class:`InsufficientDataError` when any of the four required
+    components is missing — callers' per-country M2 scaffold raises
+    pass through unchanged.
+
+    Flags composition:
+
+    - ``cascade_flags`` from the M1 policy-rate cascade (e.g.
+      ``CA_BANK_RATE_TE_PRIMARY``) propagate to M2 so operators can
+      trace the policy-rate source without re-querying.
+    - ``{COUNTRY_CODE}_M2_CPI_TE_LIVE`` / ``CPI_UNAVAILABLE`` tracks
+      the TE CPI path.
+    - ``{COUNTRY_CODE}_M2_INFLATION_FORECAST_TE_LIVE`` /
+      ``FORECAST_UNAVAILABLE`` tracks the forecast wiring.
+    - ``{COUNTRY_CODE}_M2_OUTPUT_GAP_OECD_EO_LIVE`` /
+      ``OUTPUT_GAP_UNAVAILABLE`` tracks the OECD EO path.
+    - ``{COUNTRY_CODE}_M2_FULL_COMPUTE_LIVE`` emitted when all four
+      optional observability flags are on the LIVE branch.
+    - ``extra_flags`` appended last for country-specific
+      deviations (e.g. NZ quarterly CPI, AU sparse monthly,
+      DK imported EUR-peg inflation target).
+
+    Unit convention matches :func:`build_m2_us_inputs`:
+    ``inflation_yoy_pct`` + ``inflation_forecast_2y_pct`` in decimal
+    (``0.024`` = 2.4%); ``output_gap_pct`` in percentage points
+    (``-0.5`` = -0.5%); ``policy_rate_pct`` in decimal
+    (``0.025`` = 2.5%); ``inflation_target_pct`` + ``r_star_pct`` in
+    decimal per the YAML.
+    """
+    flags: list[str] = list(cascade_flags)
+
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = f"{country_code} policy rate: no observation at or before anchor"
+        raise InsufficientDataError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    prior_anchor = observation_date - timedelta(days=30)
+    prev_policy_obs = _latest_on_or_before(policy_hist, prior_anchor)
+    prev_policy_rate_pct = prev_policy_obs.value / 100.0 if prev_policy_obs is not None else None
+
+    cpi_list = list(cpi_observations)
+    if not cpi_list:
+        flags.append(f"{country_code}_M2_CPI_UNAVAILABLE")
+        msg = (
+            f"M2 {country_code} builder (Sprint F full compute) — CPI YoY "
+            f"unavailable from TE. Cannot compute Taylor gap."
+        )
+        raise InsufficientDataError(msg)
+    latest_cpi = cpi_list[-1]
+    cpi_raw_value = getattr(latest_cpi, "value", None)
+    if cpi_raw_value is None:
+        msg = (
+            f"M2 {country_code} builder: latest TE CPI observation is missing "
+            f"a .value attribute — connector contract violated."
+        )
+        raise InsufficientDataError(msg)
+    inflation_yoy_pct = float(cpi_raw_value) / 100.0  # TE value is %; to decimal
+    flags.append(f"{country_code}_M2_CPI_TE_LIVE")
+
+    if output_gap_pct is None:
+        flags.append(f"{country_code}_M2_OUTPUT_GAP_UNAVAILABLE")
+        msg = (
+            f"M2 {country_code} builder (Sprint F full compute) — OECD EO "
+            f"output gap unavailable. Cannot compute Taylor gap."
+        )
+        raise InsufficientDataError(msg)
+    flags.append(f"{country_code}_M2_OUTPUT_GAP_OECD_EO_LIVE")
+
+    r_star_pct, is_proxy = resolve_r_star(country_code)
+    if is_proxy:
+        flags.append("R_STAR_PROXY")
+    inflation_target_pct = resolve_inflation_target(country_code)
+    target_convention = resolve_inflation_target_convention(country_code)
+    if target_convention == "imported_eur_peg":
+        flags.append(f"{country_code}_INFLATION_TARGET_IMPORTED_FROM_EA")
+
+    flags.extend(forecast_flags)
+    inflation_forecast_2y_pct = forecast_12m_pct / 100.0 if forecast_12m_pct is not None else None
+
+    source_connector = tuple(dict.fromkeys([*cascade_sources, "te", "oecd_eo"]))
+
+    if inflation_forecast_2y_pct is not None:
+        flags.append(f"{country_code}_M2_FULL_COMPUTE_LIVE")
+    else:
+        flags.append(f"{country_code}_M2_PARTIAL_COMPUTE")
+
+    flags.extend(extra_flags)
+
+    return M2TaylorGapsInputs(
+        country_code=country_code,
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        inflation_yoy_pct=inflation_yoy_pct,
+        inflation_target_pct=inflation_target_pct,
+        output_gap_pct=output_gap_pct,
+        r_star_pct=r_star_pct,
+        prev_policy_rate_pct=prev_policy_rate_pct,
+        inflation_forecast_2y_pct=inflation_forecast_2y_pct,
+        lookback_years=history_years,
+        source_connector=source_connector,
+        upstream_flags=tuple(flags),
+        output_gap_source="OECD_EO",
+    )
+
+
+async def _try_fetch_inflation_forecast_12m(
+    te: TEConnector | None,
+    country_code: str,
+    observation_date: date,
+    fetch_method_name: str,
+) -> tuple[float | None, tuple[str, ...]]:
+    """Fetch the 12m-ahead inflation forecast via ``te.fetch_*_inflation_forecast``.
+
+    Soft-fails to ``(None, ("{COUNTRY}_M2_INFLATION_FORECAST_UNAVAILABLE",))``
+    when the TE connector is absent or the forecast endpoint raises.
+    Otherwise returns ``(forecast_12m_pct_as_percent,
+    ("{COUNTRY}_M2_INFLATION_FORECAST_TE_LIVE",))`` with ``forecast_12m_pct``
+    still in percent (caller does the /100 conversion once at the
+    :class:`M2TaylorGapsInputs` boundary).
+    """
+    if te is None:
+        return None, (f"{country_code}_M2_INFLATION_FORECAST_UNAVAILABLE",)
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    fetch = getattr(te, fetch_method_name, None)
+    if fetch is None:
+        return None, (f"{country_code}_M2_INFLATION_FORECAST_UNAVAILABLE",)
+    try:
+        fcst = await fetch(observation_date)
+    except DataUnavailableError:
+        return None, (f"{country_code}_M2_INFLATION_FORECAST_UNAVAILABLE",)
+    return fcst.forecast_12m_pct, (f"{country_code}_M2_INFLATION_FORECAST_TE_LIVE",)
+
+
+async def _try_fetch_cpi_yoy(
+    te: TEConnector | None,
+    start: date,
+    end: date,
+    fetch_method_name: str,
+) -> Sequence[object]:
+    """Fetch the TE CPI YoY window via ``te.fetch_*_cpi_yoy``. Soft-fail on absence."""
+    if te is None:
+        return ()
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    fetch = getattr(te, fetch_method_name, None)
+    if fetch is None:
+        return ()
+    try:
+        result: Sequence[object] = await fetch(start, end)
+    except DataUnavailableError:
+        return ()
+    return result
+
+
 async def _try_fetch_oecd_output_gap_pct(
     oecd_eo: OECDEOConnector | None,
     country_code: str,
@@ -1074,41 +1251,70 @@ async def build_m1_ca_inputs(
 
 
 async def build_m2_ca_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD CA gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    boc: BoCConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    boc: BoCConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 CA inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 CA inputs — full compute live (Week 10 Sprint F).
 
-    Sprint S shipped the dispatch wire-ready. Sprint C (Week 10) closed
-    the output-gap half of CAL-130 by wiring OECD EO as the canonical
-    source (``ref_area=CAN``, annual cadence). The remaining blockers
-    for M2 CA live compute are:
+    Progression:
 
-    - **CA CPI YoY**: ``fetch_ca_cpi_yoy`` still missing (CAL-134 →
-      CAL-CPI-INFL-T1-WRAPPERS).
-    - **Inflation forecast**: BoC MPR quarterly forecasts still
-      unwired (CAL-135 → CAL-CPI-INFL-T1-WRAPPERS).
+    - Sprint S (Week 9): wire-ready scaffold; raised
+      InsufficientDataError with the CAL-130 blocker message.
+    - Sprint C (Week 10 Day 1): wired OECD EO output-gap via
+      ``ref_area=CAN``; raise message narrowed to the CPI + forecast
+      blockers per :func:`_m2_blocked_msg`.
+    - **Sprint F (Week 10 Day 2)**: this commit — wires TE CPI YoY
+      + inflation-forecast wrappers (Commit 1
+      :meth:`TEConnector.fetch_ca_cpi_yoy` /
+      :meth:`TEConnector.fetch_ca_inflation_forecast`) to complete
+      the four-component Taylor compute. Policy-rate path reuses the
+      Sprint S :func:`_ca_bank_rate_cascade` so this M2 builder
+      inherits TE-primary → BoC native → FRED staleness fallback
+      without re-implementing it.
 
-    When ``oecd_eo`` is injected, the builder confirms the output-
-    gap wiring end-to-end (structured ``monetary_builder.m2.output_
-    gap_wired`` log line) before raising. Once CPI + forecast land,
-    the body flips to the full US-equivalent assembly path — the
-    output-gap component will already be fetched.
+    Flag contract:
+
+    - ``CA_BANK_RATE_TE_PRIMARY`` / ``..._BOC_NATIVE`` / ``..._FRED_FALLBACK_STALE``
+      from the cascade.
+    - ``CA_M2_CPI_TE_LIVE`` when the TE CPI observation window is non-empty.
+    - ``CA_M2_INFLATION_FORECAST_TE_LIVE`` when the 12m-ahead forecast
+      wires in; ``..._FORECAST_UNAVAILABLE`` otherwise (Taylor-forward
+      variant degrades gracefully).
+    - ``CA_M2_OUTPUT_GAP_OECD_EO_LIVE`` when OECD EO returns a gap.
+    - ``CA_M2_FULL_COMPUTE_LIVE`` when all four components wire;
+      ``..._PARTIAL_COMPUTE`` when forecast is missing but gap + CPI +
+      policy all succeed.
+    - ``R_STAR_PROXY`` propagates from
+      :func:`resolve_r_star` (CA ships ``proxy: true``).
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CA", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="CA",
-        sprint_label="Sprint S",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _ca_bank_rate_cascade(
+        start, observation_date, te=te, boc=boc, fred=fred
     )
-    raise InsufficientDataError(msg)
+
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_ca_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "CA", observation_date, "fetch_ca_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CA", observation_date)
+
+    return await _assemble_m2_full_compute(
+        country_code="CA",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1320,31 +1526,50 @@ async def build_m1_au_inputs(
 
 
 async def build_m2_au_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD AU gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    rba: RBAConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    rba: RBAConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 AU inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 AU inputs — full compute live (Week 10 Sprint F).
 
-    Sprint T shipped the dispatch wire-ready. Sprint C (Week 10) closed
-    the output-gap half of CAL-AU-GAP by wiring OECD EO as the
-    canonical source (``ref_area=AUS``, annual cadence). Remaining
-    blockers: CAL-AU-CPI + CAL-AU-INFL-FORECAST (folded into
-    CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint T shipped the dispatch wire-ready; Sprint C wired OECD EO
+    output-gap (``ref_area=AUS``); Sprint F (this commit) wires TE CPI
+    YoY + inflation forecast via :meth:`TEConnector.fetch_au_cpi_yoy`
+    and :meth:`TEConnector.fetch_au_inflation_forecast`.
+
+    **AU-specific degradation flag**: the ABS Monthly CPI Indicator
+    coverage on TE begins only in 2025-04-30 (~11 observations at
+    Sprint F probe). When the returned CPI window has fewer than 12
+    observations the builder emits ``AU_M2_CPI_SPARSE_MONTHLY`` so
+    downstream consumers can surface the coverage limitation.
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "AU", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="AU",
-        sprint_label="Sprint T",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _au_cash_rate_cascade(
+        start, observation_date, te=te, rba=rba, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_au_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "AU", observation_date, "fetch_au_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "AU", observation_date)
+    extra_flags = ("AU_M2_CPI_SPARSE_MONTHLY",) if len(cpi_obs) < 12 else ()
+    return await _assemble_m2_full_compute(
+        country_code="AU",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+        extra_flags=extra_flags,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1570,31 +1795,46 @@ async def build_m1_nz_inputs(
 
 
 async def build_m2_nz_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD NZ gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    rbnz: RBNZConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    rbnz: RBNZConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 NZ inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 NZ inputs — full compute live (Week 10 Sprint F).
 
-    Sprint U-NZ shipped the dispatch wire-ready. Sprint C (Week 10)
-    closed the output-gap half of CAL-NZ-M2-OUTPUT-GAP by wiring OECD
-    EO as the canonical source (``ref_area=NZL``, annual cadence).
-    Remaining blockers: CAL-NZ-CPI + CAL-NZ-INFL-FORECAST (folded
-    into CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint U-NZ shipped the dispatch wire-ready; Sprint C wired OECD EO
+    output-gap; Sprint F (this commit) wires TE CPI YoY + inflation
+    forecast. The StatsNZ native CPI publication is **quarterly**, and
+    TE mirrors that cadence — the builder emits ``NZ_M2_CPI_QUARTERLY``
+    on every compute to surface the lower cadence to downstream
+    consumers (contrast the monthly CPI path of most other T1
+    countries).
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NZ", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="NZ",
-        sprint_label="Sprint U-NZ",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _nz_ocr_cascade(
+        start, observation_date, te=te, rbnz=rbnz, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_nz_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "NZ", observation_date, "fetch_nz_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NZ", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="NZ",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+        extra_flags=("NZ_M2_CPI_QUARTERLY",),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1840,32 +2080,48 @@ async def build_m1_ch_inputs(
 
 
 async def build_m2_ch_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD CH gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    snb: SNBConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    snb: SNBConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 CH inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 CH inputs — full compute live (Week 10 Sprint F).
 
-    Sprint V shipped the dispatch wire-ready. Sprint C (Week 10) closed
-    the output-gap half of CAL-CH-GAP by wiring OECD EO as the
-    canonical source (``ref_area=CHE``, annual cadence — SNB does not
-    publish a domestic output gap, so the OECD sanctioned proxy is
-    canonical for CH). Remaining blockers: CAL-CH-CPI +
-    CAL-CH-INFL-FORECAST (folded into CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint V wired the dispatch; Sprint C wired the OECD EO output gap
+    (``ref_area=CHE`` — SNB does not publish a domestic gap, so OECD is
+    canonical); Sprint F (this commit) wires TE CPI YoY + 12m-ahead
+    forecast via :meth:`TEConnector.fetch_ch_cpi_yoy` and
+    :meth:`TEConnector.fetch_ch_inflation_forecast`. The SNB 0-2 % band
+    midpoint (1 %) resolves through ``bc_targets.yaml`` for
+    ``inflation_target_pct``; propagates ``R_STAR_PROXY`` via the EA
+    r* fallback (CH is not in :data:`EA_PROXY_COUNTRIES`, so the r*
+    loader uses the CH-specific YAML entry with proxy=True).
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CH", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="CH",
-        sprint_label="Sprint V",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _ch_policy_rate_cascade(
+        start, observation_date, te=te, snb=snb, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_ch_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "CH", observation_date, "fetch_ch_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CH", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="CH",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+        extra_flags=("CH_INFLATION_TARGET_BAND",),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2097,31 +2353,46 @@ async def build_m1_no_inputs(
 
 
 async def build_m2_no_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD NO gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    norgesbank: NorgesBankConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    norgesbank: NorgesBankConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 NO inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 NO inputs — full compute live (Week 10 Sprint F).
 
-    Sprint X-NO shipped the dispatch wire-ready. Sprint C (Week 10)
-    closed the output-gap half of CAL-NO-M2-OUTPUT-GAP by wiring
-    OECD EO as the canonical source (``ref_area=NOR``, annual
-    cadence). Remaining blockers: CAL-NO-CPI + CAL-NO-INFL-FORECAST
-    (folded into CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint X-NO wired the dispatch; Sprint C wired OECD EO output-gap;
+    Sprint F (this commit) wires TE CPI YoY + 12m-ahead forecast via
+    :meth:`TEConnector.fetch_no_cpi_yoy` and
+    :meth:`TEConnector.fetch_no_inflation_forecast`.
+
+    Norges Bank target: 2 % CPI (reduced from 2.5 % on 2018-03-02).
+    ``bc_targets.yaml`` returns the current 2 % — backtests anchoring
+    pre-2018 need to override in-loader.
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NO", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="NO",
-        sprint_label="Sprint X-NO",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _no_policy_rate_cascade(
+        start, observation_date, te=te, norgesbank=norgesbank, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_no_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "NO", observation_date, "fetch_no_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NO", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="NO",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2381,31 +2652,49 @@ async def build_m1_se_inputs(
 
 
 async def build_m2_se_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD SE gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    riksbank: RiksbankConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    riksbank: RiksbankConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 SE inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 SE inputs — full compute live (Week 10 Sprint F).
 
-    Sprint W-SE shipped the dispatch wire-ready. Sprint C (Week 10)
-    closed the output-gap half of CAL-SE-GAP by wiring OECD EO as
-    the canonical source (``ref_area=SWE``, annual cadence). Remaining
-    blockers: CAL-SE-CPI + CAL-SE-INFL-FORECAST (folded into
-    CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint W-SE wired the dispatch; Sprint C wired OECD EO output-gap;
+    Sprint F (this commit) wires TE CPI YoY + 12m-ahead forecast via
+    :meth:`TEConnector.fetch_se_cpi_yoy` and
+    :meth:`TEConnector.fetch_se_inflation_forecast`.
+
+    Note: Riksbank target is **CPIF** (2 % point target since 2017);
+    TE returns headline CPI, not CPIF. Gap typically <= 30 bps; the
+    headline CPI path ships as the Sprint F primary per the brief's
+    scope note. A CPIF-specific wrapper can land under a Phase 2+
+    sprint if the M2 compute requires CPIF strictness.
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "SE", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="SE",
-        sprint_label="Sprint W-SE",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _se_policy_rate_cascade(
+        start, observation_date, te=te, riksbank=riksbank, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_se_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "SE", observation_date, "fetch_se_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "SE", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="SE",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+        extra_flags=("SE_M2_CPI_HEADLINE_NOT_CPIF",),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2684,43 +2973,57 @@ async def build_m1_dk_inputs(
 
 
 async def build_m2_dk_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD DK gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    nationalbanken: NationalbankenConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    nationalbanken: NationalbankenConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 DK inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 DK inputs — full compute live (Week 10 Sprint F).
 
-    Sprint Y-DK shipped the dispatch wire-ready. Sprint C (Week 10)
-    closed the output-gap half of CAL-DK-GAP by wiring OECD EO as
-    the canonical source (``ref_area=DNK``, annual cadence).
-    Remaining blockers: CAL-DK-CPI + CAL-DK-INFL-FORECAST (folded
-    into CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint Y-DK wired the dispatch; Sprint C wired OECD EO output-gap;
+    Sprint F (this commit) wires TE CPI YoY + 12m-ahead forecast via
+    :meth:`TEConnector.fetch_dk_cpi_yoy` and
+    :meth:`TEConnector.fetch_dk_inflation_forecast`. The
+    :func:`resolve_inflation_target` path picks up the
+    ``imported_eur_peg`` convention from ``bc_targets.yaml`` and
+    :func:`_assemble_m2_full_compute` emits
+    ``DK_INFLATION_TARGET_IMPORTED_FROM_EA`` automatically; the ECB
+    target value (2 %) is used as the DK target.
 
-    Important: even when all three components land, the vanilla M2
-    Taylor-gap formula will systematically misfit DK because
-    Nationalbanken does not run an independent monetary policy —
-    the policy-rate response function is dominated by the EUR-peg-
+    **Known limitation** preserved from Sprint Y-DK: the vanilla
+    Taylor-gap formula will systematically mis-fit DK because
+    Nationalbanken does not run an independent monetary policy — the
+    policy-rate response function is dominated by the EUR-peg-
     defence imperative. The EUR-peg-aware spec revision is tracked
     separately under ``CAL-DK-M2-EUR-PEG-TAYLOR`` (Phase 2+).
+    Sprint F ships the full compute regardless so operators can
+    quantify the mis-fit empirically.
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "DK", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="DK",
-        sprint_label="Sprint Y-DK",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
-        extra_tail=(
-            "Note also CAL-DK-M2-EUR-PEG-TAYLOR — the vanilla "
-            "Taylor-rule formula will mis-fit given the EUR-peg-"
-            "defence policy regime."
-        ),
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _dk_policy_rate_cascade(
+        start, observation_date, te=te, nationalbanken=nationalbanken, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_dk_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "DK", observation_date, "fetch_dk_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "DK", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="DK",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+        extra_flags=("DK_M2_EUR_PEG_TAYLOR_MISFIT",),
+    )
 
 
 # ---------------------------------------------------------------------------

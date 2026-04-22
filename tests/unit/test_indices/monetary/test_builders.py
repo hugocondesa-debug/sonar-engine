@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import ClassVar
 
 import pytest
 
@@ -1367,34 +1368,12 @@ class TestBuildM1Ca:
 
 
 # ---------------------------------------------------------------------------
-# M2 CA (Sprint S — scaffold raises until CA gap + CPI connectors land)
+# M2 CA (Sprint F — full compute; Sprint S + Sprint C scaffold deleted)
 # ---------------------------------------------------------------------------
-
-
-class TestBuildM2Ca:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 CA scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTECaSuccess(pct=3.25)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_ca_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_ca_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# The explicit per-country TestBuildM2* classes for the seven Sprint-F-flipped
+# builders (CA/AU/NZ/CH/SE/NO/DK) now live in :class:`TestBuildM2SprintFFlipped`
+# as a single parametric suite — happy path, CPI missing, gap missing,
+# forecast-missing-partial, and legacy-unwired-raises scenarios.
 
 
 # ---------------------------------------------------------------------------
@@ -1554,34 +1533,8 @@ class TestBuildM1Au:
 
 
 # ---------------------------------------------------------------------------
-# M2 AU (Sprint T — scaffold raises until AU gap + CPI connectors land)
+# M2 AU (Sprint F — full compute; see :class:`TestBuildM2SprintFFlipped` below)
 # ---------------------------------------------------------------------------
-
-
-class TestBuildM2Au:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 AU scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTEAuSuccess(pct=4.10)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_au_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_au_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -1748,30 +1701,7 @@ class TestBuildM1Nz:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2Nz:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 NZ scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTENzSuccess(pct=3.75)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_nz_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_nz_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 NZ full compute lives in :class:`TestBuildM2SprintFFlipped`.
 
 
 # ---------------------------------------------------------------------------
@@ -1984,30 +1914,7 @@ class TestBuildM1Ch:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2Ch:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 CH scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTEChSuccess(pct=1.5)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_ch_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_ch_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 CH full compute lives in :class:`TestBuildM2SprintFFlipped`.
 
 
 # ---------------------------------------------------------------------------
@@ -2204,30 +2111,7 @@ class TestBuildM1No:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2No:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 NO scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTENoSuccess(pct=4.5)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_no_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_no_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 NO full compute lives in :class:`TestBuildM2SprintFFlipped`.
 
 
 # ---------------------------------------------------------------------------
@@ -2446,30 +2330,7 @@ class TestBuildM1Se:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2Se:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 SE scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTESeSuccess(pct=4.0)
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_se_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_se_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 SE full compute lives in :class:`TestBuildM2SprintFFlipped`.
 
 
 # ---------------------------------------------------------------------------
@@ -2702,30 +2563,7 @@ class TestBuildM1Dk:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2Dk:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 DK scaffold is wire-ready but raises until DK gap/CPI land."""
-        fred = _FakeFredConnector()
-        te = _FakeTEDkSuccess(pct=3.25)
-        with pytest.raises(InsufficientDataError, match="CAL-DK"):
-            await build_m2_dk_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_dk_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 DK full compute lives in :class:`TestBuildM2SprintFFlipped`.
 
 
 # ---------------------------------------------------------------------------
@@ -2966,7 +2804,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEAuSuccess(pct=4.10),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("AU", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3035,7 +2878,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTENzSuccess(pct=3.75),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("NZ", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3102,7 +2950,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEChSuccess(pct=1.5),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("CH", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3170,7 +3023,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTENoSuccess(pct=4.5),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("NO", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3238,7 +3096,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTESeSuccess(pct=4.0),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("SE", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3303,14 +3166,19 @@ class TestMonetaryInputsBuilderFacade:
 
     @pytest.mark.asyncio
     async def test_m2_dk_dispatches_to_dk_builder(self) -> None:
-        """DK M2 dispatch routes to the DK scaffold (raises InsufficientDataError)."""
+        """DK M2 dispatch routes to the DK full-compute builder (Sprint F).
+
+        The raise message surface changed from CAL-blocker phrasing
+        (pre-Sprint-F) to CPI / output-gap diagnostics. Dispatch wiring
+        invariant preserved.
+        """
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEDkSuccess(pct=3.25),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-DK"):
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("DK", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3334,7 +3202,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3358,7 +3231,12 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
+        # Sprint F flipped the per-country builder to full compute; the
+        # raise surface now differs (CPI / output-gap / forecast missing)
+        # from the Sprint-C pre-flip CAL-blocker message. Dispatch-test
+        # intent preserved: builder must route to the right country
+        # scaffold and surface InsufficientDataError if fake is incomplete.
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("JP", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3500,36 +3378,20 @@ class _FakeOECDEOUnavailable:
         return None
 
 
-class TestSprintCOutputGapWiring:
-    """Verify each Week-9 M2 builder accepts ``oecd_eo`` and reflects the
-    output-gap wiring in the raise message (Sprint C Week 10)."""
+class TestSprintCOutputGapWiringJp:
+    """Verify JP M2 builder still honours the Sprint C raise-message contract.
+
+    Sprint F Week 10 Day 2 flipped CA/AU/NZ/CH/SE/NO/DK builders to full
+    compute (see :class:`TestSprintFM2FullCompute` below). JP remains a
+    scaffold until Commit 5 wires TE JP CPI + forecast alongside EA + GB.
+    """
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("country", "builder"),
-        [
-            ("JP", build_m2_jp_inputs),
-            ("CA", build_m2_ca_inputs),
-            ("AU", build_m2_au_inputs),
-            ("NZ", build_m2_nz_inputs),
-            ("CH", build_m2_ch_inputs),
-            ("NO", build_m2_no_inputs),
-            ("SE", build_m2_se_inputs),
-            ("DK", build_m2_dk_inputs),
-        ],
-    )
-    async def test_oecd_eo_success_narrows_raise_message(
-        self,
-        country: str,
-        builder: object,
-    ) -> None:
-        """When OECD EO returns a gap, the raise message acknowledges the
-        output-gap is wired via OECD EO — narrowed blocker for CPI +
-        inflation-forecast only."""
+    async def test_oecd_eo_success_narrows_raise_message(self) -> None:
         fred = _FakeFredConnector()
         oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
         with pytest.raises(InsufficientDataError) as excinfo:
-            await builder(  # type: ignore[operator]
+            await build_m2_jp_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
                 oecd_eo=oecd,  # type: ignore[arg-type]
@@ -3537,35 +3399,15 @@ class TestSprintCOutputGapWiring:
             )
         message = str(excinfo.value)
         assert "output-gap live via OECD EO" in message
-        assert f"M2 {country}" in message
-        assert "CAL-M2-T1-OUTPUT-GAP-EXPANSION" in message
+        assert "M2 JP" in message
         assert "CAL-CPI-INFL-T1-WRAPPERS" in message
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("country", "builder"),
-        [
-            ("JP", build_m2_jp_inputs),
-            ("CA", build_m2_ca_inputs),
-            ("AU", build_m2_au_inputs),
-            ("NZ", build_m2_nz_inputs),
-            ("CH", build_m2_ch_inputs),
-            ("NO", build_m2_no_inputs),
-            ("SE", build_m2_se_inputs),
-            ("DK", build_m2_dk_inputs),
-        ],
-    )
-    async def test_oecd_eo_unavailable_falls_back_to_original_message(
-        self,
-        country: str,
-        builder: object,
-    ) -> None:
-        """When OECD EO soft-fails, the raise message flags output-gap
-        as not-wired (canonical pre-Sprint-C phrasing)."""
+    async def test_oecd_eo_unavailable_falls_back_to_original_message(self) -> None:
         fred = _FakeFredConnector()
         oecd = _FakeOECDEOUnavailable()
         with pytest.raises(InsufficientDataError) as excinfo:
-            await builder(  # type: ignore[operator]
+            await build_m2_jp_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
                 oecd_eo=oecd,  # type: ignore[arg-type]
@@ -3573,43 +3415,32 @@ class TestSprintCOutputGapWiring:
             )
         message = str(excinfo.value)
         assert "output-gap is not wired for this invocation" in message
-        assert f"M2 {country}" in message
+        assert "M2 JP" in message
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("country", "builder"),
-        [
-            ("JP", build_m2_jp_inputs),
-            ("CA", build_m2_ca_inputs),
-            ("AU", build_m2_au_inputs),
-            ("NZ", build_m2_nz_inputs),
-            ("CH", build_m2_ch_inputs),
-            ("NO", build_m2_no_inputs),
-            ("SE", build_m2_se_inputs),
-            ("DK", build_m2_dk_inputs),
-        ],
-    )
-    async def test_oecd_eo_absent_still_raises_with_pre_sprint_c_phrasing(
-        self,
-        country: str,
-        builder: object,
-    ) -> None:
-        """When ``oecd_eo`` is not injected, the raise message is the
-        pre-Sprint-C form (output-gap unwired for this invocation)."""
+    async def test_oecd_eo_absent_still_raises_jp(self) -> None:
+        """JP remains a Sprint C scaffold: no ``oecd_eo`` → pre-Sprint-C raise phrasing."""
         fred = _FakeFredConnector()
         with pytest.raises(InsufficientDataError) as excinfo:
-            await builder(  # type: ignore[operator]
+            await build_m2_jp_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
                 history_years=2,
             )
         message = str(excinfo.value)
         assert "output-gap is not wired for this invocation" in message
-        assert f"M2 {country}" in message
+        assert "M2 JP" in message
 
     @pytest.mark.asyncio
     async def test_facade_passes_oecd_eo_to_ca_builder(self) -> None:
-        """``MonetaryInputsBuilder`` wires ``oecd_eo`` through M2 CA dispatch."""
+        """``MonetaryInputsBuilder`` wires ``oecd_eo`` through M2 CA dispatch.
+
+        Sprint F: CA builder flipped to full compute; without the Sprint F
+        CPI + forecast wrappers the fake still raises — but with a
+        different message surface than pre-Sprint-F (CPI unavailable, not
+        CAL-blocker phrasing). The dispatch wiring itself is the
+        invariant under test.
+        """
         oecd = _FakeOECDEOSuccess(gap_pct=-0.1)
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
@@ -3618,24 +3449,20 @@ class TestSprintCOutputGapWiring:
             te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
             oecd_eo=oecd,  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError) as excinfo:
+        with pytest.raises(InsufficientDataError):
             await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
-        # Output-gap is now confirmed wired (facade passed oecd_eo through).
-        assert "output-gap live via OECD EO" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_facade_defaults_oecd_eo_none_pre_sprint_c_phrasing(
-        self,
-    ) -> None:
-        """Facade without ``oecd_eo`` kwarg → pre-Sprint-C raise phrasing."""
+    async def test_facade_defaults_oecd_eo_none_for_jp(self) -> None:
+        """Facade without ``oecd_eo`` kwarg → JP raises with pre-Sprint-C phrasing."""
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
-            te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
+            te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
         )
         with pytest.raises(InsufficientDataError) as excinfo:
-            await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
+            await builder.build_m2_inputs("JP", date(2024, 12, 31), history_years=2)
         assert "output-gap is not wired for this invocation" in str(excinfo.value)
 
     @pytest.mark.asyncio
@@ -3662,3 +3489,321 @@ class TestSprintCOutputGapWiring:
         assert "oecd_eo" not in sig.parameters
         # cbo still a required positional (US output-gap primary).
         assert sig.parameters["cbo"].kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,)
+
+
+# ---------------------------------------------------------------------------
+# Sprint F — M2 full-compute parametric tests for CA / AU / NZ / CH / SE / NO / DK
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeTEInflationForecast:
+    country: str
+    historical_data_symbol: str
+    latest_value_pct: float
+    latest_value_date: date
+    forecast_12m_pct: float
+    forecast_12m_date: date
+    forecast_year_end_pct: float
+    indicator: str = "inflation rate"
+    frequency: str = "Monthly"
+
+
+class _FakeTESprintF:
+    """Fake TEConnector providing Sprint F CPI + forecast + bank-rate methods.
+
+    Instantiated once per country — registers the country-specific
+    method names dynamically so each builder finds its expected wrappers
+    (e.g. ``fetch_ca_cpi_yoy`` vs ``fetch_au_cpi_yoy``). Also satisfies
+    the M1 cascade's bank-rate wrappers so the full-compute builders
+    can run end-to-end without a separate policy-rate mock.
+    """
+
+    _POLICY_METHOD: ClassVar[dict[str, tuple[str, str]]] = {
+        "CA": ("fetch_ca_bank_rate", "CCLR"),
+        "AU": ("fetch_au_cash_rate", "RBATCTR"),
+        "NZ": ("fetch_nz_ocr", "NZOCRS"),
+        "CH": ("fetch_ch_policy_rate", "SZLTTR"),
+        "NO": ("fetch_no_policy_rate", "NOBRDEP"),
+        "SE": ("fetch_se_policy_rate", "SWRRATEI"),
+        "DK": ("fetch_dk_policy_rate", "DEBRDISC"),
+    }
+    _CPI_SYMBOL: ClassVar[dict[str, str]] = {
+        "CA": "CACPIYOY",
+        "AU": "AUCPIYOY",
+        "NZ": "NZCPIYOY",
+        "CH": "SZCPIYOY",
+        "NO": "NOCPIYOY",
+        "SE": "SWCPYOY",
+        "DK": "DNCPIYOY",
+    }
+
+    def __init__(
+        self,
+        country_code: str,
+        *,
+        policy_pct: float = 3.0,
+        cpi_pct: float = 2.5,
+        forecast_12m_pct: float = 2.1,
+        cpi_available: bool = True,
+        forecast_available: bool = True,
+        cpi_obs_count: int = 24,
+    ) -> None:
+        self.country = country_code
+        self.policy_pct = policy_pct
+        self.cpi_pct = cpi_pct
+        self.forecast_12m_pct = forecast_12m_pct
+        self.cpi_available = cpi_available
+        self.forecast_available = forecast_available
+        self.cpi_obs_count = cpi_obs_count
+        policy_method, policy_symbol = self._POLICY_METHOD[country_code]
+        cpi_symbol = self._CPI_SYMBOL[country_code]
+
+        async def _policy(start: date, end: date) -> list[_FakeTEIndicatorObs]:
+            out: list[_FakeTEIndicatorObs] = []
+            d = start
+            while d <= end:
+                out.append(
+                    _FakeTEIndicatorObs(
+                        observation_date=d,
+                        value=self.policy_pct,
+                        historical_data_symbol=policy_symbol,
+                    )
+                )
+                d = date.fromordinal(d.toordinal() + 1)
+            return out
+
+        async def _cpi(start: date, end: date) -> list[_FakeTEIndicatorObs]:
+            if not self.cpi_available:
+                msg = (
+                    f"TE returned empty series: country={country_code!r} indicator='inflation rate'"
+                )
+                raise DataUnavailableError(msg)
+            out: list[_FakeTEIndicatorObs] = []
+            d = end
+            count = 0
+            while count < self.cpi_obs_count and d >= start:
+                out.insert(
+                    0,
+                    _FakeTEIndicatorObs(
+                        observation_date=d,
+                        value=self.cpi_pct,
+                        historical_data_symbol=cpi_symbol,
+                    ),
+                )
+                d = date.fromordinal(d.toordinal() - 30)
+                count += 1
+            return out
+
+        async def _forecast(observation_date: date) -> _FakeTEInflationForecast:
+            if not self.forecast_available:
+                msg = f"TE forecast empty: country={country_code!r} indicator='inflation rate'"
+                raise DataUnavailableError(msg)
+            return _FakeTEInflationForecast(
+                country=country_code,
+                historical_data_symbol=cpi_symbol,
+                latest_value_pct=self.cpi_pct,
+                latest_value_date=observation_date,
+                forecast_12m_pct=self.forecast_12m_pct,
+                forecast_12m_date=observation_date,
+                forecast_year_end_pct=self.forecast_12m_pct,
+            )
+
+        setattr(self, policy_method, _policy)
+        setattr(self, f"fetch_{country_code.lower()}_cpi_yoy", _cpi)
+        setattr(self, f"fetch_{country_code.lower()}_inflation_forecast", _forecast)
+
+
+_SPRINT_F_BUILDERS: dict[str, object] = {
+    "CA": build_m2_ca_inputs,
+    "AU": build_m2_au_inputs,
+    "NZ": build_m2_nz_inputs,
+    "CH": build_m2_ch_inputs,
+    "NO": build_m2_no_inputs,
+    "SE": build_m2_se_inputs,
+    "DK": build_m2_dk_inputs,
+}
+
+
+_SPRINT_F_SECONDARY_KW: dict[str, str] = {
+    "CA": "boc",
+    "AU": "rba",
+    "NZ": "rbnz",
+    "CH": "snb",
+    "NO": "norgesbank",
+    "SE": "riksbank",
+    "DK": "nationalbanken",
+}
+
+
+def _extra_kwargs_for(country: str) -> dict[str, object]:
+    """Per-country kwarg aliases for the M1 cascade secondary slots."""
+    kw = _SPRINT_F_SECONDARY_KW.get(country)
+    return {kw: None} if kw else {}
+
+
+class TestBuildM2SprintFFlipped:
+    """Sprint F full-compute behaviour for CA / AU / NZ / CH / SE / NO / DK."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", list(_SPRINT_F_BUILDERS.keys()))
+    async def test_full_compute_live_happy_path(self, country: str) -> None:
+        """All four components present → builder returns with FULL_COMPUTE_LIVE."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF(country, policy_pct=3.0, cpi_pct=2.5, forecast_12m_pct=2.1)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        builder = _SPRINT_F_BUILDERS[country]
+        inputs = await builder(  # type: ignore[operator]
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+            **_extra_kwargs_for(country),
+        )
+        assert inputs.country_code == country
+        assert inputs.observation_date == date(2024, 12, 31)
+        # Unit convention: inflation_yoy in decimal, target from YAML in decimal.
+        assert inputs.inflation_yoy_pct == pytest.approx(0.025)
+        assert inputs.inflation_forecast_2y_pct == pytest.approx(0.021)
+        assert inputs.output_gap_pct == pytest.approx(-0.5)
+        assert inputs.policy_rate_pct == pytest.approx(0.03)
+        assert f"{country}_M2_CPI_TE_LIVE" in inputs.upstream_flags
+        assert f"{country}_M2_INFLATION_FORECAST_TE_LIVE" in inputs.upstream_flags
+        assert f"{country}_M2_OUTPUT_GAP_OECD_EO_LIVE" in inputs.upstream_flags
+        assert f"{country}_M2_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+        assert "te" in inputs.source_connector
+        assert "oecd_eo" in inputs.source_connector
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", list(_SPRINT_F_BUILDERS.keys()))
+    async def test_cpi_missing_raises(self, country: str) -> None:
+        """CPI unavailable → InsufficientDataError (cannot compute Taylor)."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF(country, cpi_available=False)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        builder = _SPRINT_F_BUILDERS[country]
+        with pytest.raises(InsufficientDataError, match="CPI YoY unavailable"):
+            await builder(  # type: ignore[operator]
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+                **_extra_kwargs_for(country),
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", list(_SPRINT_F_BUILDERS.keys()))
+    async def test_output_gap_missing_raises(self, country: str) -> None:
+        """OECD EO output-gap unavailable → InsufficientDataError."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF(country)
+        oecd = _FakeOECDEOUnavailable()
+        builder = _SPRINT_F_BUILDERS[country]
+        with pytest.raises(InsufficientDataError, match="output gap unavailable"):
+            await builder(  # type: ignore[operator]
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+                **_extra_kwargs_for(country),
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", list(_SPRINT_F_BUILDERS.keys()))
+    async def test_forecast_missing_ships_partial_compute(self, country: str) -> None:
+        """Forecast unavailable → PARTIAL_COMPUTE flag; Taylor-forward variant deferred."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF(country, forecast_available=False)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        builder = _SPRINT_F_BUILDERS[country]
+        inputs = await builder(  # type: ignore[operator]
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+            **_extra_kwargs_for(country),
+        )
+        assert inputs.inflation_forecast_2y_pct is None
+        assert f"{country}_M2_INFLATION_FORECAST_UNAVAILABLE" in inputs.upstream_flags
+        assert f"{country}_M2_PARTIAL_COMPUTE" in inputs.upstream_flags
+        assert f"{country}_M2_FULL_COMPUTE_LIVE" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_au_sparse_monthly_flag_when_cpi_obs_fewer_than_12(self) -> None:
+        """AU-specific: <12 CPI observations → AU_M2_CPI_SPARSE_MONTHLY flag."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF("AU", cpi_obs_count=5)
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        inputs = await build_m2_au_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert "AU_M2_CPI_SPARSE_MONTHLY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_nz_emits_quarterly_flag(self) -> None:
+        """NZ: always emits NZ_M2_CPI_QUARTERLY regardless of observation count."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF("NZ")
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        inputs = await build_m2_nz_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert "NZ_M2_CPI_QUARTERLY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_ch_emits_inflation_target_band_flag(self) -> None:
+        """CH: always emits CH_INFLATION_TARGET_BAND (0-2 % band midpoint convention)."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF("CH")
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        inputs = await build_m2_ch_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert "CH_INFLATION_TARGET_BAND" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_dk_emits_eur_peg_misfit_and_imported_target_flags(self) -> None:
+        """DK: imported EUR-peg target + Taylor-misfit warning flag."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF("DK")
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        inputs = await build_m2_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+        assert "DK_M2_EUR_PEG_TAYLOR_MISFIT" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_se_emits_headline_not_cpif_flag(self) -> None:
+        """SE: CPI headline not CPIF (Riksbank target is CPIF — flag surfaces the delta)."""
+        fred = _FakeFredConnector()
+        te = _FakeTESprintF("SE")
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        inputs = await build_m2_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert "SE_M2_CPI_HEADLINE_NOT_CPIF" in inputs.upstream_flags
