@@ -2579,22 +2579,102 @@ as sub-bullets below when it differs materially from peer countries.
   `CAL-SE-INFL-FORECAST`, `CAL-NO-CPI`, `CAL-NO-INFL-FORECAST`,
   `CAL-DK-CPI`, `CAL-DK-INFL-FORECAST` (15 items → 1).
 
-### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion)
+### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion) ✅ CLOSED
 
-- **Priority:** HIGH — unblocks overlays/cost-of-capital cascades for 6 of 7 T1 countries (DE/PT/IT/ES/FR/NL)
-- **Trigger:** Week 9 Day 4 production first natural fire (2026-04-22 07:00 WEST) revealed daily_curves pipeline still hardcoded `--country US` (Week 2 scope). Service file attempted `--all-t1` flag unsupported by CLI. Reverted to US-only safe state.
-- **Current behavior:** `daily_curves` CLI rejects any country != "US" with EXIT_IO. Line 78 `src/sonar/pipelines/daily_curves.py`: `if country != "US": sys.exit(EXIT_IO)`. Code supports only FRED-sourced US yield curves via `run_us()`.
+- **Status:** CLOSED 2026-04-22 via Sprint CAL-138 (Week 10 Day 1-2).
+- **Resolution commits (sprint-cal138-curves-multi-country branch):**
+  - `f7d5d18` — pre-flight + ECB SDW / Bundesbank linker stubs.
+  - `a47f469` — TE fetch_yield_curve_nominal for GB/JP/CA
+    (12/9/6 tenors per empirical scope).
+  - `680282b` — pipeline multi-country dispatch + ``--all-t1`` + 9
+    integration tests (5 live canaries).
+  - `4ba3d91` — systemd service + ops docs refreshed to ``--all-t1``.
+- **Shipped scope** (HALT trigger 1 scope narrow per empirical probe):
+  - US → FRED (existing, unchanged).
+  - DE → Bundesbank (existing connector wired into pipeline).
+  - EA → ECB SDW YC EA-AAA aggregate (existing connector wired).
+  - GB → TE GUKG family (new, 12 tenors 1M-30Y).
+  - JP → TE GJGB family (new, 9 tenors 1M-10Y).
+  - CA → TE GCAN family (new, 6 tenors NS-reduced).
+  - Pipeline ``--all-t1`` iterates T1_7 tier; countries deferred per
+    the CAL items below skip with ``InsufficientDataError`` + structlog
+    warning, run exits 0 if at least one country persists.
+- **Deferred gaps** (opened as separate tracked items):
+  - ``CAL-CURVES-EA-PERIPHERY`` — PT/IT/ES/FR/NL per-country full
+    sovereign yield curves (ECB SDW YC is EA-aggregate AAA only;
+    national CB feeds needed).
+  - ``CAL-CURVES-T1-SPARSE`` — AU/NZ/CH/SE/NO/DK full yield curves
+    (TE exposes only 1-2 tenors per country; native CB connectors
+    Phase 2+).
+  - ``CAL-CURVES-T1-LINKER`` — inflation-indexed curves for DE/GB/
+    JP/CA + EA periphery (US TIPS already live via FRED DFII).
+  - ``CAL-CURVES-CA-MIDCURVE`` — CA has 1M/3M/6M/1Y/2Y/10YR via TE;
+    3Y/5Y/7Y gap forces NS-reduced fit. BoC Valet has finer spectrum.
+- **Production impact:** tomorrow 06:00 UTC ``sonar-daily-curves.service``
+  will invoke ``--all-t1``; DE persists alongside US. 07:30 WEST
+  ``sonar-daily-overlays.service`` gains functional DE overlay
+  cascade (ERP / CRP / rating-spread / expected-inflation).
+
+### CAL-CURVES-EA-PERIPHERY — EA periphery per-country sovereign yield curves (PT/IT/ES/FR/NL)
+
+- **Priority:** MEDIUM — unblocks per-country ERP/CRP/rating-spread for the 5 EA periphery members (vs AA-AAA-aggregate fallback currently emitting ``EA_AAA_PROXY_FALLBACK`` flag downstream).
+- **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 confirmed ECB SDW ``YC`` dataflow serves only the EA aggregate AAA Svensson fit — per-country 1Y-30Y sovereign yields live in national-CB feeds.
+- **Current behavior:** ``daily_curves --all-t1`` skips PT/IT/ES/FR/NL with ``InsufficientDataError`` + CAL-pointer warning. ``daily_overlays`` downstream falls back to EA-aggregate inputs for these countries; ERP computed via EA-aggregate ERP with ``EA_AAA_PROXY_COUNTRY`` flag.
 - **Required work:**
-  1. Add country-aware connector dispatch in `daily_curves.py`:
-     - US: FRED DGS/DFII series (existing `run_us`)
-     - EA (DE/FR/IT/ES/NL/PT): ECB SDMX connector for sovereign yields
-     - Individual Tier 1 countries: TE `fetch_indicator(country=<>, indicator="government bond 10y")` with maturity spectrum
-  2. NSS fit validation per country (yield conventions differ EUR vs USD)
-  3. Linker data per country (DE inflation-indexed vs US TIPS — different series)
-  4. `--all-t1` flag added to CLI (mirror other 8 pipelines)
-  5. Update `sonar-daily-curves.service` to use `--all-t1`
-  6. Cassettes + live canaries for each new country
-  7. Update test_daily_curves.py to cover multi-country paths
-- **Impact if unresolved:** Overlays/cost-of-capital cascades persist US-only. 6 T1 countries lack ERP/CRP/rating-spread/expected-inflation for cycles integration.
-- **Estimate:** 6-8h CC sprint scope (comparable to M1 country additions Week 9)
-- **Related:** Blocks tomorrow 07:30 WEST `sonar-daily-overlays.service` from persisting DE/PT/IT/ES/FR/NL data.
+  1. Native connectors per periphery CB:
+     - PT → Banco de Portugal BPstat API (sovereign yields, OT benchmark maturities).
+     - IT → Banca d'Italia BDS (BTP zero-coupon curves).
+     - ES → Banco de España (BCE SeriesTemporales — Bonos y Obligaciones).
+     - FR → Banque de France Webstat (OAT zero-coupon 1Y-30Y).
+     - NL → DNB Statistics (DSL yields limited historical + ESS fallback).
+  2. NSS fit validation per country (credit spreads differ vs Bund so β0/β1 bounds likely unchanged, but sanity-check convergence on high-spread PT/IT periods).
+  3. Pipeline dispatch extension (add periphery branch alongside DE Bundesbank).
+  4. Live canaries per country (2024-12-30 baseline).
+- **Impact if unresolved:** Overlays/cost-of-capital for PT/IT/ES/FR/NL remain on EA-aggregate proxy fallback with reduced precision on country-specific credit premium; ERP per-country skipped at pipeline level.
+- **Estimate:** 10-15h CC sprint (5 countries × ~2-3h each including native CB auth setup).
+- **Related:** CAL-138 (parent, closed); CAL-CURVES-T1-LINKER (linker coverage for these periphery).
+
+### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK)
+
+- **Priority:** MEDIUM — unblocks overlays / cost-of-capital per-country for 6 non-EA T1 countries currently curve-blind.
+- **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 confirmed TE ``/markets/historical`` exposes only 0-2 tenors per country for AU/NZ/CH/SE/NO/DK; country-indicator endpoint only publishes 10Y. ≥6-tenor NSS fit infeasible via TE alone.
+- **Current behavior:** ``daily_curves --all-t1`` iterates T1_7 tier only (US + 6 EA members); individual ``--country AU/NZ/CH/SE/NO/DK`` invocations raise ``InsufficientDataError`` with CAL pointer.
+- **Required work:**
+  1. Native CB yield-curve connectors per country:
+     - AU → RBA F2.1/F16 tables (full AGB spectrum 3M-30Y).
+     - NZ → RBNZ B2 stats (NZGB 2Y-20Y).
+     - CH → SNB zimoba (Confederation bonds 1Y-50Y).
+     - SE → Riksbank Swea (SGB benchmark 2Y-30Y).
+     - NO → Norges Bank DataAPI (NGB 3Y-10Y; limited long-end).
+     - DK → Nationalbanken Statbank (DGB 2Y-30Y).
+  2. Negative-rate-era handling (CH 2014-2022, SE 2015-2019, DK 2015-2022): β0 lower bound widened + ``{country}_YIELD_NEGATIVE_ERA_DATA`` flag per Sprint V/W/Y precedent.
+  3. Pipeline dispatch extension (add native branch per country alongside TE wrapper).
+  4. Live canaries per country + historical negative-era canary for CH/SE/DK.
+- **Impact if unresolved:** Overlays per-country for these 6 T1 countries remain gated; cost-of-capital cascade cannot run ex-US/EA.
+- **Estimate:** 15-20h CC sprint (6 countries × ~2-3h native CB setup + negative-rate era guards).
+- **Related:** CAL-138 (parent, closed); Sprint V/W/X-NO/Y-DK monetary native connectors already shipped (reuse auth + parsing infrastructure).
+
+### CAL-CURVES-T1-LINKER — Inflation-indexed yield curves for T1 non-US countries
+
+- **Priority:** LOW — US TIPS already serves real-curve direct-linker path; non-US countries fall back to DERIVED (BEI-based) method once ExpInf overlay wires per-country inputs.
+- **Trigger:** CAL-138 Sprint left fetch_yield_curve_linker as empty-dict stubs for Bundesbank / ECB SDW / TE (GB/JP/CA).
+- **Current behavior:** ``derive_real_curve`` receives None linker_yields for DE/EA/GB/JP/CA, returns None RealCurve. Persistence skips NSSYieldCurveReal sibling row.
+- **Required work per country:**
+  - DE: Bundesbank BBSSY family (inflation-indexed Bund-i daily zero-coupon).
+  - EA: N/A (aggregate series do not exist; track per-country via CAL-CURVES-EA-PERIPHERY).
+  - GB: BoE Database IFBS series (index-linked gilt 5Y-30Y).
+  - JP: BoJ JGBi (10Y-30Y, limited).
+  - CA: BoC Real Return Bonds (2Y-30Y, partial).
+- **Impact if unresolved:** Real-curve direct-linker path remains US-only. DERIVED fallback (nominal - E[π]) provides coverage once ExpInf wires per-country.
+- **Estimate:** 8-12h CC sprint (mostly DE + GB + CA; JP + periphery limited data).
+- **Related:** CAL-138 (parent, closed); overlays/expected-inflation per-country integration.
+
+### CAL-CURVES-CA-MIDCURVE — CA mid-curve gap (3Y/5Y/7Y tenors)
+
+- **Priority:** LOW — CA currently fits via NS-reduced (6 tenors, MIN_OBSERVATIONS met); Svensson preferred if mid-curve fills.
+- **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 found TE GCAN family exposes 1M/3M/6M/1Y/2Y/10YR only — 3Y/5Y/7Y absent.
+- **Current behavior:** CA daily_curves run fits NS 4-param (below MIN_OBSERVATIONS_FOR_SVENSSON=9).
+- **Required work:** Wire BoC Valet (Government of Canada benchmark yields) for 3Y / 5Y / 7Y series. BoC Valet series IDs: ``V39056`` (3Y), ``V39060`` (5Y), ``V39062`` (7Y).
+- **Impact if unresolved:** CA curve fit quality is NS-reduced; Svensson precision on hump/curvature unavailable. Downstream overlay impact modest (10Y anchor unchanged).
+- **Estimate:** 2-3h CC.
+- **Related:** CAL-138 (parent, closed); CAL-CURVES-T1-SPARSE (shared BoC Valet infrastructure).
