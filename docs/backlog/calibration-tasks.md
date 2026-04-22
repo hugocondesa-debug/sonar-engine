@@ -2603,29 +2603,46 @@ as sub-bullets below when it differs materially from peer countries.
   target), not a variant of generic M2/M4 T1 expansion; tracked
   separately under DK parent item.
 
-### CAL-M2-T1-OUTPUT-GAP-EXPANSION — M2 Taylor-gap output-gap connectors for T1 countries (Phase 2)
+### CAL-M2-T1-OUTPUT-GAP-EXPANSION — M2 Taylor-gap output-gap connectors for T1 countries (Phase 2) — **CLOSED output-gap half (Week 10 Sprint C, 2026-04-22)**
 
-- **Priority:** MEDIUM — unblocks M2 T1 uniformity (Phase 2 gate).
+- **Priority:** MEDIUM → LOW (output-gap component delivered; remaining
+  residual is the per-country M2 scaffold work which depends on
+  `CAL-CPI-INFL-T1-WRAPPERS`).
 - **Scope:** OECD Economic Outlook / per-country statistics office
   output-gap connectors for 8 T1 countries beyond US/EA (JP + CA +
   AU + NZ + CH + SE + NO + DK). Populates
   `M2TaylorGapsInputs.output_gap_pct`. Removes the wire-ready-scaffold
   `raise InsufficientDataError` in each country's
   `build_m2_<country>_inputs`.
-- **Sources per country (reference):**
-  - JP — OECD EO JP mirror or BoJ Tankan proxy.
-  - CA — BoC Valet `DMREST_SEGP_GAP` candidate or OECD EO CA.
-  - AU — OECD EO AU or RBA statistical tables.
-  - NZ — RBNZ OCR gap series (blocked on `CAL-NZ-RBNZ-TABLES`) or
-    OECD EO NZ.
-  - CH — OECD EO CH (SNB doesn't publish; sanctioned proxy).
-  - SE — Konjunkturinstitutet potential GDP vs Statistics Sweden
-    actual, or OECD EO SE.
-  - NO — OECD EO NO or Statistics Norway.
-  - DK — OECD EO DK.
-- **Unblocks:** M2 Taylor-gap compute across T1 (Phase 2 gate). For DK,
-  works alongside `CAL-DK-M2-EUR-PEG-TAYLOR` (structural spec revision
-  for EUR-peg regime, preserved separately).
+- **Sprint C (Week 10, 2026-04-22) outcome:**
+  - OECD EO SDMX connector shipped — `src/sonar/connectors/oecd_eo.py`.
+    Public endpoint, no auth key required. Annual cadence (`FREQ=A`)
+    covering 1990 → 2027 (EO118 edition historicals + 2y forecasts).
+  - Coverage confirmed live for 16 T1 ISO3 codes + EA aggregate (via
+    legacy `EA17` code — `EA19 / EA20` return `NoRecordsFound` for
+    the `GAP` measure).
+  - 8 per-country M2 scaffolds + facade dispatch accept the
+    `oecd_eo: OECDEOConnector | None` parameter and fetch the
+    canonical output gap opportunistically. `InsufficientDataError`
+    raise message now narrows to name the remaining blockers
+    (CPI YoY + inflation-forecast) and explicitly states
+    "output-gap live via OECD EO" when the fetch succeeds.
+  - Pipeline lifecycle — `_build_live_connectors` instantiates the
+    OECD EO connector alongside the rest of the monetary bundle;
+    `aclose()` is called in the `finally` teardown.
+- **Residual (open):**
+  - Full M2 live compute still blocked per country on
+    `CAL-CPI-INFL-T1-WRAPPERS` (CPI YoY + inflation-forecast per
+    country). Once that CAL closes, the same eight scaffolds flip
+    to full compute with no further L0 work (output-gap is already
+    fetched).
+  - US M2 deliberately unchanged — CBO GDPPOT quarterly path stays
+    canonical (OECD EO USA annual is strictly coarser; HALT-13
+    regression check shipped).
+- **Unblocks:** M2 Taylor-gap compute across T1 (Phase 2 gate) pending
+  `CAL-CPI-INFL-T1-WRAPPERS`. For DK, works alongside
+  `CAL-DK-M2-EUR-PEG-TAYLOR` (structural spec revision for EUR-peg
+  regime, preserved separately).
 - **Replaces:** `CAL-120`, `CAL-130`, `CAL-AU-GAP`,
   `CAL-NZ-M2-OUTPUT-GAP`, `CAL-CH-GAP`, `CAL-SE-GAP`,
   `CAL-NO-M2-OUTPUT-GAP`, `CAL-DK-GAP` (8 items → 1).
