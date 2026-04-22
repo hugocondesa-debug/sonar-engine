@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from sonar.connectors.norgesbank import NorgesBankConnector
     from sonar.connectors.rba import RBAConnector
     from sonar.connectors.rbnz import RBNZConnector
+    from sonar.connectors.riksbank import RiksbankConnector
     from sonar.connectors.snb import SNBConnector
     from sonar.connectors.te import TEConnector
 
@@ -77,6 +78,7 @@ __all__ = [
     "build_m1_jp_inputs",
     "build_m1_no_inputs",
     "build_m1_nz_inputs",
+    "build_m1_se_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
     "build_m2_au_inputs",
@@ -85,6 +87,7 @@ __all__ = [
     "build_m2_jp_inputs",
     "build_m2_no_inputs",
     "build_m2_nz_inputs",
+    "build_m2_se_inputs",
     "build_m2_us_inputs",
     "build_m4_au_inputs",
     "build_m4_ca_inputs",
@@ -92,6 +95,7 @@ __all__ = [
     "build_m4_jp_inputs",
     "build_m4_no_inputs",
     "build_m4_nz_inputs",
+    "build_m4_se_inputs",
     "build_m4_us_inputs",
 ]
 
@@ -141,6 +145,20 @@ FRED_CH_CONFED_10Y_SERIES: str = "IRLTLT01CHM156N"
 # latest observation — freshest OECD mirror of any Tier-1 country).
 FRED_NO_POLICY_RATE_SERIES: str = "IRSTCI01NOM156N"
 FRED_NO_GOVT_10Y_SERIES: str = "IRLTLT01NOM156N"
+
+# SE OECD-mirror series on FRED — monthly, last-resort backfill when
+# both TE primary and Riksbank Swea native are unavailable (Sprint W-SE
+# cascade). The IRSTCI01SEM156N call-money mirror was **discontinued at
+# 2020-10-01** — Sprint W-SE probe 2026-04-22 confirmed the series has
+# been frozen for ~5.5 years, so the stale-flag pair
+# (SE_POLICY_RATE_FRED_FALLBACK_STALE + CALIBRATION_STALE) fires on
+# virtually every realistic window. The companion 10Y mirror
+# IRLTLT01SEM156N remains live (monthly, last observation 2026-03 at
+# probe). Keeping the policy-rate series wired anyway preserves the
+# cascade shape across countries so a future OECD restart / pivot is
+# transparently covered.
+FRED_SE_POLICY_RATE_SERIES: str = "IRSTCI01SEM156N"
+FRED_SE_GOVT_10Y_SERIES: str = "IRLTLT01SEM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -2141,6 +2159,299 @@ async def build_m4_no_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — SE (Sprint W-SE TE → Riksbank → FRED cascade + negative-rate era flag)
+# ---------------------------------------------------------------------------
+
+
+async def _se_policy_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    riksbank: RiksbankConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch SE Policy Rate via TE → Riksbank → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ, and Sprint V (CH)
+    cascades (first success wins). SE joins CA / AU / CH as the fourth
+    country with a reachable native secondary slot — the Riksbank Swea
+    JSON REST API is public + unscreened. Unlike the CH / AU natives
+    which land at monthly cadence, Swea ships SECBREPOEFF at **daily**
+    cadence matching TE's primary — so the secondary lands
+    ``SE_POLICY_RATE_RIKSBANK_NATIVE`` alone (no ``*_MONTHLY`` cadence
+    flag), and no ``CALIBRATION_STALE`` is emitted on this path.
+
+    1. **TE primary** (``fetch_se_policy_rate`` — daily, Riksbank-
+       sourced via ``SWRRATEI``). Emits ``SE_POLICY_RATE_TE_PRIMARY``
+       on success.
+    2. **Riksbank native** (``fetch_policy_rate`` on ``SECBREPOEFF``).
+       Emits ``SE_POLICY_RATE_RIKSBANK_NATIVE`` on success.
+    3. **FRED OECD mirror** (``IRSTCI01SEM156N`` — **discontinued at
+       2020-10-01** per Sprint W-SE probe, ~5.5 years frozen). Last-
+       resort fallback emitting both
+       ``SE_POLICY_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so downstream consumers can surface the degradation. The FRED
+       SE mirror is substantially more broken than the CH / AU / NZ
+       mirrors (which stay within 1-12 months of real time); the flag
+       pair should be treated as near-permanent for any post-2020
+       anchor rather than a transient cache lag.
+
+    **Negative-rate era**: when the resolved history contains at least
+    one strictly-negative observation, the cascade additionally emits
+    ``SE_NEGATIVE_RATE_ERA_DATA`` — preserving the signal that the
+    window spans the 2015-02-12 → 2019-11-30 Riksbank negative
+    corridor (minimum policy rate -0.50 %, roughly two-thirds the
+    depth of SNB's -0.75 % corridor). Mirrors the Sprint V-CH
+    ``CH_NEGATIVE_RATE_ERA_DATA`` flag contract: the flag attaches to
+    the **value**, not the source — all three cascade depths emit it
+    when the resolved window contains any strictly-negative value.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three
+    return empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    hist: list[_DatedValue] | None = None
+    flags: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_se_policy_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            hist = [_DatedValue(o.observation_date, o.value) for o in te_obs]
+            flags = ("SE_POLICY_RATE_TE_PRIMARY",)
+            sources = ("te",)
+
+    if hist is None and riksbank is not None:
+        try:
+            riks_obs = await riksbank.fetch_policy_rate(start, end)
+        except DataUnavailableError:
+            riks_obs = []
+        if riks_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in riks_obs]
+            flags = ("SE_POLICY_RATE_RIKSBANK_NATIVE",)
+            sources = ("riksbank",)
+
+    if hist is None:
+        fred_obs = await fred.fetch_series(FRED_SE_POLICY_RATE_SERIES, start, end)
+        if fred_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs]
+            flags = ("SE_POLICY_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE")
+            sources = ("fred",)
+
+    if hist is None:
+        msg = "SE Policy Rate unavailable from TE, Riksbank, and FRED"
+        raise ValueError(msg)
+
+    if any(o.value < 0 for o in hist):
+        flags = (*flags, "SE_NEGATIVE_RATE_ERA_DATA")
+    return hist, flags, sources
+
+
+async def build_m1_se_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    riksbank: RiksbankConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 SE inputs via TE → Riksbank → FRED cascade + YAML r*/target.
+
+    Sprint W-SE introduces the SE country path using the canonical
+    cascade pattern established by Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ, and Sprint V (CH). TE's
+    ``interest rate`` indicator for Sweden back-fills the full
+    Riksbank policy-rate history (``SWRRATEI``) at daily cadence
+    across the 2015-2019 negative-rate corridor and is the empirically
+    preferred source — decisions propagate into TE within hours of the
+    Riksbank announcement, whereas the FRED OECD mirror
+    (``IRSTCI01SEM156N``) is **discontinued at 2020-10-01** and frozen
+    indefinitely. Riksbank Swea ``SECBREPOEFF`` sits in the secondary
+    slot as a first-class public JSON REST native at daily cadence —
+    a tighter cadence match than CH / AU where the native is monthly.
+
+    SE-specific degradations and Phase-1 proxies:
+
+    - ``r_star_pct`` sourced from Riksbank MPR March 2026 neutral-rate
+      range midpoint (0.75 % real) — Swedish r* sits in the Nordic
+      low-r* cluster but above CH because SE lacks CHF-specific safe-
+      haven compression. Emits ``R_STAR_PROXY`` (mirrors GB / JP / CA
+      / AU / NZ / CH pattern).
+    - ``expected_inflation_5y_pct`` defaults to the Riksbank 2 % CPIF
+      point target — unlike CH's 0-2 % SNB band, the Riksbank ships a
+      clean explicit target (since 1993; CPIF basis since 2017) so no
+      ``SE_INFLATION_TARGET_BAND`` flag is needed. Emits
+      ``EXPECTED_INFLATION_CB_TARGET`` (proxy-source flag) only.
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with
+      ``SE_BS_GDP_PROXY_ZERO`` flag — Riksbank balance sheet requires
+      the Riksbank Monthly Statistical Bulletin combined with SCB
+      nominal GDP; neither wired at Sprint W-SE scope. Lands when
+      CAL-SE-BS-GDP closes.
+    - **Negative-rate era flag** — when the resolved cascade history
+      contains ≥ 1 strictly-negative observation, the cascade emits
+      ``SE_NEGATIVE_RATE_ERA_DATA`` (same post-resolution augmentation
+      pattern Sprint V-CH established) so downstream M1 / real-shadow
+      computations can branch on negative-policy-rate regimes.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _se_policy_rate_cascade(
+        start, observation_date, te=te, riksbank=riksbank, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "SE Policy Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("SE")  # is_proxy always True for SE
+    # Riksbank 2 % CPIF point target — bc_targets.yaml SE → Riksbank → 0.02.
+    expected_inflation_5y_pct = resolve_inflation_target("SE")
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "SE_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="SE",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — SE (Sprint W-SE — wire-ready scaffold, raises pending CPI + gap)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_se_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD SE gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    riksbank: RiksbankConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 SE inputs (scaffold — raises until SE sources land).
+
+    Sprint W-SE ships the dispatch wire-ready so the pipeline can
+    route ``--country SE`` without crashing. The SE Taylor-gap inputs
+    require three sources that are not yet connected at this scope:
+
+    - **SE CPI / CPIF YoY**: no ``fetch_se_cpi_yoy`` wrapper on either
+      TE or FRED within Sprint W-SE scope (CAL-SE-CPI). SCB publishes
+      CPIF via the SCB Statistical Database
+      (``https://api.scb.se/OV0104/v1/doris/en/ssd/START/PR/PR0101/``)
+      but the parse path needs its own wrapper.
+    - **Output gap**: Sweden-specific — Konjunkturinstitutet (NIER)
+      publishes the quarterly Swedish output gap but no scriptable
+      endpoint exists at Sprint W-SE scope (CAL-SE-GAP). OECD EO SE
+      also maps through the same connector family.
+    - **Inflation forecast**: Riksbank publishes quarterly MPR
+      forecasts — HTML-hosted but unwired Sprint W-SE
+      (CAL-SE-INFL-FORECAST).
+
+    Once any of those sources lands, this function resolves the
+    cascade like :func:`build_m2_us_inputs` does for the CBO output-
+    gap path. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (caught by
+    :func:`daily_monetary_indices.build_live_monetary_inputs` which
+    logs a structured ``monetary_pipeline.builder_skipped`` warning
+    rather than crashing).
+    """
+    msg = (
+        "M2 SE builder scaffold shipped Sprint W-SE but requires CPI / "
+        "CPIF YoY, output-gap, and inflation-forecast SE connectors "
+        "that are not yet wired (see CAL-SE-CPI / CAL-SE-GAP / "
+        "CAL-SE-INFL-FORECAST). Raises so the pipeline skips M2 SE "
+        "cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — SE (Sprint W-SE — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_se_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future SE FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    riksbank: RiksbankConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 SE inputs (scaffold — raises until ≥5 FCI components).
+
+    SE lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so SE must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    W-SE close the reachable components are:
+
+    - 10Y SGB (Swedish Government Bond) yield via FRED
+      ``IRLTLT01SEM156N`` OECD mirror (monthly; active, last 2026-03
+      at probe) — could also come via TE ``SGBG10:IND``
+    - Policy rate via the M1 cascade (wired C4) + corridor floor /
+      ceiling (SECBDEPOEFF / SECBLENDEFF on Swea, shipped C2)
+
+    Pending components (bundled into CAL-SE-M4-FCI):
+
+    - SE credit spread (SEK corp vs SGB; Riksbank FMÖ / SCB sources;
+      no FRED mirror known)
+    - SE vol index (no OMXS30 vol index readily on FRED; candidate:
+      Nasdaq OMX's VINX30 or a realised-vol proxy from ^OMXS30
+      returns via Yahoo Finance)
+    - SEK NEER (Riksbank publishes the KIX effective exchange-rate
+      index; candidate: Riksbank Swea ``SEKKIX`` or the BIS
+      Trade-Weighted indices via ``connectors/bis.py``)
+    - SE mortgage rate (SCB MFI lending rates; no wrapper at Sprint
+      W-SE scope)
+
+    Once ≥5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (mirrors M2 SE / M4 CH / AU / CA skip behaviour).
+    """
+    msg = (
+        "M4 SE builder scaffold shipped Sprint W-SE but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + SEK "
+        "NEER + mortgage; see CAL-SE-M4-FCI). Raises so the pipeline "
+        "skips M4 SE cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -2306,6 +2617,7 @@ class MonetaryInputsBuilder:
         boj: BoJConnector | None = None,
         rba: RBAConnector | None = None,
         rbnz: RBNZConnector | None = None,
+        riksbank: RiksbankConnector | None = None,
         snb: SNBConnector | None = None,
         norgesbank: NorgesBankConnector | None = None,
         te: TEConnector | None = None,
@@ -2318,6 +2630,7 @@ class MonetaryInputsBuilder:
         self.boj = boj
         self.rba = rba
         self.rbnz = rbnz
+        self.riksbank = riksbank
         self.snb = snb
         self.norgesbank = norgesbank
         self.te = te
@@ -2389,6 +2702,14 @@ class MonetaryInputsBuilder:
                 norgesbank=self.norgesbank,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "SE":
+            return await build_m1_se_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                riksbank=self.riksbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
@@ -2445,6 +2766,14 @@ class MonetaryInputsBuilder:
                 norgesbank=self.norgesbank,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "SE":
+            return await build_m2_se_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                riksbank=self.riksbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -2498,6 +2827,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 norgesbank=self.norgesbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "SE":
+            return await build_m4_se_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                riksbank=self.riksbank,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"

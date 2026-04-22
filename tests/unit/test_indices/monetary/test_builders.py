@@ -16,6 +16,7 @@ from sonar.indices.monetary.builders import (
     FRED_JP_BANK_RATE_SERIES,
     FRED_NO_POLICY_RATE_SERIES,
     FRED_NZ_OCR_SERIES,
+    FRED_SE_POLICY_RATE_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
     _latest_on_or_before,
@@ -29,6 +30,7 @@ from sonar.indices.monetary.builders import (
     build_m1_jp_inputs,
     build_m1_no_inputs,
     build_m1_nz_inputs,
+    build_m1_se_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
     build_m2_au_inputs,
@@ -37,6 +39,7 @@ from sonar.indices.monetary.builders import (
     build_m2_jp_inputs,
     build_m2_no_inputs,
     build_m2_nz_inputs,
+    build_m2_se_inputs,
     build_m2_us_inputs,
     build_m4_au_inputs,
     build_m4_ca_inputs,
@@ -44,6 +47,7 @@ from sonar.indices.monetary.builders import (
     build_m4_jp_inputs,
     build_m4_no_inputs,
     build_m4_nz_inputs,
+    build_m4_se_inputs,
     build_m4_us_inputs,
 )
 from sonar.overlays.exceptions import DataUnavailableError, InsufficientDataError
@@ -172,6 +176,9 @@ class _FakeFredConnector:
         elif series_id == FRED_NO_POLICY_RATE_SERIES:
             country_code = "NO"
             yield_bps_val = 400  # 4.00 % — post-2024 normalisation level
+        elif series_id == FRED_SE_POLICY_RATE_SERIES:
+            country_code = "SE"
+            yield_bps_val = -25  # -0.25 % — negative-rate-era fixture value
         else:
             return []
         out: list[Observation] = []
@@ -613,6 +620,67 @@ class _FakeSNBUnavailable:
     async def fetch_saron(self, start: date, end: date) -> list[Observation]:
         _ = start, end
         msg = "SNB zimoma unreachable (test-fake)"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTESeSuccess:
+    """TE primary path for SE — returns daily Riksbank policy-rate obs (pct)."""
+
+    def __init__(self, *, pct: float = 4.0) -> None:
+        self.pct = pct
+
+    async def fetch_se_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="SWRRATEI"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTESeUnavailable:
+    """TE primary fails for SE — cascade fails over to Riksbank native."""
+
+    async def fetch_se_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='SE' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeRiksbankSuccess:
+    """Riksbank native — Swea SECBREPOEFF daily series."""
+
+    def __init__(self, *, yield_bps: int = 375) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="SE",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,  # default 3.75 % differs from TE to prove cascade
+                    source="RIKSBANK",
+                    source_series_id="SECBREPOEFF",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeRiksbankUnavailable:
+    """Simulates a Swea host outage / rate-limit exhaustion."""
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "Riksbank Swea unreachable (test-fake)"
         raise DataUnavailableError(msg)
 
 
@@ -2124,6 +2192,248 @@ class TestBuildM4No:
 
 
 # ---------------------------------------------------------------------------
+# M1 SE (Sprint W-SE — TE primary → Riksbank native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Se:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily Riksbank-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        riksbank = _FakeRiksbankSuccess()  # present but skipped (TE wins priority)
+        te = _FakeTESeSuccess(pct=4.0)
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            riksbank=riksbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "SE"
+        assert inputs.policy_rate_pct == pytest.approx(0.04)  # TE 4.00 %
+        assert "SE_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE" not in inputs.upstream_flags
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        # SE uses a clean 2 % CPIF point target — no band flag (contrast CH).
+        assert "SE_INFLATION_TARGET_BAND" not in inputs.upstream_flags
+        assert "CH_INFLATION_TARGET_BAND" not in inputs.upstream_flags
+        assert "SE_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0075)
+        # 4.0 % policy, all positive → no negative-rate-era flag.
+        assert "SE_NEGATIVE_RATE_ERA_DATA" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_te_primary_negative_rate_era_flag(self) -> None:
+        """Negative-rate window surfaces SE_NEGATIVE_RATE_ERA_DATA downstream.
+
+        Pinning TE to -0.50 % across the lookback window mirrors the
+        Feb 2016 → Dec 2018 Riksbank deep-corridor regime; the cascade
+        must propagate the sign into ``policy_rate_pct`` **and** add
+        the negative-era flag so regime classifiers can branch
+        appropriately — matching the Sprint V-CH flag contract but with
+        the SE-specific flag name.
+        """
+        fred = _FakeFredConnector()
+        te = _FakeTESeSuccess(pct=-0.5)
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2017, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.005)  # -0.50 %
+        assert "SE_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        # Real-shadow history must preserve signs — pre-conversion
+        # policy -0.50 %, inflation target 2 % CPIF, so real shadow =
+        # -0.005 - 0.02 = -0.025. Every monthly sample should match.
+        for r in inputs.real_shadow_rate_history:
+            assert r == pytest.approx(-0.025, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_riksbank_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → Riksbank Swea native takes over."""
+        fred = _FakeFredConnector()
+        riksbank = _FakeRiksbankSuccess(yield_bps=375)  # 3.75 %
+        te = _FakeTESeUnavailable()
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            riksbank=riksbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0375)  # Riksbank 3.75 %
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE" in inputs.upstream_flags
+        # SE Riksbank native is daily — no *_MONTHLY cadence flag
+        # (contrast CH where SNB SARON is monthly).
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE_MONTHLY" not in inputs.upstream_flags
+        assert "SE_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("riksbank",)
+
+    @pytest.mark.asyncio
+    async def test_riksbank_native_preserves_negative_values(self) -> None:
+        """Negative Riksbank observations surface correctly on the secondary path."""
+        fred = _FakeFredConnector()
+        riksbank = _FakeRiksbankSuccess(yield_bps=-50)  # -0.50 % corridor trough
+        te = _FakeTESeUnavailable()
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2017, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            riksbank=riksbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.005)
+        assert "SE_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + Riksbank both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        riksbank = _FakeRiksbankUnavailable()
+        te = _FakeTESeUnavailable()
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            riksbank=riksbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.0025)  # FRED -0.25 %
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE" not in inputs.upstream_flags
+        # FRED fixture returns -0.25 %, so the negative-era flag still
+        # fires — proves the flag attaches to the value, not the source.
+        assert "SE_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_riksbank_absent(self) -> None:
+        """te=None + riksbank=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "SE"
+        assert inputs.source_connector == ("fred",)
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + Riksbank unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, Riksbank, and FRED"):
+            await build_m1_se_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTESeUnavailable(),  # type: ignore[arg-type]
+                riksbank=_FakeRiksbankUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_se_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """SE BS/GDP ratio is placeholder — always emits SE_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTESeSuccess(pct=4.0)
+        inputs = await build_m1_se_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "SE_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 SE (Sprint W-SE — scaffold raises until SE gap + CPI connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Se:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 SE scaffold is wire-ready but raises until SE gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTESeSuccess(pct=4.0)
+        with pytest.raises(InsufficientDataError, match="CAL-SE"):
+            await build_m2_se_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_se_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 SE (Sprint W-SE — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Se:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 SE scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTESeSuccess(pct=4.0)
+        riksbank = _FakeRiksbankSuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-SE-M4-FCI"):
+            await build_m4_se_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                riksbank=riksbank,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_se_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -2546,6 +2856,74 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(InsufficientDataError, match="CAL-NO-M4-FCI"):
             await builder.build_m4_inputs("NO", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_se_via_facade_te_primary(self) -> None:
+        """SE M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTESeSuccess(pct=4.0),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("SE", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "SE"
+        assert "SE_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_se_via_facade_riksbank_secondary(self) -> None:
+        """SE M1 dispatch — TE absent, Riksbank handle present → native path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            riksbank=_FakeRiksbankSuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("SE", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "SE"
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE" in inputs.upstream_flags
+        # Daily-cadence native — no *_MONTHLY flag (contrast CH).
+        assert "SE_POLICY_RATE_RIKSBANK_NATIVE_MONTHLY" not in inputs.upstream_flags
+        assert inputs.source_connector == ("riksbank",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_se_via_facade_fred_fallback(self) -> None:
+        """SE M1 dispatch — FRED-only path (no TE/Riksbank handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("SE", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "SE"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "SE_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_se_dispatches_to_se_builder(self) -> None:
+        """SE M2 dispatch routes to the SE scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTESeSuccess(pct=4.0),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-SE"):
+            await builder.build_m2_inputs("SE", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_se_dispatches_to_se_builder(self) -> None:
+        """SE M4 dispatch routes to the SE scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTESeSuccess(pct=4.0),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-SE-M4-FCI"):
+            await builder.build_m4_inputs("SE", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
