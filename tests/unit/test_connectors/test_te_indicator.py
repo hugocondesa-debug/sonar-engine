@@ -67,6 +67,8 @@ def test_country_name_map_covers_t1() -> None:
     assert TE_COUNTRY_NAME_MAP["DE"] == "germany"
     assert TE_COUNTRY_NAME_MAP["GB"] == "united kingdom"
     assert TE_COUNTRY_NAME_MAP["CA"] == "canada"
+    # Nordic Tier-1 entries — added Week 9 Sprint X-NO.
+    assert TE_COUNTRY_NAME_MAP["NO"] == "norway"
 
 
 def test_country_name_map_uk_alias_preserved() -> None:
@@ -1218,5 +1220,173 @@ async def test_live_canary_ch_policy_rate(tmp_cache_dir: Path) -> None:
         # expect to see at least one strictly-negative observation.
         neg = [o for o in obs if o.value < 0]
         assert len(neg) >= 1, "expected at least one negative-rate era observation"
+    finally:
+        await conn.aclose()
+
+
+async def test_wrapper_no_policy_rate_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``interest rate`` for NO returns ``NOBRDEP`` (Norges Bank policy rate)."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2020-05-08T00:00:00",
+                "Value": 0.0,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NOBRDEP",
+                "LastUpdate": "2020-05-08T09:00:00",
+            },
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2024-01-25T00:00:00",
+                "Value": 4.5,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NOBRDEP",
+                "LastUpdate": "2024-01-25T09:00:00",
+            },
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2026-03-26T00:00:00",
+                "Value": 4.0,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NOBRDEP",
+                "LastUpdate": "2026-03-26T09:00:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_no_policy_rate(date(2020, 1, 1), date(2026, 4, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "NO"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "NOBRDEP"
+    # Norges Bank policy rate ranged over [0.0, 8.5]% since 1991;
+    # across 2020+ the observed corridor is [0.0, 4.75]%.
+    for o in obs:
+        assert 0.0 <= o.value <= 10.0
+
+
+async def test_wrapper_no_policy_rate_positive_only(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Norway never ran a negative policy rate — the minimum is 0 %.
+
+    Validates the standard positive-only wrapper contract (contrast the
+    CH / SE / EA wrappers which span the 2014-2022 negative-rate era).
+    The 2020-2021 COVID-response trough sat at exactly 0 %; the wrapper
+    passes that through verbatim.
+    """
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2020-05-08T00:00:00",
+                "Value": 0.0,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NOBRDEP",
+                "LastUpdate": "2020-05-08T09:00:00",
+            },
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2021-09-24T00:00:00",
+                "Value": 0.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "NOBRDEP",
+                "LastUpdate": "2021-09-24T09:00:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_no_policy_rate(date(2020, 1, 1), date(2022, 12, 31))
+    assert len(obs) == 2
+    values = [o.value for o in obs]
+    assert values == [0.0, 0.25]
+    # Guard the positive-only contract — no row should ever be negative
+    # for NO across the full TE history.
+    assert all(v >= 0 for v in values)
+
+
+async def test_wrapper_no_policy_rate_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-NOBRDEP symbol, raise — catches mis-attribution."""
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Norway",
+                "Category": "Interest Rate",
+                "DateTime": "2024-01-25T00:00:00",
+                "Value": 4.5,
+                "HistoricalDataSymbol": "NORWINTR",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="NO-policy-rate source drift"):
+        await te_connector.fetch_no_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_no_policy_rate_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → ``fetch_indicator`` raises; cascade callers treat as
+    TE-unavailable and fall through to Norges Bank DataAPI native."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_no_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_no_policy_rate_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 500+ NOBRDEP daily obs (no negatives)."""
+    payload = _load_cassette("te_no_policy_rate_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_no_policy_rate(date(1991, 1, 1), date(2026, 4, 1))
+    assert len(obs) >= 500
+    assert obs[0].historical_data_symbol == "NOBRDEP"
+    assert obs[0].country == "NO"
+    # Standard positive-only contract — no row should ever be negative
+    # across the full 35Y Norges Bank history.
+    neg = [o for o in obs if o.value < 0]
+    assert neg == [], f"expected 0 negative rows; found {len(neg)}"
+    # Minimum observed is 0 % across the 2020-2021 COVID trough; maximum
+    # sits at 8.5 % (1991-01-01 legacy opening).
+    values = [o.value for o in obs]
+    assert min(values) >= 0.0
+    assert max(values) <= 12.0
+
+
+@pytest.mark.slow
+async def test_live_canary_no_policy_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE NO Policy Rate — confirms ``NOBRDEP`` + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. The endpoint back-fills the
+    full history regardless of the window; a 5Y lookback still returns
+    enough rows to cross-validate the 2022-2024 tightening cycle.
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 5)
+        obs = await conn.fetch_no_policy_rate(start, today)
+        assert len(obs) >= 5
+        assert obs[0].historical_data_symbol == "NOBRDEP"
+        assert obs[0].country == "NO"
+        # NO policy-rate corridor 2020-2026 sits in [0.0, 4.75] %.
+        for o in obs:
+            assert 0.0 <= o.value <= 10.0
+        # Positive-only invariant — cross-validates the cassette contract.
+        assert all(o.value >= 0 for o in obs)
     finally:
         await conn.aclose()

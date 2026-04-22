@@ -66,6 +66,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "AU": "australia",
     "NZ": "new zealand",
     "CH": "switzerland",
+    "NO": "norway",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -110,6 +111,14 @@ TE_EXPECTED_SYMBOL_NZ_OCR = "NZOCRS"
 # observations (2000-01-03 → 2026-03-19) carry ``SZLTTR``, including
 # the 93 rows spanning the negative-rate era 2014-12-18 → 2022-08-31.
 TE_EXPECTED_SYMBOL_CH_POLICY_RATE = "SZLTTR"
+# Norges Bank policy rate (sight deposit rate / key policy rate).
+# Symbol ``NOBRDEP`` ("Norwegian Bank Rate Deposit") identifies the
+# sight-deposit-rate series TE sources from Norges Bank. Sprint X-NO
+# empirical probe 2026-04-22 confirmed all 504 observations
+# (1991-01-01 → 2026-03-26) carry ``NOBRDEP`` — single-series contract
+# across every regime (Norway never ran a negative policy rate; the
+# minimum observed is 0 % during the 2020-2022 COVID-response trough).
+TE_EXPECTED_SYMBOL_NO_POLICY_RATE = "NOBRDEP"
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,6 +657,57 @@ class TEConnector:
             err = (
                 "TE CH-policy-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_CH_POLICY_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_no_policy_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """NO Policy Rate — Norges Bank key policy (sight-deposit) rate, TE-sourced.
+
+        TE ``interest rate`` indicator for ``norway`` returns the Norges
+        Bank key policy rate directly (HistoricalDataSymbol ``NOBRDEP``
+        — "Norwegian Bank Rate Deposit", TE's identifier for the
+        sight-deposit-rate series Norges Bank has targeted since the
+        inflation-targeting regime began in 2001). Daily cadence
+        back-filled to 1991-01-01 (504 observations at Sprint X-NO
+        probe, 2026-04-22); TE surfaces each rate-change announcement
+        plus the constant intervening quotes so a single query returns
+        the full decision history.
+
+        **Standard positive-only processing** (contrast CH Sprint V):
+        Norway never ran a negative policy rate across the full 35-year
+        history. The minimum observation is 0 % during the
+        2020-05-08 → 2021-09-24 COVID-response trough; across the
+        2014-2022 global negative-rate era when SNB / ECB / BoJ / Riksbank
+        all breached zero, Norges Bank stayed at 0.5 % (or above). No
+        ``_NEGATIVE_RATE_ERA_DATA`` flag is emitted because the wrapper
+        never sees negative inputs — if TE ever returns one the downstream
+        cascade will surface it unchanged but no country-specific flag is
+        needed at Sprint X-NO scope.
+
+        Chosen as the **primary** source for NO M1 policy-rate inputs
+        (Sprint X-NO) per the Sprint I-patch cascade pattern — TE is
+        daily and Norges-Bank-sourced, while the Norges Bank DataAPI
+        native path (Sprint X-NO C2) provides a public SDMX-JSON REST
+        endpoint at the same daily cadence. FRED OECD mirror
+        ``IRSTCI01NOM156N`` is relegated to last-resort with staleness
+        flags (monthly cadence).
+
+        Guards source identity via the ``NOBRDEP`` symbol check mirroring
+        the GB / JP / CA / AU / NZ / CH wrappers; on drift raises
+        :class:`DataUnavailableError` so the NO cascade can fall back
+        cleanly.
+        """
+        obs = await self.fetch_indicator("NO", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_NO_POLICY_RATE)
+        ):
+            err = (
+                "TE NO-policy-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NO_POLICY_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
