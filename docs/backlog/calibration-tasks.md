@@ -2777,18 +2777,48 @@ as sub-bullets below when it differs materially from peer countries.
   the only blocker.
 - **Unblocks:** M2 full-compute coverage 10 → 16 of 16 T1.
 
-### CAL-M2-EA-AGGREGATE — M2 Taylor compute for EA aggregate (Phase 2+)
+### CAL-M2-EA-AGGREGATE — M2 Taylor compute for EA aggregate ✅ CLOSED
 
-- **Priority:** LOW — Phase 2+ scope.
-- **Trigger:** Week 10 Sprint F (2026-04-22) surfaced that
-  `build_m2_ea_inputs` does not exist at the scaffold level either.
-  `MonetaryInputsBuilder.build_m2_inputs("EA", ...)` currently
-  raises `NotImplementedError`.
-- **Scope:** New `build_m2_ea_inputs` using ECB Deposit Facility
-  Rate + ECB HICP aggregate + EA-wide OECD EO output gap (or
-  Eurostat per-country GDP + ECB potential-GDP model). r* for EA
-  already available via `r_star_values.yaml:EA`.
-- **Unblocks:** EA aggregate M2 rowcount parity with US / GB / JP.
+- **Status:** CLOSED 2026-04-22 via Sprint L (Week 10 Day 2).
+- **Resolution commits (sprint-m2-ea-aggregate branch):**
+  - `ed420f4` — TE `fetch_ea_hicp_yoy` + `fetch_ea_inflation_forecast`
+    + pre-flight probe (HALT-1 inversion — ECB SDW HICP/SPF extension
+    not required; TE coverage confirmed complete during Commit 1
+    probe 1991-01-31 → 2026-03-31).
+  - `d79030d` — `build_m2_ea_inputs` wiring ECB DFR + TE EA HICP +
+    TE EA inflation forecast + OECD EO EA17 output gap (via Sprint C
+    `EA → EA17` country map). MonetaryInputsBuilder facade dispatch
+    updated. **US M2 canonical regression guard** (HALT-3 absolute):
+    `TestSprintLUsBaselineGuard` + `test_m2_us_canonical_preserved`
+    both passed — US path remains `(\"fred\", \"cbo\")` with CBO
+    GDPPOT primary and no Sprint L flag leakage.
+  - `809766e` — `test_m2_ea_aggregate_full_compute_live_sprint_l`
+    integration live canary (@pytest.mark.slow). Exercises the full
+    pipeline path via `build_live_monetary_inputs`; asserts
+    `EA_M2_FULL_COMPUTE_LIVE` + OECD_EO output-gap source + EA-specific
+    source_connector tuple (`ecb_sdw` first, no `fred`/`cbo` leakage).
+    Wall-clock 5.21s.
+- **Shipped scope:**
+  - Policy rate: ECB DFR (`EA_M2_POLICY_RATE_ECB_DFR_LIVE`).
+  - HICP YoY: TE `ECCPEMUY` (`EA_M2_CPI_TE_LIVE`).
+  - Inflation forecast: TE q4 ≈ 12m-ahead (`EA_M2_INFLATION_FORECAST_TE_LIVE`).
+  - Output gap: OECD EO EA17 (`EA_M2_OUTPUT_GAP_OECD_EO_LIVE`).
+  - r*: HLW EA Q4 2024 = -0.5 % (native, non-proxy — no
+    `R_STAR_PROXY` flag).
+  - Inflation target: ECB 2 % (`bc_targets.yaml:EA → ECB`).
+- **Live canary output (2026-04-22 anchor)**:
+  policy_rate 0.0300 / HICP 0.0260 / forecast 0.0260 / gap -0.7339 /
+  target 0.0200 / r* -0.0050. `EA_M2_FULL_COMPUTE_LIVE` emitted.
+- **Deferred (opened during Sprint F, still open):**
+  - `CAL-M2-EA-PER-COUNTRY` — per-country Taylor compute for the 6 EA
+    members (DE / FR / IT / ES / NL / PT). Blocker: methodology spec
+    revision. TE CPI + forecast wrappers for these 6 countries
+    already shipped in Sprint F Commits 1-2; Sprint L did **not**
+    touch the per-country EA M2 dispatch (still `NotImplementedError`
+    with narrowed message pointing only at `CAL-M2-EA-PER-COUNTRY`).
+- **M2 T1 coverage post-merge:** 11 of 16 (US canonical LEGACY + EA
+  aggregate FULL via Sprint L + 9 non-EA FULL via Sprint F). Gap =
+  6 EA per-country members (`CAL-M2-EA-PER-COUNTRY`).
 
 ### CAL-138 — daily_curves multi-country support (Phase 1 US-only expansion) ✅ CLOSED
 
