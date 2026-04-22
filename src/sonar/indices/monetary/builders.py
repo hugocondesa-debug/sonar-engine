@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
+    from sonar.connectors.norgesbank import NorgesBankConnector
     from sonar.connectors.rba import RBAConnector
     from sonar.connectors.rbnz import RBNZConnector
     from sonar.connectors.snb import SNBConnector
@@ -74,6 +75,7 @@ __all__ = [
     "build_m1_ea_inputs",
     "build_m1_gb_inputs",
     "build_m1_jp_inputs",
+    "build_m1_no_inputs",
     "build_m1_nz_inputs",
     "build_m1_uk_inputs",
     "build_m1_us_inputs",
@@ -81,12 +83,14 @@ __all__ = [
     "build_m2_ca_inputs",
     "build_m2_ch_inputs",
     "build_m2_jp_inputs",
+    "build_m2_no_inputs",
     "build_m2_nz_inputs",
     "build_m2_us_inputs",
     "build_m4_au_inputs",
     "build_m4_ca_inputs",
     "build_m4_ch_inputs",
     "build_m4_jp_inputs",
+    "build_m4_no_inputs",
     "build_m4_nz_inputs",
     "build_m4_us_inputs",
 ]
@@ -129,6 +133,14 @@ FRED_NZ_GOVT_10Y_SERIES: str = "IRLTLT01NZM156N"
 # last update on 2024-03) so the stale-flag cost is explicit.
 FRED_CH_POLICY_RATE_SERIES: str = "IRSTCI01CHM156N"
 FRED_CH_CONFED_10Y_SERIES: str = "IRLTLT01CHM156N"
+
+# NO OECD-mirror series on FRED — monthly, last-resort backfill when
+# both TE primary and Norges Bank DataAPI native are unavailable
+# (Sprint X-NO cascade). The IRSTCI01NOM156N mirror tracks real-time
+# within ~1 month at Sprint X-NO probe (2026-04-22 saw 2026-03 as the
+# latest observation — freshest OECD mirror of any Tier-1 country).
+FRED_NO_POLICY_RATE_SERIES: str = "IRSTCI01NOM156N"
+FRED_NO_GOVT_10Y_SERIES: str = "IRLTLT01NOM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -1845,6 +1857,290 @@ async def build_m4_ch_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — NO (Sprint X-NO — TE primary → Norges Bank native → FRED OECD stale)
+# ---------------------------------------------------------------------------
+
+
+async def _no_policy_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    norgesbank: NorgesBankConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch NO Policy Rate via TE → Norges Bank → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ (NZ), and Sprint V (CH)
+    cascades (first success wins). NO joins CA, AU, and CH as a country
+    with a reachable native secondary slot — the Norges Bank DataAPI
+    SDMX-JSON endpoint is public + scriptable + unscreened (Sprint X-NO
+    probe 2026-04-22). Daily cadence on both TE primary and Norges Bank
+    native; the cascade does **not** attach a monthly qualifier (contrast
+    CH's ``CH_POLICY_RATE_SNB_NATIVE_MONTHLY``).
+
+    1. **TE primary** (``fetch_no_policy_rate`` — daily, Norges-Bank-
+       sourced via ``NOBRDEP``). Emits ``NO_POLICY_RATE_TE_PRIMARY`` on
+       success.
+    2. **Norges Bank native** (``fetch_policy_rate`` on ``IR/B.KPRA.SD.R``).
+       Emits ``NO_POLICY_RATE_NORGESBANK_NATIVE`` on success. No
+       staleness or cadence flag — daily-parity with TE.
+    3. **FRED OECD mirror** (``IRSTCI01NOM156N`` — monthly cadence, ~1
+       month lag at probe). Last-resort fallback emitting both
+       ``NO_POLICY_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so downstream consumers can surface the degradation.
+
+    **Standard positive-only processing** (contrast CH Sprint V): Norway
+    never ran a negative policy rate across the full 35Y TE history
+    (minimum observed is exactly 0 % during the 2020-05-08 → 2021-09-24
+    COVID trough). No ``_NEGATIVE_RATE_ERA_DATA`` flag is emitted; if a
+    negative row ever appears the cascade will surface it unchanged but
+    no dedicated flag is attached at Sprint X-NO scope.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three return
+    empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    hist: list[_DatedValue] | None = None
+    flags: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_no_policy_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            hist = [_DatedValue(o.observation_date, o.value) for o in te_obs]
+            flags = ("NO_POLICY_RATE_TE_PRIMARY",)
+            sources = ("te",)
+
+    if hist is None and norgesbank is not None:
+        try:
+            nb_obs = await norgesbank.fetch_policy_rate(start, end)
+        except DataUnavailableError:
+            nb_obs = []
+        if nb_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in nb_obs]
+            flags = ("NO_POLICY_RATE_NORGESBANK_NATIVE",)
+            sources = ("norgesbank",)
+
+    if hist is None:
+        fred_obs = await fred.fetch_series(FRED_NO_POLICY_RATE_SERIES, start, end)
+        if fred_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs]
+            flags = ("NO_POLICY_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE")
+            sources = ("fred",)
+
+    if hist is None:
+        msg = "NO Policy Rate unavailable from TE, Norges Bank, and FRED"
+        raise ValueError(msg)
+
+    return hist, flags, sources
+
+
+async def build_m1_no_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    norgesbank: NorgesBankConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 NO inputs via TE → Norges Bank → FRED cascade + YAML r*/target.
+
+    Sprint X-NO introduces the NO country path using the canonical
+    cascade pattern established by Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ (NZ), and Sprint V (CH).
+    TE's ``interest rate`` indicator for Norway back-fills the full
+    Norges Bank key-policy-rate history (``NOBRDEP``) at daily cadence
+    to 1991-01-01 and is the empirically preferred source — decisions
+    propagate into TE within hours of the Norges Bank announcement.
+    Norges Bank's own DataAPI matches the daily cadence exactly
+    (SDMX-JSON public endpoint, no staleness flag), and FRED OECD
+    mirror (``IRSTCI01NOM156N``) is relegated to last-resort with
+    staleness flags.
+
+    NO-specific degradations (Phase 1):
+
+    - ``r_star_pct`` sourced from Norges Bank MPR 1/2024 + Staff Memo
+      7/2023 neutral-range mid (1.25 % real). Emits ``R_STAR_PROXY``
+      (mirrors GB / JP / CA / AU / NZ / CH pattern).
+    - ``expected_inflation_5y_pct`` defaults to Norges Bank 2 % CPI
+      target (post-2018-03-02 regime; pre-2018 was 2.5 %). Emits
+      ``EXPECTED_INFLATION_CB_TARGET``.
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with ``NO_BS_GDP_PROXY_ZERO``
+      flag — Norges Bank balance-sheet ratios require Norges Bank MSB +
+      Statistics Norway nominal GDP, neither wired at Sprint X-NO scope.
+      Lands when CAL-NO-BS-GDP closes. **Special note**: Norway's
+      petroleum-wealth savings (GPFG, legally offshore-invested) make
+      the domestic balance-sheet ratio unusually small vs. G10 peers;
+      downstream regime classifiers should treat NO balance-sheet
+      signals with caution until a proper sovereign-fund-adjusted
+      series is wired (Phase 2+ research).
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _no_policy_rate_cascade(
+        start, observation_date, te=te, norgesbank=norgesbank, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "NO Policy Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("NO")  # is_proxy always True for NO
+    expected_inflation_5y_pct = resolve_inflation_target("NO")
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        "EXPECTED_INFLATION_CB_TARGET",
+        "NO_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="NO",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — NO (Sprint X-NO — wire-ready scaffold, raises pending CPI + gap)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_no_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD NO gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    norgesbank: NorgesBankConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 NO inputs (scaffold — raises until NO gap source lands).
+
+    Sprint X-NO ships the dispatch wire-ready so the pipeline can route
+    ``--country NO`` without crashing. The NO Taylor-gap inputs require
+    three sources that are not yet connected at this scope:
+
+    - **NO CPI YoY**: no ``fetch_no_cpi_yoy`` wrapper on either TE or
+      FRED within Sprint X-NO scope (CAL-NO-CPI). Statistics Norway
+      (SSB) publishes monthly CPI via a SDMX endpoint at
+      ``data.ssb.no/api/v0/en/table/03013`` which would be the natural
+      connector landing.
+    - **Output gap**: Norway-specific — Statistics Norway + Norges
+      Bank's own "regional network" qualitative survey contribute, but
+      no scriptable quarterly output-gap endpoint exists at Sprint
+      X-NO scope (CAL-NO-M2-OUTPUT-GAP). OECD EO NO maps through the
+      same connector family.
+    - **Inflation forecast**: Norges Bank publishes quarterly Monetary
+      Policy Report (MPR) forecasts — PDF + HTML-hosted, unwired Sprint
+      X-NO (CAL-NO-INFL-FORECAST). The MPR publication rhythm (four
+      MPRs per year) gives a natural quarterly refresh cadence.
+
+    Once any of those sources lands, this function resolves the cascade
+    like :func:`build_m2_us_inputs` does for the CBO output-gap path.
+    Until then, :class:`InsufficientDataError` keeps the pipeline clean
+    (caught by :func:`daily_monetary_indices.build_live_monetary_inputs`
+    which logs a structured ``monetary_pipeline.builder_skipped``
+    warning rather than crashing).
+    """
+    msg = (
+        "M2 NO builder scaffold shipped Sprint X-NO but requires CPI YoY, "
+        "output-gap, and inflation-forecast NO connectors that are not "
+        "yet wired (see CAL-NO-CPI / CAL-NO-M2-OUTPUT-GAP / "
+        "CAL-NO-INFL-FORECAST). Raises so the pipeline skips M2 NO cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — NO (Sprint X-NO — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_no_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future NO FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    norgesbank: NorgesBankConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 NO inputs (scaffold — raises until ≥5 FCI components).
+
+    NO lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so NO must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    X-NO close the reachable components are:
+
+    - 10Y Norwegian government bond yield via Norges Bank DataAPI
+      ``GOVT_GENERIC_RATES/B.10Y.GBON`` (wired C2)
+    - Policy rate via the M1 cascade (wired C4)
+
+    Pending components (bundled into CAL-NO-M4-FCI):
+
+    - NO credit spread (BBB NOK corp vs Norwegian gov; candidate:
+      Nordic Credit Rating / Nordea indices, or SSB corporate-bond
+      yield tables — SSB table 12132 tracks long-term corp yields at
+      quarterly cadence)
+    - NO vol index (no OSE-VIX-analog published; candidate: realised-
+      vol proxy from OBX 25 Index returns, or Yahoo Finance ^OSEBX)
+    - NOK NEER (Norges Bank ``EXR`` dataflow publishes the TWI-based
+      effective exchange rate as ``I-44`` — wire-ready via an
+      additional Norges Bank DataAPI call, deferred to Phase 2+)
+    - NO mortgage rate (SSB table 10746 tracks mortgage-rate averages
+      at monthly cadence; no wrapper at Sprint X-NO scope)
+
+    **Petroleum context**: Norway's oil-NOK coupling is a structural
+    feature that future NO FCI work needs to address — Brent / WTI
+    price moves propagate into NOK exchange-rate and domestic
+    petroleum-sector credit conditions within trading days, which is
+    tighter than any other G10 FCI-component coupling (contrast the
+    CAD / AUD / NZD commodity-currency pairs where the transmission
+    is more diffuse). This is Phase 2+ research scope, NOT Sprint X-NO
+    scope — the scaffold raises uniformly regardless of oil regime.
+
+    Once ≥5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the pipeline
+    clean (mirrors M2 NO / M4 NZ / CH skip behaviour).
+    """
+    msg = (
+        "M4 NO builder scaffold shipped Sprint X-NO but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + NOK "
+        "NEER + mortgage; see CAL-NO-M4-FCI). Raises so the pipeline "
+        "skips M4 NO cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -2011,6 +2307,7 @@ class MonetaryInputsBuilder:
         rba: RBAConnector | None = None,
         rbnz: RBNZConnector | None = None,
         snb: SNBConnector | None = None,
+        norgesbank: NorgesBankConnector | None = None,
         te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
@@ -2022,6 +2319,7 @@ class MonetaryInputsBuilder:
         self.rba = rba
         self.rbnz = rbnz
         self.snb = snb
+        self.norgesbank = norgesbank
         self.te = te
 
     async def build_m1_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
@@ -2083,10 +2381,18 @@ class MonetaryInputsBuilder:
                 snb=self.snb,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "NO":
+            return await build_m1_no_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                norgesbank=self.norgesbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
-    async def build_m2_inputs(
+    async def build_m2_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
         self, country: str, observation_date: date, **kwargs: object
     ) -> M2TaylorGapsInputs:
         if country == "US":
@@ -2131,10 +2437,18 @@ class MonetaryInputsBuilder:
                 snb=self.snb,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "NO":
+            return await build_m2_no_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                norgesbank=self.norgesbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
-    async def build_m4_inputs(
+    async def build_m4_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
         self, country: str, observation_date: date, **kwargs: object
     ) -> M4FciInputs:
         if country == "US":
@@ -2176,6 +2490,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 snb=self.snb,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "NO":
+            return await build_m4_no_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                norgesbank=self.norgesbank,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"

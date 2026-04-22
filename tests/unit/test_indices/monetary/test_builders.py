@@ -14,6 +14,7 @@ from sonar.indices.monetary.builders import (
     FRED_CH_POLICY_RATE_SERIES,
     FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
+    FRED_NO_POLICY_RATE_SERIES,
     FRED_NZ_OCR_SERIES,
     MonetaryInputsBuilder,
     _last_day_of_month,
@@ -26,6 +27,7 @@ from sonar.indices.monetary.builders import (
     build_m1_ea_inputs,
     build_m1_gb_inputs,
     build_m1_jp_inputs,
+    build_m1_no_inputs,
     build_m1_nz_inputs,
     build_m1_uk_inputs,
     build_m1_us_inputs,
@@ -33,12 +35,14 @@ from sonar.indices.monetary.builders import (
     build_m2_ca_inputs,
     build_m2_ch_inputs,
     build_m2_jp_inputs,
+    build_m2_no_inputs,
     build_m2_nz_inputs,
     build_m2_us_inputs,
     build_m4_au_inputs,
     build_m4_ca_inputs,
     build_m4_ch_inputs,
     build_m4_jp_inputs,
+    build_m4_no_inputs,
     build_m4_nz_inputs,
     build_m4_us_inputs,
 )
@@ -165,6 +169,9 @@ class _FakeFredConnector:
         elif series_id == FRED_CH_POLICY_RATE_SERIES:
             country_code = "CH"
             yield_bps_val = -25  # -0.25 % — negative-rate-era fixture value
+        elif series_id == FRED_NO_POLICY_RATE_SERIES:
+            country_code = "NO"
+            yield_bps_val = 400  # 4.00 % — post-2024 normalisation level
         else:
             return []
         out: list[Observation] = []
@@ -500,6 +507,67 @@ class _FakeTEChSuccess:
             )
             d = date.fromordinal(d.toordinal() + 1)
         return out
+
+
+class _FakeTENoSuccess:
+    """TE primary path for NO — returns daily Norges Bank policy-rate obs (pct)."""
+
+    def __init__(self, *, pct: float = 4.5) -> None:
+        self.pct = pct
+
+    async def fetch_no_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="NOBRDEP"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTENoUnavailable:
+    """TE primary fails for NO — cascade fails over to Norges Bank native."""
+
+    async def fetch_no_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='NO' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeNorgesBankSuccess:
+    """Norges Bank DataAPI native — daily cadence (no staleness or cadence flag)."""
+
+    def __init__(self, *, yield_bps: int = 425) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="NO",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,
+                    source="NORGESBANK",
+                    source_series_id="IR/B.KPRA.SD.R",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeNorgesBankUnavailable:
+    """Simulates a Norges Bank DataAPI outage / schema drift."""
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "Norges Bank DataAPI unreachable (test-fake)"
+        raise DataUnavailableError(msg)
 
 
 class _FakeTEChUnavailable:
@@ -1836,6 +1904,226 @@ class TestBuildM4Ch:
 
 
 # ---------------------------------------------------------------------------
+# M1 NO (Sprint X-NO — TE primary → Norges Bank native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1No:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → canonical daily Norges-Bank-sourced series, no staleness."""
+        fred = _FakeFredConnector()
+        norgesbank = _FakeNorgesBankSuccess()  # present but skipped (TE wins priority)
+        te = _FakeTENoSuccess(pct=4.5)
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            norgesbank=norgesbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "NO"
+        assert inputs.policy_rate_pct == pytest.approx(0.045)  # TE 4.50 %
+        assert "NO_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "NO_POLICY_RATE_NORGESBANK_NATIVE" not in inputs.upstream_flags
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" in inputs.upstream_flags
+        assert "NO_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0125)
+
+    @pytest.mark.asyncio
+    async def test_no_negative_rate_flag_emitted(self) -> None:
+        """NO standard positive-only contract — no country-specific neg flag."""
+        fred = _FakeFredConnector()
+        te = _FakeTENoSuccess(pct=4.5)
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        # Cascade does not attach CH_NEGATIVE_RATE_ERA_DATA for NO.
+        # Verify no country-specific negative-era flag lands — regardless
+        # of whether a CH-labelled flag would fire (it shouldn't).
+        assert not any("NEGATIVE_RATE" in f for f in inputs.upstream_flags)
+
+    @pytest.mark.asyncio
+    async def test_norgesbank_secondary_when_te_unavailable(self) -> None:
+        """TE raises → Norges Bank DataAPI native takes over (daily parity)."""
+        fred = _FakeFredConnector()
+        norgesbank = _FakeNorgesBankSuccess(yield_bps=425)  # 4.25 %
+        te = _FakeTENoUnavailable()
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            norgesbank=norgesbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0425)  # Norges Bank 4.25 %
+        assert "NO_POLICY_RATE_NORGESBANK_NATIVE" in inputs.upstream_flags
+        assert "NO_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        # Critically: Norges Bank native is daily-parity with TE so no
+        # staleness or monthly qualifier flag surfaces — contrast CH
+        # (SNB monthly).
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert not any("MONTHLY" in f for f in inputs.upstream_flags)
+        assert inputs.source_connector == ("norgesbank",)
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + Norges Bank both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        norgesbank = _FakeNorgesBankUnavailable()
+        te = _FakeTENoUnavailable()
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            norgesbank=norgesbank,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.04)  # FRED 4.00 %
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "NO_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "NO_POLICY_RATE_NORGESBANK_NATIVE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_norgesbank_absent(self) -> None:
+        """te=None + norgesbank=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "NO"
+        assert inputs.source_connector == ("fred",)
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + Norges Bank unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, Norges Bank, and FRED"):
+            await build_m1_no_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTENoUnavailable(),  # type: ignore[arg-type]
+                norgesbank=_FakeNorgesBankUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """NO BS/GDP ratio is placeholder — always emits NO_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTENoSuccess(pct=4.5)
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "NO_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_zero_policy_rate_covid_trough(self) -> None:
+        """2020-2021 COVID trough anchors: NO policy-rate 0 % flows through clean."""
+        fred = _FakeFredConnector()
+        te = _FakeTENoSuccess(pct=0.0)
+        inputs = await build_m1_no_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2021, 6, 30),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0)
+        assert "NO_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 NO (Sprint X-NO — scaffold raises until NO CPI + gap connectors land)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2No:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 NO scaffold is wire-ready but raises until NO gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTENoSuccess(pct=4.5)
+        with pytest.raises(InsufficientDataError, match="CAL-NO"):
+            await build_m2_no_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_no_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 NO (Sprint X-NO — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4No:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 NO scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTENoSuccess(pct=4.5)
+        norgesbank = _FakeNorgesBankSuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-NO-M4-FCI"):
+            await build_m4_no_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                norgesbank=norgesbank,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_no_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -1942,10 +2230,10 @@ class TestMonetaryInputsBuilderFacade:
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
         )
-        # NZ + CH both wired (Sprint U-NZ + Sprint V-CH); NO / SE remain
-        # Phase 2+ — probe with one of those.
-        with pytest.raises(NotImplementedError, match="NO"):
-            await builder.build_m1_inputs("NO", date(2024, 12, 31))
+        # NZ + CH + NO all wired (Sprint U-NZ + Sprint V-CH + Sprint X-NO);
+        # SE remains Phase 2+ — probe with it.
+        with pytest.raises(NotImplementedError, match="SE"):
+            await builder.build_m1_inputs("SE", date(2024, 12, 31))
 
     @pytest.mark.asyncio
     async def test_build_m1_ca_via_facade_te_primary(self) -> None:
@@ -2190,6 +2478,74 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(InsufficientDataError, match="CAL-CH-M4-FCI"):
             await builder.build_m4_inputs("CH", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_no_via_facade_te_primary(self) -> None:
+        """NO M1 dispatch — TE handle present → canonical TE primary path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENoSuccess(pct=4.5),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NO", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NO"
+        assert "NO_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_no_via_facade_norgesbank_secondary(self) -> None:
+        """NO M1 dispatch — TE absent, Norges Bank handle present → native path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            norgesbank=_FakeNorgesBankSuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NO", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NO"
+        assert "NO_POLICY_RATE_NORGESBANK_NATIVE" in inputs.upstream_flags
+        # Daily-parity — no cadence qualifier / staleness flag on native path.
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("norgesbank",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_no_via_facade_fred_fallback(self) -> None:
+        """NO M1 dispatch — FRED-only path (no TE/NB handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("NO", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "NO"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "NO_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_no_dispatches_to_no_builder(self) -> None:
+        """NO M2 dispatch routes to the NO scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENoSuccess(pct=4.5),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-NO"):
+            await builder.build_m2_inputs("NO", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_no_dispatches_to_no_builder(self) -> None:
+        """NO M4 dispatch routes to the NO scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTENoSuccess(pct=4.5),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-NO-M4-FCI"):
+            await builder.build_m4_inputs("NO", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
