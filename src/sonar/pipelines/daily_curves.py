@@ -18,21 +18,22 @@ daily pipelines.
   (BBSIS daily zero-coupon 9 tenors 1Y-30Y; linker stub)
 - **EA**  → :class:`~sonar.connectors.ecb_sdw.EcbSdwConnector`
   (YC dataflow EA-AAA Svensson 11 tenors 3M-30Y; linker stub)
-- **GB / JP / CA** → :class:`~sonar.connectors.te.TEConnector`
+- **GB / JP / CA / IT / ES** → :class:`~sonar.connectors.te.TEConnector`
   (``/markets/historical`` Bloomberg symbols — GB 12 / JP 9 / CA 6
-  tenors per CAL-138 empirical probe; linker stub)
+  tenors per CAL-138 empirical probe; IT 12 / ES 9 tenors per Sprint H
+  pre-flight 2026-04-22; linker stub)
 
-Other T1 countries (AU/NZ/CH/SE/NO/DK + EA periphery PT/IT/ES/FR/NL)
-have insufficient tenor coverage on currently-wired connectors. The
-Week 10 Sprint A pre-flight probe (2026-04-22) confirmed that ECB SDW
-cannot serve per-country EA periphery curves — the ``YC`` dataflow is
-EA-aggregate only, ``FM`` lacks EA periphery ``REF_AREA``, and ``IRS``
-publishes a single 10Y point per country (below
-``MIN_OBSERVATIONS=6``). PT/IT/ES/FR/NL are therefore tracked under
-five per-country CAL items (``CAL-CURVES-PT-BPSTAT`` /
-``CAL-CURVES-IT-BDI`` / ``CAL-CURVES-ES-BDE`` /
-``CAL-CURVES-FR-BDF`` / ``CAL-CURVES-NL-DNB``) superseding the
-umbrella ``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
+Other T1 countries (AU/NZ/CH/SE/NO/DK + EA periphery remainder
+PT/FR/NL) have insufficient tenor coverage on currently-wired
+connectors. The Week 10 Sprint A pre-flight probe (2026-04-22)
+confirmed that ECB SDW cannot serve per-country EA periphery curves
+— the ``YC`` dataflow is EA-aggregate only, ``FM`` lacks EA
+periphery ``REF_AREA``, and ``IRS`` publishes a single 10Y point per
+country (below ``MIN_OBSERVATIONS=6``). The remaining periphery
+(PT / FR / NL) is tracked under per-country CAL items
+(``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-FR-BDF`` /
+``CAL-CURVES-NL-DNB``) superseding the umbrella
+``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
 ``CAL-CURVES-T1-SPARSE``. Pipeline raises
 :class:`~sonar.overlays.exceptions.InsufficientDataError` for those —
 in ``--all-t1`` mode the country is skipped and the orchestrator
@@ -57,12 +58,21 @@ BdI Infostat API subdomains NXDOMAIN; MEF HTML-only; ECB SDW FM + IRS
 EA-aggregate; FRED 10Y-monthly). ES is "HTTP 200 + non-daily" — the
 Banco de España BIE REST API (``https://app.bde.es/bierest/``) is
 live and publishes 11-tenor Spanish sovereign yields but at
-monthly frequency, below the daily pipeline cadence. Both
-``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE`` are BLOCKED; the
-scaffolded :mod:`sonar.connectors.banca_ditalia` +
-:mod:`sonar.connectors.banco_espana` connectors capture the
-empirical state. PT-BPSTAT + NL-DNB remain pending (ADR-0009
-successor sprints 4 + 5).
+monthly frequency, below the daily pipeline cadence. Sprint G's
+brief §2 probe list had **omitted** TE (Trading Economics generic
+indicator API) — Sprint H (2026-04-22) re-probed with TE as Path 1
+per ADR-0009 v2 amendment and empirically confirmed 12-tenor IT
+coverage (``GBTPGR`` BTP family) + 9-tenor ES coverage (``GSPG``
+SPGB family) via the ``/markets/historical`` endpoint. IT + ES
+therefore **ship via TE cascade** (this commit) and close both
+``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``. The scaffolded
+:mod:`sonar.connectors.banca_ditalia` +
+:mod:`sonar.connectors.banco_espana` connectors are retained as
+future direct-CB placeholders (Phase 2.5+ unblock paths documented
+in the Sprint G retro). PT-BPSTAT + NL-DNB remain pending (ADR-0009
+successor sprints 4 + 5); FR-BDF remains BLOCKED pending a TE
+per-tenor re-probe tracked under ``CAL-CURVES-FR-TE-PROBE``
+(opened Sprint H).
 
 CLI entrypoints:
 
@@ -130,35 +140,37 @@ EXIT_IO = 4
 # daily_credit_indices / daily_financial_indices / daily_cycles /
 # daily_cost_of_capital / cli.status because the curve pipeline has
 # different connector readiness per country (Week 10 Sprint E sparse
-# inclusion, 2026-04-22). Membership reflects ``CURVE_SUPPORTED_COUNTRIES``:
+# inclusion, 2026-04-22; Week 10 Sprint H IT + ES TE cascade,
+# 2026-04-22). Membership reflects ``CURVE_SUPPORTED_COUNTRIES``:
 #
 # - **US** via FRED (full DGS/DFII — nominal + linker)
 # - **DE** via Bundesbank (BBSIS zero-coupon 1Y-30Y)
 # - **EA** via ECB SDW (YC EA-AAA Svensson 3M-30Y aggregate)
-# - **GB / JP / CA** via TE ``/markets/historical`` Bloomberg symbols
-#   (CAL-138 empirical probe: GB 12 / JP 9 / CA 6 tenors)
+# - **GB / JP / CA / IT / ES** via TE ``/markets/historical`` Bloomberg
+#   symbols (CAL-138: GB 12 / JP 9 / CA 6 tenors; Sprint H: IT 12 /
+#   ES 9 tenors)
 #
-# EA periphery members (PT/IT/ES/FR/NL) and AU/NZ/CH/SE/NO/DK are
+# EA periphery remainder (PT / FR / NL) and AU/NZ/CH/SE/NO/DK are
 # deferred per per-country CAL items (``CAL-CURVES-PT-BPSTAT`` …) and
 # ``CAL-CURVES-T1-SPARSE`` respectively; passing them via ``--country <X>``
 # still raises ``InsufficientDataError`` with a CAL pointer — the sparse
 # inclusion change only concerns what ``--all-t1`` iterates.
-T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA")
+T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
 
-# Countries wired to a curve-fit path at CAL-138 Sprint close. A country
+# Countries wired to a curve-fit path at Sprint H close. A country
 # outside this set passed to ``--country`` raises InsufficientDataError
 # with a pointer to the tracking CAL item.
-CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA"})
+CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES"}
+)
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
-# see the exact CAL item to subscribe to. EA periphery members point to
-# their per-country CAL items (Sprint A 2026-04-22 probe superseded the
-# umbrella CAL-CURVES-EA-PERIPHERY with five national-CB integration
-# sprints, mirrored in :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
+# see the exact CAL item to subscribe to. EA periphery remainder (PT /
+# FR / NL) points to their per-country CAL items; Sprint H 2026-04-22
+# moved IT + ES out of the deferral map after TE cascade ship closed
+# ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``.
 _DEFERRAL_CAL_MAP: dict[str, str] = {
     "PT": "CAL-CURVES-PT-BPSTAT",
-    "IT": "CAL-CURVES-IT-BDI",
-    "ES": "CAL-CURVES-ES-BDE",
     "FR": "CAL-CURVES-FR-BDF",
     "NL": "CAL-CURVES-NL-DNB",
     "AU": "CAL-CURVES-T1-SPARSE",
@@ -445,9 +457,10 @@ def main(
         False,  # noqa: FBT003 — Typer convention
         "--all-t1",
         help=(
-            "Iterate the canonical T1 tier (US+6 EA members). "
-            "Countries without curve support skip with a warning; "
-            "exit 0 if at least one succeeds."
+            "Iterate the Sprint H curve-capable T1 set "
+            "(US/DE/EA/GB/JP/CA/IT/ES — 8 countries). Members without "
+            "curve support skip with a warning; exit 0 if at least "
+            "one succeeds."
         ),
     ),
     target_date: str = typer.Option(..., "--date", help="ISO date (e.g. 2024-01-02)."),

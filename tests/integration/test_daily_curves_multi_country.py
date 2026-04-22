@@ -1,14 +1,13 @@
-"""Integration tests — daily-curves multi-country dispatch (CAL-138 Sprint).
+"""Integration tests — daily-curves multi-country dispatch.
 
-Covers the post-CAL-138 curve-fit surface: US (FRED, existing), DE
-(Bundesbank), EA (ECB SDW), GB/JP/CA (TE). Countries deferred per
-the five per-country EA periphery CAL items (CAL-CURVES-PT-BPSTAT /
-CAL-CURVES-IT-BDI / CAL-CURVES-ES-BDE / CAL-CURVES-FR-BDF /
-CAL-CURVES-NL-DNB — superseded CAL-CURVES-EA-PERIPHERY post Sprint A
-2026-04-22 probe) or CAL-CURVES-T1-SPARSE raise
-:class:`InsufficientDataError` at dispatch — verified by unit tests of
-``_fetch_nominals_linkers``; integration tests here exercise the live
-cascade end-to-end.
+Covers the post-Sprint-H curve-fit surface (2026-04-22): US (FRED,
+existing), DE (Bundesbank), EA (ECB SDW), GB/JP/CA/IT/ES (TE). The
+Sprint H TE cascade closed ``CAL-CURVES-IT-BDI`` +
+``CAL-CURVES-ES-BDE``; the EA periphery remainder (PT / FR / NL) +
+sparse T1 members (AU/NZ/CH/SE/NO/DK) continue to raise
+:class:`InsufficientDataError` at dispatch — verified by unit tests
+of ``_fetch_nominals_linkers``; integration tests here exercise the
+live cascade end-to-end.
 """
 
 from __future__ import annotations
@@ -98,33 +97,37 @@ async def te(tmp_path: Path) -> AsyncIterator[TEConnector]:
 
 
 def test_t1_curves_tier_constant_matches_expected() -> None:
-    """Sprint E sparse inclusion (2026-04-22): ``--all-t1`` iterates the
-    six curve-capable T1 countries. Replaces the shared ``T1_7_COUNTRIES``
-    convention for this pipeline only — see module docstring for the
-    per-country connector dispatch.
+    """Sprint H IT + ES TE cascade (2026-04-22): ``--all-t1`` iterates
+    the eight curve-capable T1 countries. First six entries preserve
+    Sprint E ordering (journal/tool compatibility); IT + ES append
+    at the tail.
     """
-    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA")
+    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
     assert set(T1_CURVES_COUNTRIES) == CURVE_SUPPORTED_COUNTRIES
 
 
-def test_curve_supported_countries_matches_cal138_scope() -> None:
-    """Post-CAL-138 ship list: US (FRED) + DE (BB) + EA (ECB) + GB/JP/CA (TE)."""
-    assert frozenset({"US", "DE", "EA", "GB", "JP", "CA"}) == CURVE_SUPPORTED_COUNTRIES
+def test_curve_supported_countries_matches_sprint_h_scope() -> None:
+    """Post-Sprint-H ship list: US (FRED) + DE (BB) + EA (ECB) +
+    GB/JP/CA/IT/ES (TE — 5 countries via Bloomberg-symbol cascade).
+    """
+    assert frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES"}) == CURVE_SUPPORTED_COUNTRIES
 
 
 async def test_fetch_nominals_raises_for_periphery_with_cal_pointer(
     bundesbank: BundesbankConnector, ecb_sdw: EcbSdwConnector
 ) -> None:
-    """EA periphery raise InsufficientDataError with per-country CAL pointer.
+    """EA periphery remainder raises InsufficientDataError with per-
+    country CAL pointer.
 
-    Post Sprint A 2026-04-22 probe the umbrella ``CAL-CURVES-EA-PERIPHERY``
-    was superseded by five per-country items; the dispatch error now
-    cites the country-specific CAL (e.g. PT → ``CAL-CURVES-PT-BPSTAT``).
+    Post-Sprint-H (2026-04-22) IT + ES are no longer deferred — they
+    ship via TE cascade and therefore route into the dispatcher's TE
+    branch (which raises "requires TEConnector" when te=None is passed,
+    not a CAL pointer). Only PT / FR / NL remain with CAL pointers
+    at dispatch; the umbrella ``CAL-CURVES-EA-PERIPHERY`` was
+    superseded by per-country items (Sprint A 2026-04-22 probe).
     """
     expected_pointers = {
         "PT": "CAL-CURVES-PT-BPSTAT",
-        "IT": "CAL-CURVES-IT-BDI",
-        "ES": "CAL-CURVES-ES-BDE",
         "FR": "CAL-CURVES-FR-BDF",
         "NL": "CAL-CURVES-NL-DNB",
     }
@@ -258,21 +261,22 @@ async def test_daily_curves_all_t1_sparse_inclusion(
     te: TEConnector,
     db_session: Session,
 ) -> None:
-    """``--all-t1`` iteration persists five non-US curves on one date.
+    """``--all-t1`` iteration persists seven non-US curves on one date.
 
     Sprint E (CAL-CURVES-T1-SPARSE-INCLUSION 2026-04-22) expanded
-    ``T1_CURVES_COUNTRIES`` from (US, DE, PT, IT, ES, FR, NL) to
-    (US, DE, EA, GB, JP, CA). This canary validates the five non-US
-    countries (which do not need a FRED key) persist successfully in
-    a single run — mirroring the production ``sonar-daily-curves.service``
-    invocation.
+    ``T1_CURVES_COUNTRIES`` to (US, DE, EA, GB, JP, CA). Sprint H
+    (IT + ES TE cascade, 2026-04-22) further expanded to eight
+    (US, DE, EA, GB, JP, CA, IT, ES). This canary validates the seven
+    non-US countries (which do not need a FRED key) persist
+    successfully in a single run — mirroring the production
+    ``sonar-daily-curves.service`` invocation.
 
     US is exercised separately in ``test_daily_curves_pipeline.py`` to
     keep this test independent of ``FRED_API_KEY`` presence.
     """
     obs_date = date(2024, 12, 30)
     non_us = [c for c in T1_CURVES_COUNTRIES if c != "US"]
-    assert non_us == ["DE", "EA", "GB", "JP", "CA"]
+    assert non_us == ["DE", "EA", "GB", "JP", "CA", "IT", "ES"]
 
     for country in non_us:
         await run_country(
@@ -291,6 +295,11 @@ async def test_daily_curves_all_t1_sparse_inclusion(
     assert set(persisted) == set(non_us)
     assert persisted["DE"].source_connector == "bundesbank"
     assert persisted["EA"].source_connector == "ecb_sdw"
-    for country in ("GB", "JP", "CA"):
+    for country in ("GB", "JP", "CA", "IT", "ES"):
         assert persisted[country].source_connector == "te"
         assert persisted[country].observations_used >= 6
+    # Sprint H NSS quality guards (per-country) — aligned with RMSE ≤ 10 bps
+    # acceptance from the Sprint H brief §6.
+    for country in ("IT", "ES"):
+        assert persisted[country].rmse_bps <= 15  # liquidity premium headroom
+        assert persisted[country].confidence >= 0.85

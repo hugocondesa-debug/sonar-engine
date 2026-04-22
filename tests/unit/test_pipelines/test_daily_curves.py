@@ -1,11 +1,11 @@
 """Unit tests — daily_curves dispatcher routing.
 
-Covers the post-Sprint-E (CAL-CURVES-T1-SPARSE-INCLUSION 2026-04-22)
-surface of :func:`sonar.pipelines.daily_curves._fetch_nominals_linkers`:
+Covers the post-Sprint-H (IT + ES TE cascade 2026-04-22) surface of
+:func:`sonar.pipelines.daily_curves._fetch_nominals_linkers`:
 
-- Positive routing for the six curve-capable T1 members (US / DE / EA /
-  GB / JP / CA) — each country lands on the expected connector and
-  returns the expected ``source_connector`` label.
+- Positive routing for the eight curve-capable T1 members (US / DE /
+  EA / GB / JP / CA / IT / ES) — each country lands on the expected
+  connector and returns the expected ``source_connector`` label.
 - Missing-connector HALT path (each supported country raises
   ``InsufficientDataError`` when the caller omits the required
   connector instance).
@@ -89,8 +89,12 @@ def test_t1_curves_countries_disjoint_from_deferrals() -> None:
 def test_t1_curves_countries_ordering_stable() -> None:
     """Preserve historical ordering so systemd journals and cassette
     filenames remain stable across sprints.
+
+    Sprint H (IT + ES TE cascade, 2026-04-22) appends IT + ES to the
+    tail; the first six entries remain bit-stable with the Sprint E
+    ordering for journal/tool compatibility.
     """
-    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA")
+    assert T1_CURVES_COUNTRIES == ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES")
 
 
 # ---------------------------------------------------------------------------
@@ -98,10 +102,12 @@ def test_t1_curves_countries_ordering_stable() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES"])
 async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
-    """GB/JP/CA dispatch lands on ``TEConnector`` and labels
-    ``source_connector='te'`` per CAL-138 empirical probe (2026-04-22).
+    """GB/JP/CA dispatch lands on ``TEConnector`` (CAL-138 empirical
+    probe 2026-04-22); IT + ES join the TE branch post Sprint H
+    (2026-04-22) via the same per-country ``TE_YIELD_CURVE_SYMBOLS``
+    dispatch.
     """
     te = AsyncMock()
     te.fetch_yield_curve_nominal.return_value = _stub_nominals(country, source_series_prefix="TE")
@@ -127,7 +133,7 @@ async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
     assert linkers == {}
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES"])
 async def test_dispatch_raises_when_te_missing_for_non_ea_t1(country: str) -> None:
     """Missing TE connector for a TE-served country surfaces as
     ``InsufficientDataError`` with the country code cited — not a
