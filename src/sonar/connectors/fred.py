@@ -111,15 +111,19 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "MICH": 1.0,
     "EXPINF10YR": 10.0,
     # OECD MEI mirror series — monthly short-term interest rates
-    # (consumed by the GB / JP / CA / AU / NZ / CH monetary M1
+    # (consumed by the GB / JP / CA / AU / NZ / CH / SE monetary M1
     # cascades as last-resort FRED fallback when TE + country-native
-    # connectors both fail). Tenor ≈ 0.01Y (overnight) since all six
+    # connectors both fail). Tenor ≈ 0.01Y (overnight) since all seven
     # track the short-rate target. NZ entry added Week 9 Sprint U-NZ;
     # CH entry added Week 9 Sprint V — note IRSTCI01CHM156N is
     # substantially more stale than its peers (Sprint V probe
     # 2026-04-21 observed the last update at 2024-03-01 — roughly 2Y
     # lag); the cascade still pairs it with CALIBRATION_STALE so the
-    # degradation surfaces to operators.
+    # degradation surfaces to operators. SE entry added Week 9 Sprint
+    # W-SE — and IRSTCI01SEM156N is *even worse*: the Sprint W-SE probe
+    # 2026-04-22 found the series discontinued at 2020-10-01 and
+    # frozen indefinitely (~5.5 years stale). The cascade wires it
+    # anyway for shape parity + CALIBRATION_STALE transparency.
     "IRSTCI01GBM156N": 0.01,
     "IRSTCI01JPM156N": 0.01,
     "IRSTCI01CAM156N": 0.01,
@@ -132,12 +136,20 @@ FRED_SERIES_TENORS: dict[str, float] = {
     # ~1 month lag) but the cascade still pairs it with CALIBRATION_
     # STALE so the monthly-vs-daily cadence delta surfaces explicitly.
     "IRSTCI01NOM156N": 0.01,
+    # SE entry added Week 9 Sprint W-SE — note IRSTCI01SEM156N is
+    # the extreme outlier: Sprint W-SE probe 2026-04-22 found the
+    # series discontinued at 2020-10-01 and frozen indefinitely
+    # (~5.5 years stale). The cascade wires it anyway for shape
+    # parity + CALIBRATION_STALE transparency.
+    "IRSTCI01SEM156N": 0.01,
     # OECD MEI mirror — monthly long-term interest rates (10Y
     # sovereign benchmark). Reserved for M4 FCI custom paths across
-    # GB / JP / CA / AU / NZ / CH / NO; not yet consumed at Sprint
-    # S/T/U/V/X-NO scope but wired for the upcoming CAL-121 / CAL-131 /
-    # CAL-AU-M4-FCI / CAL-NZ-M4-FCI / CAL-CH-M4-FCI / CAL-NO-M4-FCI
-    # bundles.
+    # GB / JP / CA / AU / NZ / CH / NO / SE; not yet consumed at
+    # Sprint S/T/U/V/W-SE/X-NO scope but wired for the upcoming
+    # CAL-121 / CAL-131 / CAL-AU-M4-FCI / CAL-NZ-M4-FCI /
+    # CAL-CH-M4-FCI / CAL-NO-M4-FCI / CAL-SE-M4-FCI bundles. Unlike
+    # the short-rate SE mirror, the 10Y SE mirror (IRLTLT01SEM156N)
+    # is still live — last observation 2026-03-01 at Sprint W-SE probe.
     "IRLTLT01GBM156N": 10.0,
     "IRLTLT01JPM156N": 10.0,
     "IRLTLT01CAM156N": 10.0,
@@ -145,6 +157,7 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "IRLTLT01NZM156N": 10.0,
     "IRLTLT01CHM156N": 10.0,
     "IRLTLT01NOM156N": 10.0,
+    "IRLTLT01SEM156N": 10.0,
 }
 
 # Back-compat alias for Week 1 nominal-only callers.

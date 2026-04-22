@@ -86,12 +86,13 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I),
 # JP via BoJ → FRED cascade (sprint 8-L), CA via BoC Valet → FRED
 # cascade (sprint 9-S), AU via RBA F1 CSV → FRED cascade (sprint
-# 9-T), CH via SNB zimoma/SARON → FRED cascade (sprint 9-V), and
-# NO via Norges Bank DataAPI SDMX-JSON → FRED cascade (sprint 9-X-NO).
+# 9-T), CH via SNB zimoma/SARON → FRED cascade (sprint 9-V), NO via
+# Norges Bank DataAPI SDMX-JSON → FRED cascade (sprint 9-X-NO), and
+# SE via Riksbank Swea SECBREPOEFF → FRED cascade (sprint 9-W-SE).
 # All stay separate from T1_7_COUNTRIES so --all-t1 preserves the
 # historical 7-country semantics; callers opt in via --country GB
 # (or the deprecated "UK" alias — ADR-0007), --country JP, --country
-# CA, --country AU, --country CH, or --country NO.
+# CA, --country AU, --country CH, --country NO, or --country SE.
 #
 # Backward compat: "UK" preserved as deprecated alias per ADR-0007.
 # CLI emits a structlog deprecation warning when ``--country UK`` is
@@ -111,6 +112,7 @@ MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = (
     "NZ",
     "CH",
     "NO",
+    "SE",
 )
 
 # ADR-0007 deprecated country aliases. Map ``alias -> canonical``.
@@ -321,6 +323,7 @@ def _build_live_connectors(
     from sonar.connectors.norgesbank import NorgesBankConnector  # noqa: PLC0415
     from sonar.connectors.rba import RBAConnector  # noqa: PLC0415
     from sonar.connectors.rbnz import RBNZConnector  # noqa: PLC0415
+    from sonar.connectors.riksbank import RiksbankConnector  # noqa: PLC0415
     from sonar.connectors.snb import SNBConnector  # noqa: PLC0415
     from sonar.connectors.te import TEConnector  # noqa: PLC0415
 
@@ -332,6 +335,7 @@ def _build_live_connectors(
     boj = BoJConnector(cache_dir=f"{cache_dir}/boj")
     rba = RBAConnector(cache_dir=f"{cache_dir}/rba")
     rbnz = RBNZConnector(cache_dir=f"{cache_dir}/rbnz")
+    riksbank = RiksbankConnector(cache_dir=f"{cache_dir}/riksbank")
     snb = SNBConnector(cache_dir=f"{cache_dir}/snb")
     norgesbank = NorgesBankConnector(cache_dir=f"{cache_dir}/norgesbank")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te") if te_api_key else None
@@ -344,11 +348,23 @@ def _build_live_connectors(
         boj=boj,
         rba=rba,
         rbnz=rbnz,
+        riksbank=riksbank,
         snb=snb,
         norgesbank=norgesbank,
         te=te,
     )
-    connectors: list[object] = [fred, ecb, boc, boe, boj, rba, rbnz, snb, norgesbank]
+    connectors: list[object] = [
+        fred,
+        ecb,
+        boc,
+        boe,
+        boj,
+        rba,
+        rbnz,
+        riksbank,
+        snb,
+        norgesbank,
+    ]
     if te is not None:
         connectors.append(te)
     return builder, connectors
@@ -406,9 +422,10 @@ def main(
             "cascade (Sprint I-patch), JP M1 TE-primary cascade (Sprint "
             "L), CA M1 TE-primary cascade (Sprint S), AU M1 TE-primary "
             "cascade (Sprint T), NZ M1 TE-primary cascade (Sprint U-NZ), "
-            "and CH M1 TE-primary cascade (Sprint V). Optional; country-"
-            "native fallbacks (BoE / BoJ / BoC Valet / RBA F1 CSV / "
-            "RBNZ B2 CSV / SNB zimoma) and the FRED OECD mirror remain "
+            "CH M1 TE-primary cascade (Sprint V), and SE M1 TE-primary "
+            "cascade (Sprint W-SE). Optional; country-native fallbacks "
+            "(BoE / BoJ / BoC Valet / RBA F1 CSV / RBNZ B2 CSV / SNB "
+            "zimoma / Riksbank Swea) and the FRED OECD mirror remain "
             "available when absent."
         ),
     ),

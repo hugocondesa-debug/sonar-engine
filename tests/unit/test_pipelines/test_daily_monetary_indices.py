@@ -121,7 +121,7 @@ def test_targets_constant_matches_brief() -> None:
 
 
 def test_monetary_supported_countries_includes_gb_and_jp() -> None:
-    """GB (ADR-0007) + JP + CA + AU + NZ + CH + NO stay; US + EA present; none in T1_7."""
+    """GB (ADR-0007) + JP + CA + AU + NZ + CH + NO + SE stay; US + EA present; none in T1_7."""
     assert "GB" in MONETARY_SUPPORTED_COUNTRIES
     assert "JP" in MONETARY_SUPPORTED_COUNTRIES
     assert "CA" in MONETARY_SUPPORTED_COUNTRIES
@@ -129,9 +129,10 @@ def test_monetary_supported_countries_includes_gb_and_jp() -> None:
     assert "NZ" in MONETARY_SUPPORTED_COUNTRIES
     assert "CH" in MONETARY_SUPPORTED_COUNTRIES
     assert "NO" in MONETARY_SUPPORTED_COUNTRIES
+    assert "SE" in MONETARY_SUPPORTED_COUNTRIES
     assert "US" in MONETARY_SUPPORTED_COUNTRIES
     assert "EA" in MONETARY_SUPPORTED_COUNTRIES
-    # None of GB / JP / CA / AU / NZ / CH / NO / EA is in T1_7_COUNTRIES
+    # None of GB / JP / CA / AU / NZ / CH / NO / SE / EA is in T1_7_COUNTRIES
     # (--all-t1 preserves the historical 7-country semantics).
     assert "GB" not in T1_7_COUNTRIES
     assert "JP" not in T1_7_COUNTRIES
@@ -140,6 +141,7 @@ def test_monetary_supported_countries_includes_gb_and_jp() -> None:
     assert "NZ" not in T1_7_COUNTRIES
     assert "CH" not in T1_7_COUNTRIES
     assert "NO" not in T1_7_COUNTRIES
+    assert "SE" not in T1_7_COUNTRIES
     assert "EA" not in T1_7_COUNTRIES
 
 
