@@ -21,6 +21,15 @@ targets:
   # (https://www.snb.ch/en/the-snb/mandates-goals/monetary-policy/
   # strategy).
   SNB: 0.01      # 1 % — 0-2 % band midpoint (CH)
+  # Norges Bank operates a point inflation target. The target was
+  # reduced from 2.5 % to 2.0 % on 2018-03-02 (Forskrift §2, Finans-
+  # departementet). Sprint X-NO uses the current 2.0 % for all M1/M2
+  # cadence points — the 2018 regime change is documented here so
+  # backtesting work that anchors pre-2018 can swap to 0.025 without
+  # touching the YAML. Source: Norges Bank "Monetary policy guidelines"
+  # (https://www.norges-bank.no/en/topics/Monetary-policy/mandate-
+  # monetary-policy/).
+  Norges Bank: 0.02  # 2 % CPI (NO, post-2018; 2.5 % pre-2018-03-02)
 
 # Country keys use ISO 3166-1 alpha-2 canonical codes (GB not UK per
 # ADR-0007). Legacy "UK" input still resolves via the loader alias
@@ -40,6 +49,7 @@ country_to_target:
   CA: BoC
   NZ: RBNZ
   CH: SNB
+  "NO": Norges Bank   # quoted — YAML 1.1 treats unquoted NO as boolean False
 
 # EM countries without stable target → NO_TARGET flag (spec §4 step 2):
 # CN, IN, BR, TR, AR, MX, ZA, ID — compute skips M2 for those.

@@ -123,3 +123,32 @@ CH:
   last_updated: "2024-09-30"
   source: "SNB Working Paper 2024-09 — Swiss natural-rate posterior median (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+"NO":   # quoted — YAML 1.1 treats unquoted NO as boolean False
+  # Norges Bank does not publish an HLW-equivalent natural rate, but
+  # its Monetary Policy Report / Occasional Papers series (latest
+  # thematic discussion in MPR 1/2024 and Norges Bank Staff Memo
+  # 7/2023 "The real neutral rate of interest in Norway") bracket the
+  # real neutral rate at roughly [0.5, 2.0] % — midpoint ~1.25 % real.
+  # The nominal neutral is then ~3.25 % after the 2 % Norges Bank
+  # inflation target (revised down from 2.5 % in 2018; the target
+  # change is not retrofitted into the neutral rate because Norges
+  # Bank staff work explicitly decomposes real vs nominal). The 1.25 %
+  # real anchor matches the brief's "r* MID" specification and is
+  # consistent with how Norges Bank itself frames "roughly 2 % nominal
+  # short-rate in the long run" in the 2024 MPR forward guidance.
+  #
+  # Petroleum-fund context: Norway's oil-wealth sovereign savings
+  # (Government Pension Fund Global — NOK ~16 trillion) exert a
+  # structural safe-asset-buyer effect on domestic NOK yields that is
+  # theoretically neutral at the Norges Bank policy anchor (the fund
+  # is legally invested offshore) but can complicate point estimates
+  # of r*. The MPR range already incorporates this — the 1.25 % is the
+  # neutral-rate mid, not the petroleum-fund-adjusted residual.
+  # Downstream emits R_STAR_PROXY on every NO M1/M2 call per spec §4
+  # until an academic HLW-NO series or a Norges Bank point-estimate
+  # publication lands.
+  r_star_pct: 0.0125      # 1.25 % — Norges Bank MPR 1/2024 + Staff Memo 7/2023 mid (SONAR Phase 1 proxy)
+  last_updated: "2024-03-30"
+  source: "Norges Bank MPR 1/2024 + Staff Memo 7/2023 — neutral-rate range mid (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4

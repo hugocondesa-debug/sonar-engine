@@ -119,6 +119,21 @@ class TestRStarLoader:
         assert "SNB" in str(ch["source"])
         assert ch.get("proxy") is True
 
+    def test_no_direct_with_proxy_flag(self) -> None:
+        """NO has its own entry marked ``proxy: true`` — Norges Bank does
+        not publish an HLW-equivalent. Value anchored to Norges Bank
+        MPR 1/2024 + Staff Memo 7/2023 neutral-range mid (1.25 % real)."""
+        r_star, is_proxy = resolve_r_star("NO")
+        assert r_star == pytest.approx(0.0125)
+        assert is_proxy is True
+
+    def test_no_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        no = values["NO"]
+        assert "source" in no
+        assert "Norges Bank" in str(no["source"])
+        assert no.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -172,9 +187,30 @@ class TestBcTargetsLoader:
         assert resolve_inflation_target("CH") == pytest.approx(0.01)
         assert load_country_to_target()["CH"] == "SNB"
 
-    def test_targets_dict_eight_central_banks(self) -> None:
+    def test_no_resolves_to_norges_bank_target(self) -> None:
+        """NO monetary inputs resolve to Norges Bank 2 % CPI target (post-2018).
+
+        Target reduced from 2.5 % → 2.0 % on 2018-03-02 (Forskrift §2).
+        The 2.0 % current value applies to all Sprint X-NO cadence
+        points; pre-2018 backtesting work can swap the YAML value
+        without touching resolver logic.
+        """
+        assert resolve_inflation_target("NO") == pytest.approx(0.02)
+        assert load_country_to_target()["NO"] == "Norges Bank"
+
+    def test_targets_dict_nine_central_banks(self) -> None:
         targets = load_bc_targets()
-        assert {"Fed", "ECB", "BoE", "BoJ", "RBA", "BoC", "RBNZ", "SNB"} <= set(targets.keys())
+        assert {
+            "Fed",
+            "ECB",
+            "BoE",
+            "BoJ",
+            "RBA",
+            "BoC",
+            "RBNZ",
+            "SNB",
+            "Norges Bank",
+        } <= set(targets.keys())
 
 
 class TestStaleness:
