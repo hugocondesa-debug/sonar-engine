@@ -175,6 +175,27 @@ def default_inputs_builder(
     )
 
 
+def _classify_m2_compute_mode(flags: tuple[str, ...]) -> str:
+    """Return ``"FULL"`` / ``"PARTIAL"`` / ``"LEGACY"`` per Sprint F flag contract.
+
+    - ``FULL``: any flag ending ``_M2_FULL_COMPUTE_LIVE`` (Sprint F
+      Commits 4-5 builders that wire all four Taylor components).
+    - ``PARTIAL``: any flag ending ``_M2_PARTIAL_COMPUTE`` (Sprint F
+      builders with forecast missing — Taylor-forward variant
+      skipped but base 1993 / 1999 variants still compute).
+    - ``LEGACY``: none of the Sprint F flags present (US canonical
+      CBO path or any builder that predates Sprint F). Operators
+      read this as "no Sprint F observability on this builder".
+    """
+    for flag in flags:
+        if flag.endswith("_M2_FULL_COMPUTE_LIVE"):
+            return "FULL"
+    for flag in flags:
+        if flag.endswith("_M2_PARTIAL_COMPUTE"):
+            return "PARTIAL"
+    return "LEGACY"
+
+
 async def build_live_monetary_inputs(
     country_code: str,
     observation_date: date,
@@ -213,6 +234,14 @@ async def build_live_monetary_inputs(
             index="m2",
             country=country,
             error=str(exc),
+        )
+    else:
+        log.info(
+            "monetary_pipeline.m2_compute_mode",
+            country=country,
+            observation_date=observation_date.isoformat(),
+            mode=_classify_m2_compute_mode(m2.upstream_flags),
+            flags=tuple(m2.upstream_flags),
         )
     try:
         m4 = await builder.build_m4_inputs(country, observation_date, history_years=history_years)

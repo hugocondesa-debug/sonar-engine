@@ -288,3 +288,62 @@ def test_build_live_connectors_references_oecd_eo() -> None:
     assert "oecd_eo=oecd_eo" in src
     # Included in the ``connectors`` list for ``aclose()`` teardown.
     assert "oecd_eo," in src
+
+
+# ---------------------------------------------------------------------------
+# Sprint F — M2 compute-mode classifier + pipeline observability
+# ---------------------------------------------------------------------------
+
+
+def test_classify_m2_compute_mode_full() -> None:
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m2_compute_mode,
+    )
+
+    flags = (
+        "CA_BANK_RATE_TE_PRIMARY",
+        "CA_M2_CPI_TE_LIVE",
+        "CA_M2_INFLATION_FORECAST_TE_LIVE",
+        "CA_M2_OUTPUT_GAP_OECD_EO_LIVE",
+        "CA_M2_FULL_COMPUTE_LIVE",
+    )
+    assert _classify_m2_compute_mode(flags) == "FULL"
+
+
+def test_classify_m2_compute_mode_partial() -> None:
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m2_compute_mode,
+    )
+
+    flags = (
+        "AU_CASH_RATE_TE_PRIMARY",
+        "AU_M2_CPI_TE_LIVE",
+        "AU_M2_INFLATION_FORECAST_UNAVAILABLE",
+        "AU_M2_OUTPUT_GAP_OECD_EO_LIVE",
+        "AU_M2_PARTIAL_COMPUTE",
+        "AU_M2_CPI_SPARSE_MONTHLY",
+    )
+    assert _classify_m2_compute_mode(flags) == "PARTIAL"
+
+
+def test_classify_m2_compute_mode_legacy_us_canonical() -> None:
+    """US canonical CBO path emits no Sprint F FULL / PARTIAL flags → LEGACY."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m2_compute_mode,
+    )
+
+    flags = ("INFLATION_FORECAST_PROXY_UMICH",)
+    assert _classify_m2_compute_mode(flags) == "LEGACY"
+
+
+def test_classify_m2_compute_mode_full_takes_precedence_over_partial() -> None:
+    """A FULL flag wins over a stray PARTIAL — contract holds for flag-reuse."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m2_compute_mode,
+    )
+
+    flags = (
+        "GB_M2_PARTIAL_COMPUTE",  # impossible in practice but tests dominance
+        "GB_M2_FULL_COMPUTE_LIVE",
+    )
+    assert _classify_m2_compute_mode(flags) == "FULL"
