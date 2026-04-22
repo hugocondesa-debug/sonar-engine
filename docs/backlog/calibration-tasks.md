@@ -611,9 +611,9 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Unblocks:** Connector-scope coverage hard-gate compliance for
   the full ingestion family.
 
-### CAL-057 — `daily_erp_us` pipeline for live connector orchestration (ERP US brief surfaced)
+### CAL-057 — `daily_erp_us` pipeline for live connector orchestration (ERP US brief surfaced) (CLOSED 2026-04-22 via daily_cost_of_capital composition)
 
-- **Priority:** MEDIUM
+- **Priority:** MEDIUM → **CLOSED 2026-04-22** (Week 10 Day 0 CAL grooming).
 - **Trigger:** ERP US brief commit 8 (`6f3f9f0`) wired
   `daily_cost_of_capital` to **read** `erp_canonical` rows instead of
   the 5.5 % stub, but explicitly deferred the **write** path: no
@@ -621,7 +621,7 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   + FRED SP500 + Damodaran, calls `fit_erp_us`, and persists. Until
   such a pipeline exists, `erp_canonical` is populated only by direct
   test invocations / ad-hoc notebooks.
-- **Scope:** New `src/sonar/pipelines/daily_erp_us.py` CLI
+- **Original scope:** New `src/sonar/pipelines/daily_erp_us.py` CLI
   (`--date YYYY-MM-DD`) that orchestrates the 7 connectors (FactSet
   + Yardeni best-effort + rest hard), assembles `ERPInput`, calls
   `fit_erp_us(inputs, damodaran_erp_decimal=...)`, persists via
@@ -629,8 +629,20 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   failure emits the relevant flag (`OVERLAY_MISS` etc.) but does not
   abort the fit unless < 2 methods remain. Integration test with
   cassette fixtures for all 7 sources.
-- **Unblocks:** production `daily_cost_of_capital` runs with live
-  ERP (rather than depending on manual `fit_erp_us` invocations).
+- **Resolution:** dedicated `daily_erp_us.py` pipeline NOT
+  materialized; instead ERP composition + persist path was integrated
+  into `daily_cost_of_capital` (Week 3.5F) which orchestrates the
+  Damodaran ingest + live overlay composition in-situ. When
+  `daily_cost_of_capital` runs, `erp_canonical` rows are produced as
+  a by-product; no separate pipeline needed. Architecturally cleaner
+  than the original dedicated-pipeline design because
+  cost-of-capital already owns the ERP surface.
+- **Status:** done (via `daily_cost_of_capital` composition — Week
+  3.5F live assemblers commit family + Sprint G M1 US close). No
+  standalone pipeline ship required.
+- **Follow-on:** per-country ERP live paths (CAL-ERP-T1-PER-COUNTRY
+  Phase 2) remains OPEN and replaces the `MATURE_ERP_PROXY_US` flag
+  for EA/GB/JP with native per-market assemblers.
 
 ### CAL-068 — MOVE index live data source (F-cycle retro CAL-061 renumbered) (CLOSED 2026-04-20)
 
@@ -1231,8 +1243,9 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   +`_normalize_country_code()` across all four Sprint P modules + the
   Sprint O surfaces listed above.
 - **Status:** CLOSED 2026-04-21 (Week 9 Sprint P — 4 feature commits
-  + this backlog closure + retrospective). Backward compat aliases
-  preserved in all four modules; removal Week 10 Day 1.
+  + this backlog closure commit `cacc57c` + retrospective commit
+  `ce2c7d6`). Backward compat aliases preserved in all four modules;
+  removal Week 10 Day 1.
 
 ### CAL-119 — JP country monetary (M2 T1 Core) — **PARTIALLY CLOSED** (Week 8 Sprint L — M1 level)
 
@@ -1258,8 +1271,9 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   FRED OECD mirror demoted to last-resort with `JP_BANK_RATE_FRED_FALLBACK_STALE`
   + `CALIBRATION_STALE` flags.
 - **Remaining:** M2/M4/M3 JP paths via CAL-120 / CAL-121 / CAL-122.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending CAL-120
-  through CAL-123 landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 8 Sprint L;
+  retrospective `week8-sprint-l-boj-connector-report.md`). Full close
+  pending CAL-120 through CAL-123 landing.
 
 ### CAL-120 — JP M2 output-gap source (Week 8 Sprint L surfaced)
 
@@ -1400,8 +1414,9 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   (`IRSTCI01CAM156N`) demoted to last-resort with
   `CA_BANK_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE` flags.
 - **Remaining:** M2/M4/M3 CA paths via CAL-130 / CAL-131 / CAL-132.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending CAL-130
-  through CAL-133 landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint S; retro
+  commit `683e872`). Full close pending CAL-130 through CAL-133
+  landing.
 
 ### CAL-130 — CA M2 output-gap source (Week 9 Sprint S surfaced)
 
@@ -1611,9 +1626,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   `AU_CASH_RATE_FRED_FALLBACK_STALE` + `CALIBRATION_STALE` flags.
 - **Remaining:** M2/M4/M3 AU paths via CAL-AU-GAP / CAL-AU-M4-FCI /
   CAL-AU-M3.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
-  CAL-AU-GAP / CAL-AU-M4-FCI / CAL-AU-M3 / CAL-AU-BS-GDP / CAL-AU-CPI /
-  CAL-AU-INFL-FORECAST landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint T-AU; retro
+  commit `1acd0be`). Full close pending CAL-AU-GAP / CAL-AU-M4-FCI /
+  CAL-AU-M3 / CAL-AU-BS-GDP / CAL-AU-CPI / CAL-AU-INFL-FORECAST
+  landing.
 
 ### CAL-AU-GAP — AU M2 output-gap source (Week 9 Sprint T surfaced)
 
@@ -1756,9 +1772,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Remaining:** M2/M4/M3 NZ paths via CAL-NZ-M2-OUTPUT-GAP /
   CAL-NZ-M4-FCI / CAL-NZ-M3; RBNZ host unblock via
   CAL-NZ-RBNZ-TABLES.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
-  CAL-NZ-M2-OUTPUT-GAP / CAL-NZ-M4-FCI / CAL-NZ-M3 / CAL-NZ-BS-GDP /
-  CAL-NZ-CPI / CAL-NZ-INFL-FORECAST / CAL-NZ-RBNZ-TABLES landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint U-NZ; retro
+  commit `b86757c`). Full close pending CAL-NZ-M2-OUTPUT-GAP /
+  CAL-NZ-M4-FCI / CAL-NZ-M3 / CAL-NZ-BS-GDP / CAL-NZ-CPI /
+  CAL-NZ-INFL-FORECAST / CAL-NZ-RBNZ-TABLES landing.
 
 ### CAL-NZ-RBNZ-TABLES — RBNZ statistics host perimeter block (Week 9 Sprint U-NZ surfaced)
 
@@ -1927,9 +1944,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   enhancements).
 - **Remaining:** M2/M4/M3 CH paths via CAL-CH-GAP / CAL-CH-M4-FCI /
   CAL-CH-M3.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
-  CAL-CH-GAP / CAL-CH-M4-FCI / CAL-CH-M3 / CAL-CH-BS-GDP /
-  CAL-CH-CPI / CAL-CH-INFL-FORECAST landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint V-CH; retro
+  commit `d837558`). Full close pending CAL-CH-GAP / CAL-CH-M4-FCI /
+  CAL-CH-M3 / CAL-CH-BS-GDP / CAL-CH-CPI / CAL-CH-INFL-FORECAST
+  landing.
 
 ### CAL-CH-GAP — CH M2 output-gap source (Week 9 Sprint V surfaced)
 
@@ -2129,9 +2147,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Remaining:** M2/M4/M3 NO paths via CAL-NO-CPI /
   CAL-NO-M2-OUTPUT-GAP / CAL-NO-INFL-FORECAST / CAL-NO-M4-FCI /
   CAL-NO-M3; NO balance-sheet signal via CAL-NO-BS-GDP.
-- **Unblocks:** Closes M1 NO M2 T1 Core item. Remaining tracked by
-  CAL-NO-CPI / CAL-NO-M2-OUTPUT-GAP / CAL-NO-INFL-FORECAST /
-  CAL-NO-M4-FCI / CAL-NO-M3 / CAL-NO-BS-GDP landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint X-NO; retro
+  commit `cbf3f77`). Full close pending CAL-NO-CPI /
+  CAL-NO-M2-OUTPUT-GAP / CAL-NO-INFL-FORECAST / CAL-NO-M4-FCI /
+  CAL-NO-M3 / CAL-NO-BS-GDP landing.
 
 ### CAL-NO-M2-OUTPUT-GAP — NO M2 output-gap source (Week 9 Sprint X-NO surfaced)
 
@@ -2338,9 +2357,10 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
   with L5 regime-classifier enhancements).
 - **Remaining:** M2/M4/M3 SE paths via CAL-SE-GAP / CAL-SE-M4-FCI /
   CAL-SE-M3.
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending
-  CAL-SE-GAP / CAL-SE-M4-FCI / CAL-SE-M3 / CAL-SE-BS-GDP /
-  CAL-SE-CPI / CAL-SE-INFL-FORECAST landing.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint W-SE; retro
+  commit `26fd8c0`). Full close pending CAL-SE-GAP / CAL-SE-M4-FCI /
+  CAL-SE-M3 / CAL-SE-BS-GDP / CAL-SE-CPI / CAL-SE-INFL-FORECAST
+  landing.
 
 ### CAL-SE-GAP — SE M2 output-gap source (Week 9 Sprint W-SE surfaced)
 
@@ -2565,8 +2585,8 @@ Items surfaced por D2 empirical validation (2026-04-18) que bloqueiam implementa
 - **Remaining:** M2/M4/M3 DK paths via CAL-DK-GAP / CAL-DK-M4-FCI
   / CAL-DK-M3 + the DK-specific EUR-peg variants
   (CAL-DK-M2-EUR-PEG-TAYLOR / CAL-DK-M4-EUR-PEG-FCI).
-- **Status:** PARTIALLY CLOSED — M1 only. Full close pending the
-  CAL-DK-* items below.
+- **Status:** PARTIALLY CLOSED — M1 only (Week 9 Sprint Y-DK; retro
+  commit `5019e7f`). Full close pending the CAL-DK-* items below.
 
 ### CAL-DK-CPI — DK CPI / HICP YoY wrapper (Week 9 Sprint Y-DK surfaced)
 
