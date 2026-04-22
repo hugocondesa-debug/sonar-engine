@@ -1570,3 +1570,192 @@ async def test_live_canary_se_policy_rate(tmp_cache_dir: Path) -> None:
         assert len(neg) >= 1, "expected at least one negative-rate era observation"
     finally:
         await conn.aclose()
+
+
+async def test_wrapper_dk_policy_rate_happy_path(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """TE ``interest rate`` for DK returns ``DEBRDISC`` (Nationalbanken discount rate).
+
+    Note the source-instrument divergence: TE exposes the legacy
+    discount rate (``diskontoen``), not the active CD rate that
+    Nationalbanken uses to defend the DKK/EUR peg — see the wrapper
+    docstring + Sprint Y-DK retro §4 for the empirical context.
+    """
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2022-09-09T00:00:00",
+                "Value": 0.65,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2022-09-09T08:30:00",
+            },
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2024-06-30T00:00:00",
+                "Value": 3.25,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2024-06-30T08:30:00",
+            },
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2026-03-31T00:00:00",
+                "Value": 1.6,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2026-04-02T08:47:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_dk_policy_rate(date(2022, 1, 1), date(2026, 5, 1))
+    assert len(obs) == 3
+    assert obs[0].country == "DK"
+    assert obs[0].indicator == "interest rate"
+    assert obs[0].historical_data_symbol == "DEBRDISC"
+    # Discount-rate corridor across [-0.60, 9.00] % since 1987.
+    for o in obs:
+        assert -1.0 <= o.value <= 10.0
+
+
+async def test_wrapper_dk_policy_rate_preserves_negative_values(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Discount-rate negative window 2021-03-31 → 2022-08-31 flows through unchanged.
+
+    The discount rate spent a comparatively short window strictly-
+    negative (18 rows; min -0.60 % per Sprint Y-DK probe) — the deeper
+    -0.75 % CD-rate corridor 2015-2022 is captured separately by the
+    Nationalbanken native cascade slot. This test guards the wrapper-
+    layer sign preservation specifically for the discount-rate path.
+    """
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2021-03-31T00:00:00",
+                "Value": -0.5,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2021-03-31T08:30:00",
+            },
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2021-09-30T00:00:00",
+                "Value": -0.6,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2021-09-30T08:30:00",
+            },
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2022-08-31T00:00:00",
+                "Value": -0.1,
+                "Frequency": "Daily",
+                "HistoricalDataSymbol": "DEBRDISC",
+                "LastUpdate": "2022-08-31T08:30:00",
+            },
+        ],
+    )
+    obs = await te_connector.fetch_dk_policy_rate(date(2021, 1, 1), date(2022, 12, 31))
+    assert len(obs) == 3
+    values = [o.value for o in obs]
+    assert values == [-0.5, -0.6, -0.1]
+    assert all(v < 0 for v in values)
+
+
+async def test_wrapper_dk_policy_rate_raises_on_source_drift(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """If TE swaps in a non-DEBRDISC symbol, raise — catches mis-attribution.
+
+    Source-drift is especially load-bearing for DK because the discount
+    rate / CD rate / lending rate / current-account rate are four
+    distinct Nationalbanken instruments that TE could plausibly cross-
+    wire (see retro §4 — the Statbank ``OIBNAA`` CD rate diverged from
+    the discount rate by up to 25 bps across the 2015-2022 negative
+    corridor).
+    """
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": "Denmark",
+                "Category": "Interest Rate",
+                "DateTime": "2024-03-21T00:00:00",
+                "Value": 3.5,
+                "HistoricalDataSymbol": "DKCDRATE",
+            }
+        ],
+    )
+    with pytest.raises(DataUnavailableError, match="DK-policy-rate source drift"):
+        await te_connector.fetch_dk_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_dk_policy_rate_empty_response_raises(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Empty payload → ``fetch_indicator`` raises; cascade callers fall to native."""
+    httpx_mock.add_response(method="GET", json=[])
+    with pytest.raises(DataUnavailableError, match="empty series"):
+        await te_connector.fetch_dk_policy_rate(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def test_wrapper_dk_policy_rate_from_cassette(
+    httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Full-history cassette confirms 400+ DEBRDISC daily obs + 18 negatives."""
+    payload = _load_cassette("te_dk_policy_rate_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await te_connector.fetch_dk_policy_rate(date(1987, 1, 1), date(2026, 5, 1))
+    assert len(obs) >= 400
+    assert obs[0].historical_data_symbol == "DEBRDISC"
+    assert obs[0].country == "DK"
+    # Negative-discount-rate window 2021-03-31 → 2022-08-31 — exactly
+    # 18 rows per Sprint Y-DK probe; guard the ≥ 10 lower bound.
+    neg = [o for o in obs if o.value < 0]
+    assert len(neg) >= 10
+    first_neg = min(neg, key=lambda o: o.observation_date)
+    last_neg = max(neg, key=lambda o: o.observation_date)
+    assert first_neg.observation_date >= date(2020, 1, 1)
+    assert last_neg.observation_date <= date(2023, 6, 1)
+
+
+@pytest.mark.slow
+async def test_live_canary_dk_policy_rate(tmp_cache_dir: Path) -> None:
+    """Live probe of TE DK Policy Rate — confirms ``DEBRDISC`` + daily cadence.
+
+    Skips when ``TE_API_KEY`` is not set. Generous 6Y lookback covers
+    the 2021-2022 negative-rate window so the historical-negative
+    validation has data to assert on.
+    """
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 6)
+        obs = await conn.fetch_dk_policy_rate(start, today)
+        assert len(obs) >= 10
+        assert obs[0].historical_data_symbol == "DEBRDISC"
+        assert obs[0].country == "DK"
+        # Discount-rate band [-1.00, 5.00] % since 2014.
+        for o in obs:
+            assert -1.0 <= o.value <= 10.0
+        # Historical negative-rate preservation: 6Y lookback covers
+        # 2021-2022 — at least one strictly-negative observation.
+        neg = [o for o in obs if o.value < 0]
+        assert len(neg) >= 1, "expected at least one negative-discount-rate observation"
+    finally:
+        await conn.aclose()

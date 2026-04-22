@@ -68,6 +68,7 @@ TE_COUNTRY_NAME_MAP: dict[str, str] = {
     "CH": "switzerland",
     "NO": "norway",
     "SE": "sweden",
+    "DK": "denmark",
     "IT": "italy",
     "ES": "spain",
     "FR": "france",
@@ -128,6 +129,23 @@ TE_EXPECTED_SYMBOL_NO_POLICY_RATE = "NOBRDEP"
 # (1994-05-26 → 2026-04-30) carry ``SWRRATEI``, including the 58 rows
 # spanning the negative-rate era 2015-02-12 → 2019-11-30 (min -0.50 %).
 TE_EXPECTED_SYMBOL_SE_POLICY_RATE = "SWRRATEI"
+# Danmarks Nationalbanken policy rate as exposed by TE. Symbol
+# ``DEBRDISC`` ("Denmark Bank Rate Discount") identifies the legacy
+# **discount rate** (``diskontoen``) — Nationalbanken's historical
+# benchmark rate. Crucially this is *not* the active EUR-peg defence
+# tool: Nationalbanken manages the DKK/EUR peg via the **certificate-
+# of-deposit (CD) rate** (``indskudsbevisrenten``), and the two
+# instruments diverged sharply across the 2014-2022 negative-rate
+# corridor (CD trough -0.75 % at 2015-04-07; discount only briefly
+# negative 2021-2022 with min -0.60 %). The native Statbank cascade
+# layer (:class:`NationalbankenConnector`) consumes the CD rate
+# (``OIBNAA``) explicitly so the cascade emits both representations
+# and downstream consumers can pick the right semantic — Sprint Y-DK
+# documents the divergence in retro §4. Sprint Y-DK probe 2026-04-22
+# confirmed all 464 observations (1987-08-31 → 2026-03-31) carry
+# ``DEBRDISC``, including 18 strictly-negative rows spanning
+# 2021-03-31 → 2022-08-31 (min -0.60 %).
+TE_EXPECTED_SYMBOL_DK_POLICY_RATE = "DEBRDISC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -774,6 +792,88 @@ class TEConnector:
             err = (
                 "TE SE-policy-rate source drift: expected "
                 f"{TE_EXPECTED_SYMBOL_SE_POLICY_RATE!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_dk_policy_rate(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """DK Policy Rate — Nationalbanken discount rate, TE-sourced.
+
+        TE ``interest rate`` indicator for ``denmark`` returns
+        Nationalbanken's **discount rate** (``diskontoen``) under the
+        ``HistoricalDataSymbol`` ``DEBRDISC`` ("Denmark Bank Rate
+        Discount"). Daily cadence back-filled to 1987-08-31 (~464
+        observations at Sprint Y-DK probe 2026-04-22); TE surfaces each
+        rate-change announcement plus the constant intervening quotes so
+        a single query returns the full decision history regardless of
+        ``d1``/``d2``.
+
+        **Source-instrument divergence vs the native cascade layer**:
+        the discount rate is Nationalbanken's *historical* benchmark and
+        is not the active EUR-peg defence tool. Nationalbanken pegs DKK
+        to EUR within a ±2.25 % ERM-II band and defends the peg via the
+        **certificate-of-deposit (CD) rate** (``indskudsbevisrenten``;
+        Statbank series ``OIBNAA``) — the discount rate and CD rate
+        diverged sharply across the 2014-2022 negative-rate corridor
+        (CD trough -0.75 % at 2015-04-07; discount only briefly negative
+        2021-2022 with min -0.60 %). The Sprint Y-DK cascade therefore
+        ships TE-primary as the canonical first source per the GB / JP /
+        CA / AU / NZ / CH / NO / SE pattern, but the
+        :class:`NationalbankenConnector` native secondary returns the CD
+        rate explicitly so operators can pick the appropriate semantic
+        for downstream consumers — see retro §4 for the empirical
+        details.
+
+        **Negative-rate era preservation**: 18 rows across
+        2021-03-31 → 2022-08-31 carry negative discount-rate values
+        (minimum -0.60 %, considerably shallower than the CD-rate
+        corridor depth of -0.75 % over the longer 2015-04 → 2022-09
+        window). The wrapper (and the downstream builder) preserve the
+        sign throughout — the ``int(round(value * 100))`` conversion at
+        the Observation layer handles negative yields naturally via
+        Python's round-half-even semantics, and no clamp is applied.
+        Cascade callers emit ``DK_NEGATIVE_RATE_ERA_DATA`` when the
+        returned window contains at least one strictly-negative
+        observation, mirroring the CH / SE flag contract.
+
+        **EUR-peg-imported inflation target**: unlike the GB / JP / CA
+        / AU / NZ / CH / NO / SE wrappers, DK has *no domestic*
+        inflation target — Nationalbanken's mandate is exchange-rate
+        stability (DKK/EUR fixed at 7.46038 ± 2.25 %), and the de facto
+        inflation anchor is imported from the ECB's 2 % HICP medium-
+        term target via the peg. The cascade emits
+        ``DK_INFLATION_TARGET_IMPORTED_FROM_EA`` on every persisted DK
+        M1 row to surface the convention to operators (the
+        ``bc_targets.yaml`` DK entry carries an explicit
+        ``target_convention: imported_eur_peg`` field; see
+        :mod:`sonar.indices.monetary.builders` for the flag-emission
+        contract).
+
+        Chosen as the **primary** source for DK M1 policy-rate inputs
+        (Sprint Y-DK) per the Sprint I-patch cascade pattern — TE is
+        daily and Nationalbanken-sourced, while the Statbank native path
+        (Sprint Y-DK C2) covers ``OIBNAA`` (the active CD rate) at
+        daily cadence as the secondary. FRED OECD mirror
+        ``IRSTCI01DKM156N`` is relegated to last-resort with staleness
+        flags (monthly cadence; last observation 2025-12 at probe so
+        ~4-month lag — comparable to the NO mirror's freshness, much
+        better than the SE mirror's 5.5-year discontinuation).
+
+        Guards source identity via the ``DEBRDISC`` symbol check
+        mirroring the GB / JP / CA / AU / NZ / CH / NO / SE wrappers;
+        on drift raises :class:`DataUnavailableError` so the DK cascade
+        can fall back cleanly.
+        """
+        obs = await self.fetch_indicator("DK", TE_INDICATOR_INTEREST_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_DK_POLICY_RATE)
+        ):
+            err = (
+                "TE DK-policy-rate source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_DK_POLICY_RATE!r}, got "
                 f"{obs[0].historical_data_symbol!r}"
             )
             raise DataUnavailableError(err)
