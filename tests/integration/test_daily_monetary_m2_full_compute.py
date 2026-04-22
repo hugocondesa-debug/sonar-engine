@@ -176,3 +176,69 @@ async def test_m2_us_canonical_preserved(
             ("US_M2_CPI_TE_LIVE", "US_M2_FULL_COMPUTE_LIVE", "US_M2_OUTPUT_GAP_OECD_EO_LIVE")
         ), f"Sprint F flag leaked into US canonical compute: {flag!r}"
     assert _classify_m2_compute_mode(inputs.m2.upstream_flags) == "LEGACY"
+
+
+# ---------------------------------------------------------------------------
+# Sprint L — EA aggregate M2 live canary (CAL-M2-EA-AGGREGATE)
+# ---------------------------------------------------------------------------
+
+
+async def test_m2_ea_aggregate_full_compute_live_sprint_l(
+    te_api_key: str,
+    fred_api_key: str,
+    anchor: date,
+    tmp_path: Path,
+    mem_session: Session,
+) -> None:
+    """Sprint L live canary — EA aggregate builds FULL_COMPUTE_LIVE.
+
+    Exercises the complete EA M2 Taylor-gap path end-to-end via the
+    MonetaryInputsBuilder facade:
+    - ECB SDW DFR (policy rate)
+    - TE \\`fetch_ea_hicp_yoy\\` (ECCPEMUY — Eurostat Monetary Union HICP)
+    - TE \\`fetch_ea_inflation_forecast\\` (q4 ≈ 12m-ahead horizon)
+    - OECD EO EA17 aggregate output gap
+    """
+    fred = FredConnector(api_key=fred_api_key, cache_dir=str(tmp_path / "fred"))
+    cbo = CboConnector(fred=fred)
+    ecb = EcbSdwConnector(cache_dir=str(tmp_path / "ecb"))
+    te = TEConnector(api_key=te_api_key, cache_dir=str(tmp_path / "te"))
+    oecd = OECDEOConnector(cache_dir=str(tmp_path / "oecd_eo"))
+    try:
+        monetary_builder = MonetaryInputsBuilder(
+            fred=fred, cbo=cbo, ecb_sdw=ecb, te=te, oecd_eo=oecd
+        )
+        inputs = await build_live_monetary_inputs(
+            "EA", anchor, builder=monetary_builder, history_years=2
+        )
+    finally:
+        await fred.aclose()
+        await ecb.aclose()
+        await te.aclose()
+        await oecd.aclose()
+
+    assert inputs.m2 is not None, f"EA M2 did not compute on {anchor}"
+    mode = _classify_m2_compute_mode(inputs.m2.upstream_flags)
+    assert mode == "FULL", (
+        f"EA M2 mode={mode!r} on {anchor} — expected FULL. Flags: {inputs.m2.upstream_flags}"
+    )
+    assert "EA_M2_POLICY_RATE_ECB_DFR_LIVE" in inputs.m2.upstream_flags
+    assert "EA_M2_CPI_TE_LIVE" in inputs.m2.upstream_flags
+    assert "EA_M2_INFLATION_FORECAST_TE_LIVE" in inputs.m2.upstream_flags
+    assert "EA_M2_OUTPUT_GAP_OECD_EO_LIVE" in inputs.m2.upstream_flags
+    assert "EA_M2_FULL_COMPUTE_LIVE" in inputs.m2.upstream_flags
+    # Source identity: EA aggregate must route ECB DFR (not FRED / CBO).
+    assert inputs.m2.source_connector[0] == "ecb_sdw"
+    assert "te" in inputs.m2.source_connector
+    assert "oecd_eo" in inputs.m2.source_connector
+    assert "fred" not in inputs.m2.source_connector
+    assert "cbo" not in inputs.m2.source_connector
+    # Output gap tagged OECD_EO (EA17 mapping from Sprint C).
+    assert inputs.m2.output_gap_source == "OECD_EO"
+    # Unit sanity: policy rate decimal in [-0.02, 0.20].
+    assert -0.02 <= inputs.m2.policy_rate_pct <= 0.20
+    # HICP YoY decimal bound — EA has stayed well inside [-0.02, 0.15]
+    # across the full 1991-2026 window (2022 peak ~0.106).
+    assert -0.02 <= inputs.m2.inflation_yoy_pct <= 0.15
+    # Output gap in pp — EA17 modern range roughly +- 10.
+    assert -15.0 <= inputs.m2.output_gap_pct <= 15.0
