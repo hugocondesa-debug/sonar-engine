@@ -12,8 +12,10 @@ from sonar.connectors.oecd_eo import (
     OECD_EO_BASE_URL,
     OECD_EO_COUNTRY_MAP,
     OECD_EO_DATAFLOW,
+    OECD_EO_T1_ISO2,
     OECDEOConnector,
     OutputGapObservation,
+    is_t1_covered,
 )
 from sonar.overlays.exceptions import DataUnavailableError
 
@@ -73,6 +75,63 @@ def test_country_map_iso2_to_iso3() -> None:
     assert OECD_EO_COUNTRY_MAP["JP"] == "JPN"
     assert OECD_EO_COUNTRY_MAP["GB"] == "GBR"
     assert OECD_EO_COUNTRY_MAP["CH"] == "CHE"
+
+
+# ---------------------------------------------------------------------------
+# T1 coverage tuple + is_t1_covered helper (Sprint C Commit 2)
+# ---------------------------------------------------------------------------
+
+
+def test_t1_iso2_tuple_sorted_and_matches_map() -> None:
+    """``OECD_EO_T1_ISO2`` is a sorted tuple of the map keys — stable
+    iteration order across runs (important for parametrized tests,
+    dispatcher tables, and retrospective output formatting)."""
+    assert tuple(sorted(OECD_EO_COUNTRY_MAP)) == OECD_EO_T1_ISO2
+    assert len(OECD_EO_T1_ISO2) == 17
+    # First / last sorted ISO2 codes (alphabetical): AU and US.
+    assert OECD_EO_T1_ISO2[0] == "AU"
+    assert OECD_EO_T1_ISO2[-1] == "US"
+
+
+@pytest.mark.parametrize("iso2", OECD_EO_T1_ISO2)
+def test_is_t1_covered_true_for_every_mapped_country(iso2: str) -> None:
+    assert is_t1_covered(iso2) is True
+
+
+@pytest.mark.parametrize("iso2", ["ZZ", "XX", "ZA", ""])
+def test_is_t1_covered_false_for_unsupported(iso2: str) -> None:
+    assert is_t1_covered(iso2) is False
+
+
+# ---------------------------------------------------------------------------
+# Per-country fetch smoke (parametrized — mocked SDMX-JSON per iso2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("iso2", OECD_EO_T1_ISO2)
+async def test_fetch_output_gap_mocked_for_every_t1_country(
+    iso2: str,
+    httpx_mock: HTTPXMock,
+    oecd_connector: OECDEOConnector,
+) -> None:
+    """Ensure ISO2 → ISO3 dispatch resolves correctly for every T1.
+
+    Uses a synthetic one-observation SDMX-JSON payload; the key assertion
+    is that ``ref_area`` on the parsed observation matches the
+    :data:`OECD_EO_COUNTRY_MAP` ISO3 code (i.e. the mapping is applied
+    end-to-end, not just at the ``_resolve_ref_area`` layer).
+    """
+    ref_area = OECD_EO_COUNTRY_MAP[iso2]
+    httpx_mock.add_response(
+        method="GET",
+        json=_sdmx_json_payload(ref_area, [("2024", 0.1)]),
+    )
+    gaps = await oecd_connector.fetch_output_gap(iso2, date(2024, 1, 1), date(2024, 12, 31))
+    assert len(gaps) == 1
+    assert gaps[0].country_code == iso2
+    assert gaps[0].ref_area == ref_area
+    assert gaps[0].observation_date == date(2024, 12, 31)
 
 
 # ---------------------------------------------------------------------------

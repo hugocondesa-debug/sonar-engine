@@ -63,8 +63,10 @@ __all__ = [
     "OECD_EO_BASE_URL",
     "OECD_EO_COUNTRY_MAP",
     "OECD_EO_DATAFLOW",
+    "OECD_EO_T1_ISO2",
     "OECDEOConnector",
     "OutputGapObservation",
+    "is_t1_covered",
 ]
 
 # SDMX-JSON endpoint root. Public (no auth).
@@ -96,6 +98,21 @@ OECD_EO_COUNTRY_MAP: Final[dict[str, str]] = {
     "DK": "DNK",
     "EA": "EA17",
 }
+
+# Canonical T1 ISO2 coverage tuple — shared with M2 builders so the
+# dispatcher can check ``country_code in OECD_EO_T1_ISO2`` without
+# reaching into the mapping dict.
+OECD_EO_T1_ISO2: Final[tuple[str, ...]] = tuple(sorted(OECD_EO_COUNTRY_MAP.keys()))
+
+
+def is_t1_covered(country_code: str) -> bool:
+    """Return True iff ``country_code`` (ISO2) has an OECD EO GAP series.
+
+    Convenience for M2 builders that route between live (OECD EO) and
+    proxy paths — keeps the membership test out of the hot path.
+    """
+    return country_code in OECD_EO_COUNTRY_MAP
+
 
 # Default history window for the gap series — 10y covers the OECD
 # historical vintage comfortably and keeps payload small.
