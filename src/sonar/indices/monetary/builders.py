@@ -31,6 +31,7 @@ import structlog
 
 from sonar.indices.monetary._config import (
     resolve_inflation_target,
+    resolve_inflation_target_convention,
     resolve_r_star,
 )
 from sonar.indices.monetary.m1_effective_rates import (
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     from sonar.connectors.cbo import CboConnector
     from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fred import FredConnector
+    from sonar.connectors.nationalbanken import NationalbankenConnector
     from sonar.connectors.norgesbank import NorgesBankConnector
     from sonar.connectors.rba import RBAConnector
     from sonar.connectors.rbnz import RBNZConnector
@@ -73,6 +75,7 @@ __all__ = [
     "build_m1_au_inputs",
     "build_m1_ca_inputs",
     "build_m1_ch_inputs",
+    "build_m1_dk_inputs",
     "build_m1_ea_inputs",
     "build_m1_gb_inputs",
     "build_m1_jp_inputs",
@@ -84,6 +87,7 @@ __all__ = [
     "build_m2_au_inputs",
     "build_m2_ca_inputs",
     "build_m2_ch_inputs",
+    "build_m2_dk_inputs",
     "build_m2_jp_inputs",
     "build_m2_no_inputs",
     "build_m2_nz_inputs",
@@ -92,6 +96,7 @@ __all__ = [
     "build_m4_au_inputs",
     "build_m4_ca_inputs",
     "build_m4_ch_inputs",
+    "build_m4_dk_inputs",
     "build_m4_jp_inputs",
     "build_m4_no_inputs",
     "build_m4_nz_inputs",
@@ -159,6 +164,19 @@ FRED_NO_GOVT_10Y_SERIES: str = "IRLTLT01NOM156N"
 # transparently covered.
 FRED_SE_POLICY_RATE_SERIES: str = "IRSTCI01SEM156N"
 FRED_SE_GOVT_10Y_SERIES: str = "IRLTLT01SEM156N"
+
+# DK OECD-mirror series on FRED — monthly, last-resort backfill when
+# both TE primary and Nationalbanken Statbank native are unavailable
+# (Sprint Y-DK cascade). The IRSTCI01DKM156N call-money mirror is
+# fresh at probe (2026-04-22 saw 2025-12 as the latest observation —
+# ~4-month lag, comparable to the NO mirror's freshness; substantially
+# better than the SE mirror's 5.5-year discontinuation). The cascade
+# still pairs it with CALIBRATION_STALE so the monthly-vs-daily
+# cadence delta surfaces explicitly. The companion 10Y mirror
+# IRLTLT01DKM156N tracks similarly fresh (2026-02 latest obs at
+# probe).
+FRED_DK_POLICY_RATE_SERIES: str = "IRSTCI01DKM156N"
+FRED_DK_GOVT_10Y_SERIES: str = "IRLTLT01DKM156N"
 
 
 # ---------------------------------------------------------------------------
@@ -2452,6 +2470,342 @@ async def build_m4_se_inputs(
     raise InsufficientDataError(msg)
 
 
+# ---------------------------------------------------------------------------
+# M1 — DK (Sprint Y-DK TE → Nationalbanken → FRED cascade + EUR-peg flags)
+# ---------------------------------------------------------------------------
+
+
+async def _dk_policy_rate_cascade(
+    start: date,
+    end: date,
+    *,
+    te: TEConnector | None,
+    nationalbanken: NationalbankenConnector | None,
+    fred: FredConnector,
+) -> tuple[list[_DatedValue], tuple[str, ...], tuple[str, ...]]:
+    """Fetch DK Policy Rate via TE → Nationalbanken → FRED priority-first-wins cascade.
+
+    Returns ``(series_pct, cascade_flags, source_connector_tuple)``.
+
+    Priority ordering mirrors the Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ, Sprint V (CH), Sprint
+    X-NO (NO), and Sprint W-SE (SE) cascades (first success wins).
+    DK joins as the **third negative-rate country** (after CH and SE)
+    and the **first EUR-peg country** in the cascade family.
+
+    1. **TE primary** (``fetch_dk_policy_rate`` — daily, Nationalbanken-
+       sourced via ``DEBRDISC`` = the legacy DISCOUNT rate
+       ``diskontoen``). Emits ``DK_POLICY_RATE_TE_PRIMARY`` on success.
+    2. **Nationalbanken native** (``fetch_policy_rate`` on ``OIBNAA``
+       = the certificate-of-deposit rate ``indskudsbevisrenten`` —
+       the active EUR-peg defence tool). Emits
+       ``DK_POLICY_RATE_NATIONALBANKEN_NATIVE`` on success. Both
+       cascade slots are daily-cadence so the secondary lands the
+       single-element flag pair (no ``*_MONTHLY`` qualifier — matches
+       the Sprint W-SE Riksbank pattern, not the CH / AU monthly-
+       native pattern).
+    3. **FRED OECD mirror** (``IRSTCI01DKM156N`` — fresh at probe,
+       ~4-month lag). Last-resort fallback emitting both
+       ``DK_POLICY_RATE_FRED_FALLBACK_STALE`` and ``CALIBRATION_STALE``
+       so the monthly-vs-daily cadence delta surfaces to operators.
+
+    **Source-instrument divergence** (Sprint Y-DK key empirical
+    finding; documented in :class:`TEConnector.fetch_dk_policy_rate` +
+    :class:`NationalbankenConnector` module docstrings + retro §4):
+    TE returns the legacy DISCOUNT rate ``DEBRDISC`` (i.e. the same
+    instrument as Statbank ``ODKNAA``), while the Nationalbanken
+    native cascade slot returns the **CD rate** ``OIBNAA`` — the
+    actual EUR-peg defence tool. The two diverged sharply across the
+    2014-2022 negative-rate corridor (CD trough -0.75 % at
+    2015-04-07 with 2450 strictly-negative daily observations through
+    2020-01-07; discount only briefly negative 2021-2022 with 18
+    observations and a -0.60 % min). The cascade flag-emission
+    contract (``*_TE_PRIMARY`` vs ``*_NATIONALBANKEN_NATIVE``)
+    surfaces the source so downstream consumers can pick the right
+    semantic — both representations are operationally valid.
+
+    **Negative-rate era**: when the resolved history contains at
+    least one strictly-negative observation, the cascade additionally
+    emits ``DK_NEGATIVE_RATE_ERA_DATA`` — the third-country
+    instantiation of the Sprint V-CH ``CH_NEGATIVE_RATE_ERA_DATA``
+    pattern (after SE Sprint W-SE). Mirrors the same flag contract:
+    attaches to the **value**, not the source — all three cascade
+    depths emit it when the resolved window contains any
+    strictly-negative value. Note the divergence implication: a
+    TE-primary resolution will only emit this flag for
+    2021-03-31 → 2022-08-31 windows (the brief discount-rate dip),
+    while a Nationalbanken-native resolution will emit it for the
+    full 2015-04-07 → 2022-09-15 EUR-peg-defence corridor.
+
+    All three branches fail-open to the next source on
+    :class:`DataUnavailableError` or empty payload. If all three
+    return empty the cascade raises ``ValueError``.
+    """
+    from sonar.overlays.exceptions import DataUnavailableError  # noqa: PLC0415
+
+    hist: list[_DatedValue] | None = None
+    flags: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+    if te is not None:
+        try:
+            te_obs = await te.fetch_dk_policy_rate(start, end)
+        except DataUnavailableError:
+            te_obs = []
+        if te_obs:
+            hist = [_DatedValue(o.observation_date, o.value) for o in te_obs]
+            flags = ("DK_POLICY_RATE_TE_PRIMARY",)
+            sources = ("te",)
+
+    if hist is None and nationalbanken is not None:
+        try:
+            nb_obs = await nationalbanken.fetch_policy_rate(start, end)
+        except DataUnavailableError:
+            nb_obs = []
+        if nb_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in nb_obs]
+            flags = ("DK_POLICY_RATE_NATIONALBANKEN_NATIVE",)
+            sources = ("nationalbanken",)
+
+    if hist is None:
+        fred_obs = await fred.fetch_series(FRED_DK_POLICY_RATE_SERIES, start, end)
+        if fred_obs:
+            hist = [_DatedValue(o.observation_date, o.yield_bps / 100.0) for o in fred_obs]
+            flags = ("DK_POLICY_RATE_FRED_FALLBACK_STALE", "CALIBRATION_STALE")
+            sources = ("fred",)
+
+    if hist is None:
+        msg = "DK Policy Rate unavailable from TE, Nationalbanken, and FRED"
+        raise ValueError(msg)
+
+    if any(o.value < 0 for o in hist):
+        flags = (*flags, "DK_NEGATIVE_RATE_ERA_DATA")
+    return hist, flags, sources
+
+
+async def build_m1_dk_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    nationalbanken: NationalbankenConnector | None = None,
+    history_years: int = M1_DEFAULT_LOOKBACK_YEARS,
+) -> M1EffectiveRatesInputs:
+    """Assemble M1 DK inputs via TE → Nationalbanken → FRED cascade + YAML r*/target.
+
+    Sprint Y-DK introduces the DK country path using the canonical
+    cascade pattern established by Sprint I-patch (GB), Sprint L (JP),
+    Sprint S (CA), Sprint T (AU), Sprint U-NZ, Sprint V (CH), Sprint
+    X-NO (NO), and Sprint W-SE (SE). DK is the **third negative-rate
+    country** (after CH and SE) and the **first EUR-peg country** in
+    the cascade family.
+
+    DK-specific degradations and Phase-1 conventions:
+
+    - ``r_star_pct`` sourced from Nationalbanken WP 152/2020 +
+      Monetary Review 2024 neutral-range midpoint synthesis (0.75 %
+      real) — Danish r* sits in the Nordic low-r* cluster (matches
+      SE; above CH because DKK lacks the CHF-specific safe-haven
+      compression). Emits ``R_STAR_PROXY``.
+    - ``expected_inflation_5y_pct`` defaults to the **ECB 2 % HICP
+      target imported via the DKK/EUR ERM-II peg** — Nationalbanken
+      does not publish a domestic inflation target (mandate is
+      exchange-rate stability). The cascade emits the
+      **DK-specific** flag
+      ``DK_INFLATION_TARGET_IMPORTED_FROM_EA`` (always) instead of
+      the standard ``EXPECTED_INFLATION_CB_TARGET`` flag the other
+      countries emit. The convention is materialised in
+      ``bc_targets.yaml`` via the ``target_conventions`` block + the
+      :func:`resolve_inflation_target_convention` resolver hook.
+    - ``balance_sheet_pct_gdp_*`` zero-seeded with
+      ``DK_BS_GDP_PROXY_ZERO`` flag — Nationalbanken balance sheet
+      requires the Nationalbanken Monthly Statistical Bulletin
+      combined with Statistics Denmark nominal GDP; neither wired
+      at Sprint Y-DK scope. Lands when CAL-DK-BS-GDP closes.
+    - **Negative-rate era flag** — when the resolved cascade history
+      contains ≥ 1 strictly-negative observation, the cascade emits
+      ``DK_NEGATIVE_RATE_ERA_DATA`` (same post-resolution
+      augmentation pattern Sprint V-CH established) so downstream
+      M1 / real-shadow computations can branch on negative-policy-
+      rate regimes. Note source-instrument divergence: TE-primary
+      windows only see the brief 2021-03-31 → 2022-08-31 discount-
+      rate dip (18 obs, min -0.60 %); Nationalbanken-native windows
+      see the full 2015-04-07 → 2022-09-15 CD-rate EUR-peg-defence
+      corridor (2450 obs, min -0.75 %).
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+
+    policy_hist, cascade_flags, cascade_sources = await _dk_policy_rate_cascade(
+        start, observation_date, te=te, nationalbanken=nationalbanken, fred=fred
+    )
+    latest_policy = _latest_on_or_before(policy_hist, observation_date)
+    if latest_policy is None:
+        msg = "DK Policy Rate: no observation at or before anchor"
+        raise ValueError(msg)
+    policy_rate_pct = latest_policy.value / 100.0
+
+    r_star_pct, _is_proxy = resolve_r_star("DK")  # is_proxy always True for DK
+    # ECB 2 % HICP target imported via DKK/EUR ERM-II peg —
+    # bc_targets.yaml DK → ECB → 0.02. Convention surfaced via the
+    # DK_INFLATION_TARGET_IMPORTED_FROM_EA flag below.
+    expected_inflation_5y_pct = resolve_inflation_target("DK")
+    target_convention = resolve_inflation_target_convention("DK")
+    inflation_target_flag = (
+        "DK_INFLATION_TARGET_IMPORTED_FROM_EA"
+        if target_convention == "imported_eur_peg"
+        else "EXPECTED_INFLATION_CB_TARGET"
+    )
+
+    policy_monthly_pct = _resample_monthly(
+        policy_hist, observation_date, n_months=history_years * 12
+    )
+    real_shadow_hist = [p / 100.0 - expected_inflation_5y_pct for p in policy_monthly_pct]
+    stance_hist = [r - r_star_pct for r in real_shadow_hist]
+
+    flags: list[str] = [
+        *cascade_flags,
+        "R_STAR_PROXY",
+        inflation_target_flag,
+        "DK_BS_GDP_PROXY_ZERO",
+    ]
+
+    return M1EffectiveRatesInputs(
+        country_code="DK",
+        observation_date=observation_date,
+        policy_rate_pct=policy_rate_pct,
+        expected_inflation_5y_pct=expected_inflation_5y_pct,
+        r_star_pct=r_star_pct,
+        balance_sheet_pct_gdp_current=0.0,
+        balance_sheet_pct_gdp_12m_ago=0.0,
+        real_shadow_rate_history=tuple(real_shadow_hist),
+        stance_vs_neutral_history=tuple(stance_hist),
+        balance_sheet_signal_history=tuple([0.0] * len(real_shadow_hist)),
+        lookback_years=history_years,
+        source_connector=cascade_sources,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M2 — DK (Sprint Y-DK — wire-ready scaffold, raises pending CPI + gap)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_dk_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future OECD DK gap path
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    nationalbanken: NationalbankenConnector | None = None,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M2TaylorGapsInputs:
+    """Assemble M2 DK inputs (scaffold — raises until DK sources land).
+
+    Sprint Y-DK ships the dispatch wire-ready so the pipeline can
+    route ``--country DK`` without crashing. The DK Taylor-gap inputs
+    require three sources that are not yet connected at this scope:
+
+    - **DK CPI / HICP YoY**: no ``fetch_dk_cpi_yoy`` wrapper on TE,
+      FRED, or Statbank within Sprint Y-DK scope (CAL-DK-CPI). DK
+      HICP is published by Statistics Denmark (Statbank tables
+      PRIS113 / PRIS9; could land via the same Statbank.dk REST API
+      Sprint Y-DK already wired for the monetary tables).
+    - **Output gap**: DK-specific — Statistics Denmark + EU
+      Commission DG-ECFIN publish the Danish output gap quarterly
+      but no scriptable endpoint exists at Sprint Y-DK scope
+      (CAL-DK-GAP). OECD EO DK is a viable alternative target.
+    - **Inflation forecast**: Nationalbanken publishes the
+      "Outlook for the Danish Economy" twice a year — PDF/HTML, no
+      scriptable endpoint at Sprint Y-DK scope (CAL-DK-INFL-FORECAST).
+
+    Important: even when all three sources land, the M2 Taylor-gap
+    formula will need a DK-specific adaptation because Nationalbanken
+    does not run an independent monetary policy — the policy-rate
+    response function is dominated by the EUR-peg-defence imperative,
+    so a vanilla domestic Taylor rule will systematically misfit.
+    The M2 spec revision required for EUR-peg countries is a
+    Phase 2+ scope item (CAL-DK-M2-EUR-PEG-TAYLOR).
+
+    Once any of those sources lands, this function resolves the
+    cascade like :func:`build_m2_us_inputs` does for the CBO output-
+    gap path. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean.
+    """
+    msg = (
+        "M2 DK builder scaffold shipped Sprint Y-DK but requires CPI / "
+        "HICP YoY, output-gap, and inflation-forecast DK connectors "
+        "that are not yet wired (see CAL-DK-CPI / CAL-DK-GAP / "
+        "CAL-DK-INFL-FORECAST). Note also CAL-DK-M2-EUR-PEG-TAYLOR — "
+        "the vanilla Taylor-rule formula will mis-fit given the EUR-"
+        "peg-defence policy regime. Raises so the pipeline skips M2 "
+        "DK cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# ---------------------------------------------------------------------------
+# M4 — DK (Sprint Y-DK — wire-ready scaffold, raises pending FCI components)
+# ---------------------------------------------------------------------------
+
+
+async def build_m4_dk_inputs(
+    fred: FredConnector,  # noqa: ARG001 - wired for future DK FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    nationalbanken: NationalbankenConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 DK inputs (scaffold — raises until ≥5 FCI components).
+
+    DK lacks the direct-provider shortcut that US gets via Chicago Fed
+    NFCI, so DK must walk the spec §4 custom path which needs
+    ``MIN_CUSTOM_COMPONENTS == 5`` of the seven FCI inputs. At Sprint
+    Y-DK close the reachable components are:
+
+    - 10Y DGB (Danish Government Bond) yield via FRED
+      ``IRLTLT01DKM156N`` OECD mirror (monthly; active, last 2026-02
+      at probe) — could also come via TE.
+    - Policy rate via the M1 cascade (wired C4) + corridor floor /
+      ceiling (Nationalbanken OFONAA / OIRNAA on Statbank, shipped
+      C2 alongside the CD rate).
+
+    Pending components (bundled into CAL-DK-M4-FCI):
+
+    - DK credit spread (DKK corp vs DGB; Nationalbanken FNOR /
+      Statbank sources; no FRED mirror known)
+    - DK vol index (no OMXC25 vol index readily on FRED; candidate:
+      Nasdaq OMX's VINX25 or a realised-vol proxy from ^OMXC25
+      returns via Yahoo Finance)
+    - DKK NEER (Nationalbanken publishes the effective exchange-rate
+      index; the EUR-peg keeps DKK NEER tightly coupled to EUR NEER
+      so a pragmatic alternative is to consume the BIS Trade-
+      Weighted indices via ``connectors/bis.py``)
+    - DK mortgage rate (Statbank MFI lending rates; no wrapper at
+      Sprint Y-DK scope)
+
+    EUR-peg implication: the FCI components above are heavily
+    EUR-coupled — Danish credit spreads, vol, NEER, and mortgage
+    rates all move with EUR-area cycles much more than would be the
+    case in an independent-monetary-policy country. This argues for
+    a hybrid M4 DK that blends DK-specific + EA-area inputs in
+    Phase 2+ (CAL-DK-M4-EUR-PEG-FCI).
+
+    Once ≥ 5 components land, this builder composes
+    :class:`M4FciInputs` and the compute-side fallback through
+    :func:`sonar.indices.monetary.m4_fci._compute_custom_fci` takes
+    over. Until then, :class:`InsufficientDataError` keeps the
+    pipeline clean (mirrors M2 DK / M4 SE skip behaviour).
+    """
+    msg = (
+        "M4 DK builder scaffold shipped Sprint Y-DK but <5/5 custom-FCI "
+        "components available (need credit spread + vol + 10Y + DKK "
+        "NEER + mortgage; see CAL-DK-M4-FCI + CAL-DK-M4-EUR-PEG-FCI). "
+        "Raises so the pipeline skips M4 DK cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
 def _ea_balance_sheet_signal_history(
     bs: Sequence[_DatedValue],
     gdp_resolver: Callable[[date], float],
@@ -2620,6 +2974,7 @@ class MonetaryInputsBuilder:
         riksbank: RiksbankConnector | None = None,
         snb: SNBConnector | None = None,
         norgesbank: NorgesBankConnector | None = None,
+        nationalbanken: NationalbankenConnector | None = None,
         te: TEConnector | None = None,
     ) -> None:
         self.fred = fred
@@ -2633,6 +2988,7 @@ class MonetaryInputsBuilder:
         self.riksbank = riksbank
         self.snb = snb
         self.norgesbank = norgesbank
+        self.nationalbanken = nationalbanken
         self.te = te
 
     async def build_m1_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
@@ -2710,6 +3066,14 @@ class MonetaryInputsBuilder:
                 riksbank=self.riksbank,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "DK":
+            return await build_m1_dk_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                nationalbanken=self.nationalbanken,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M1 builder not implemented for country={country!r} (Week 7+)"
         raise NotImplementedError(msg)
 
@@ -2774,6 +3138,14 @@ class MonetaryInputsBuilder:
                 riksbank=self.riksbank,
                 **kwargs,  # type: ignore[arg-type]
             )
+        if country == "DK":
+            return await build_m2_dk_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                nationalbanken=self.nationalbanken,
+                **kwargs,  # type: ignore[arg-type]
+            )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
         raise NotImplementedError(msg)
 
@@ -2835,6 +3207,14 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 riksbank=self.riksbank,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        if country == "DK":
+            return await build_m4_dk_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                nationalbanken=self.nationalbanken,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M4 builder not implemented for country={country!r} (Week 7+ custom-FCI EA)"

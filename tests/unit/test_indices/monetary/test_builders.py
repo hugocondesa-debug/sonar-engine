@@ -12,6 +12,7 @@ from sonar.indices.monetary.builders import (
     FRED_AU_CASH_RATE_SERIES,
     FRED_CA_BANK_RATE_SERIES,
     FRED_CH_POLICY_RATE_SERIES,
+    FRED_DK_POLICY_RATE_SERIES,
     FRED_GB_BANK_RATE_SERIES,
     FRED_JP_BANK_RATE_SERIES,
     FRED_NO_POLICY_RATE_SERIES,
@@ -25,6 +26,7 @@ from sonar.indices.monetary.builders import (
     build_m1_au_inputs,
     build_m1_ca_inputs,
     build_m1_ch_inputs,
+    build_m1_dk_inputs,
     build_m1_ea_inputs,
     build_m1_gb_inputs,
     build_m1_jp_inputs,
@@ -36,6 +38,7 @@ from sonar.indices.monetary.builders import (
     build_m2_au_inputs,
     build_m2_ca_inputs,
     build_m2_ch_inputs,
+    build_m2_dk_inputs,
     build_m2_jp_inputs,
     build_m2_no_inputs,
     build_m2_nz_inputs,
@@ -44,6 +47,7 @@ from sonar.indices.monetary.builders import (
     build_m4_au_inputs,
     build_m4_ca_inputs,
     build_m4_ch_inputs,
+    build_m4_dk_inputs,
     build_m4_jp_inputs,
     build_m4_no_inputs,
     build_m4_nz_inputs,
@@ -179,6 +183,9 @@ class _FakeFredConnector:
         elif series_id == FRED_SE_POLICY_RATE_SERIES:
             country_code = "SE"
             yield_bps_val = -25  # -0.25 % — negative-rate-era fixture value
+        elif series_id == FRED_DK_POLICY_RATE_SERIES:
+            country_code = "DK"
+            yield_bps_val = -50  # -0.50 % — negative-rate-era fixture value
         else:
             return []
         out: list[Observation] = []
@@ -681,6 +688,67 @@ class _FakeRiksbankUnavailable:
     async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
         _ = start, end
         msg = "Riksbank Swea unreachable (test-fake)"
+        raise DataUnavailableError(msg)
+
+
+class _FakeTEDkSuccess:
+    """TE primary path for DK — returns daily Nationalbanken-discount-rate obs (pct)."""
+
+    def __init__(self, *, pct: float = 3.25) -> None:
+        self.pct = pct
+
+    async def fetch_dk_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        out: list[_FakeTEIndicatorObs] = []
+        d = start
+        while d <= end:
+            out.append(
+                _FakeTEIndicatorObs(
+                    observation_date=d, value=self.pct, historical_data_symbol="DEBRDISC"
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeTEDkUnavailable:
+    """TE primary fails for DK — cascade fails over to Nationalbanken native."""
+
+    async def fetch_dk_policy_rate(self, start: date, end: date) -> list[_FakeTEIndicatorObs]:
+        _ = start, end
+        msg = "TE returned empty series: country='DK' indicator='interest rate'"
+        raise DataUnavailableError(msg)
+
+
+class _FakeNationalbankenSuccess:
+    """Nationalbanken native — Statbank OIBNAA (CD rate) daily series."""
+
+    def __init__(self, *, yield_bps: int = 325) -> None:
+        self.yield_bps = yield_bps
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="DK",
+                    observation_date=d,
+                    tenor_years=0.01,
+                    yield_bps=self.yield_bps,  # default 3.25 % differs from TE to prove cascade
+                    source="NATIONALBANKEN",
+                    source_series_id="OIBNAA",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeNationalbankenUnavailable:
+    """Simulates a Statbank.dk host outage / rate-limit exhaustion."""
+
+    async def fetch_policy_rate(self, start: date, end: date) -> list[Observation]:
+        _ = start, end
+        msg = "Nationalbanken Statbank unreachable (test-fake)"
         raise DataUnavailableError(msg)
 
 
@@ -2434,6 +2502,262 @@ class TestBuildM4Se:
 
 
 # ---------------------------------------------------------------------------
+# M1 DK (Sprint Y-DK — TE primary → Nationalbanken native → FRED stale-flagged)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM1Dk:
+    @pytest.mark.asyncio
+    async def test_te_primary_path(self) -> None:
+        """TE succeeds → DEBRDISC discount-rate-sourced series, no staleness flags."""
+        fred = _FakeFredConnector()
+        nationalbanken = _FakeNationalbankenSuccess()  # present but skipped (TE wins)
+        te = _FakeTEDkSuccess(pct=3.25)
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            nationalbanken=nationalbanken,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "DK"
+        assert inputs.policy_rate_pct == pytest.approx(0.0325)  # TE 3.25 %
+        assert "DK_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE" not in inputs.upstream_flags
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        # DK uses imported_eur_peg → DK-specific flag, NOT the
+        # standard EXPECTED_INFLATION_CB_TARGET.
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" not in inputs.upstream_flags
+        assert "DK_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+        assert inputs.r_star_pct == pytest.approx(0.0075)
+        # 3.25 % policy, all positive → no negative-rate-era flag.
+        assert "DK_NEGATIVE_RATE_ERA_DATA" not in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_te_primary_imported_target_value_matches_ecb(self) -> None:
+        """Sprint Y-DK convention: imported target value is the ECB 2 %."""
+        fred = _FakeFredConnector()
+        te = _FakeTEDkSuccess(pct=3.25)
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        # Real-shadow: policy 3.25 % - target 2 % = 1.25 % real.
+        for r in inputs.real_shadow_rate_history:
+            assert r == pytest.approx(0.0125, abs=1e-6)
+
+    @pytest.mark.asyncio
+    async def test_te_primary_negative_rate_era_flag(self) -> None:
+        """TE-primary discount-rate dip 2021-2022 surfaces DK_NEGATIVE_RATE_ERA_DATA.
+
+        Pinning TE to -0.50 % across the lookback window mirrors the
+        2021-09-30 deep discount-rate observation (min was -0.60 % per
+        Sprint Y-DK probe). The cascade must propagate the sign into
+        ``policy_rate_pct`` AND add the negative-era flag.
+        """
+        fred = _FakeFredConnector()
+        te = _FakeTEDkSuccess(pct=-0.5)
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2021, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=1,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.005)  # -0.50 %
+        assert "DK_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "DK_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_nationalbanken_secondary_when_te_unavailable(self) -> None:
+        """TE raises DataUnavailableError → Nationalbanken Statbank takes over."""
+        fred = _FakeFredConnector()
+        nationalbanken = _FakeNationalbankenSuccess(yield_bps=325)  # 3.25 %
+        te = _FakeTEDkUnavailable()
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            nationalbanken=nationalbanken,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(0.0325)
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE" in inputs.upstream_flags
+        # DK Statbank native is daily — no *_MONTHLY cadence flag
+        # (matches the Sprint W-SE Riksbank pattern, contrast CH).
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE_MONTHLY" not in inputs.upstream_flags
+        assert "DK_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert "CALIBRATION_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("nationalbanken",)
+
+    @pytest.mark.asyncio
+    async def test_nationalbanken_native_preserves_negative_cd_rate(self) -> None:
+        """Negative CD-rate observations (-0.75 % corridor 2015-2022) flow through.
+
+        This is the key Sprint Y-DK invariant for the secondary path
+        — the Nationalbanken CD rate (OIBNAA) is the actual EUR-peg
+        defence tool and went deeply negative 2015-04 → 2022-09.
+        """
+        fred = _FakeFredConnector()
+        nationalbanken = _FakeNationalbankenSuccess(yield_bps=-75)  # -0.75 %
+        te = _FakeTEDkUnavailable()
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2017, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            nationalbanken=nationalbanken,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.0075)
+        assert "DK_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_fred_last_resort_stale_flagged(self) -> None:
+        """TE + Nationalbanken both fail → FRED emits staleness flags."""
+        fred = _FakeFredConnector()
+        nationalbanken = _FakeNationalbankenUnavailable()
+        te = _FakeTEDkUnavailable()
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            nationalbanken=nationalbanken,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.policy_rate_pct == pytest.approx(-0.005)  # FRED -0.50 %
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "DK_POLICY_RATE_TE_PRIMARY" not in inputs.upstream_flags
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE" not in inputs.upstream_flags
+        # FRED fixture returns -0.50 %, so the negative-era flag still
+        # fires — proves the flag attaches to the value, not the source.
+        assert "DK_NEGATIVE_RATE_ERA_DATA" in inputs.upstream_flags
+        assert inputs.source_connector == ("fred",)
+
+    @pytest.mark.asyncio
+    async def test_fred_only_when_te_and_nationalbanken_absent(self) -> None:
+        """te=None + nationalbanken=None → FRED path still emits staleness flags."""
+        fred = _FakeFredConnector()
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2020, 12, 31),
+            history_years=2,
+        )
+        assert inputs.country_code == "DK"
+        assert inputs.source_connector == ("fred",)
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+        assert "CALIBRATION_STALE" in inputs.upstream_flags
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_all_sources_fail_raises(self) -> None:
+        """TE unavailable + Nationalbanken unavailable + FRED empty → ValueError."""
+
+        class _EmptyFred:
+            async def fetch_series(
+                self, series_id: str, start: date, end: date
+            ) -> list[Observation]:
+                _ = series_id, start, end
+                return []
+
+        with pytest.raises(ValueError, match="TE, Nationalbanken, and FRED"):
+            await build_m1_dk_inputs(
+                _EmptyFred(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=_FakeTEDkUnavailable(),  # type: ignore[arg-type]
+                nationalbanken=_FakeNationalbankenUnavailable(),  # type: ignore[arg-type]
+                history_years=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test_dk_flags_include_bs_gdp_proxy_zero(self) -> None:
+        """DK BS/GDP ratio is placeholder — always emits DK_BS_GDP_PROXY_ZERO."""
+        fred = _FakeFredConnector()
+        te = _FakeTEDkSuccess(pct=3.25)
+        inputs = await build_m1_dk_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.balance_sheet_pct_gdp_current == 0.0
+        assert inputs.balance_sheet_pct_gdp_12m_ago == 0.0
+        assert "DK_BS_GDP_PROXY_ZERO" in inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# M2 DK (Sprint Y-DK — scaffold raises pending CPI/gap/inflation-forecast)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM2Dk:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_data_pending_connectors(self) -> None:
+        """M2 DK scaffold is wire-ready but raises until DK gap/CPI land."""
+        fred = _FakeFredConnector()
+        te = _FakeTEDkSuccess(pct=3.25)
+        with pytest.raises(InsufficientDataError, match="CAL-DK"):
+            await build_m2_dk_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_even_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence (pre-wire state)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m2_dk_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
+# M4 DK (Sprint Y-DK — scaffold raises until ≥5 custom-FCI components wired)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildM4Dk:
+    @pytest.mark.asyncio
+    async def test_raises_insufficient_components(self) -> None:
+        """M4 DK scaffold raises until ≥5 FCI components wire."""
+        fred = _FakeFredConnector()
+        te = _FakeTEDkSuccess(pct=3.25)
+        nationalbanken = _FakeNationalbankenSuccess()
+        with pytest.raises(InsufficientDataError, match="CAL-DK-M4-FCI"):
+            await build_m4_dk_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                te=te,  # type: ignore[arg-type]
+                nationalbanken=nationalbanken,  # type: ignore[arg-type]
+                history_years=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_raises_without_connectors(self) -> None:
+        """Scaffold raises regardless of connector presence."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError):
+            await build_m4_dk_inputs(
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Facade dispatch
 # ---------------------------------------------------------------------------
 
@@ -2924,6 +3248,78 @@ class TestMonetaryInputsBuilderFacade:
         )
         with pytest.raises(InsufficientDataError, match="CAL-SE-M4-FCI"):
             await builder.build_m4_inputs("SE", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_dk_via_facade_te_primary(self) -> None:
+        """DK M1 dispatch — TE handle present → canonical TE-primary discount-rate path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEDkSuccess(pct=3.25),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("DK", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "DK"
+        assert "DK_POLICY_RATE_TE_PRIMARY" in inputs.upstream_flags
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+        assert "EXPECTED_INFLATION_CB_TARGET" not in inputs.upstream_flags
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" not in inputs.upstream_flags
+        assert inputs.source_connector == ("te",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_dk_via_facade_nationalbanken_secondary(self) -> None:
+        """DK M1 dispatch — TE absent, Nationalbanken handle present → CD-rate native path."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            nationalbanken=_FakeNationalbankenSuccess(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("DK", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "DK"
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE" in inputs.upstream_flags
+        # Daily-cadence native — no *_MONTHLY flag (matches SE Riksbank).
+        assert "DK_POLICY_RATE_NATIONALBANKEN_NATIVE_MONTHLY" not in inputs.upstream_flags
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+        assert inputs.source_connector == ("nationalbanken",)
+
+    @pytest.mark.asyncio
+    async def test_build_m1_dk_via_facade_fred_fallback(self) -> None:
+        """DK M1 dispatch — FRED-only path (no TE/Nationalbanken handles) → stale flags."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m1_inputs("DK", date(2024, 12, 31), history_years=2)
+        assert inputs.country_code == "DK"
+        assert "R_STAR_PROXY" in inputs.upstream_flags
+        assert "DK_INFLATION_TARGET_IMPORTED_FROM_EA" in inputs.upstream_flags
+        assert "DK_POLICY_RATE_FRED_FALLBACK_STALE" in inputs.upstream_flags
+
+    @pytest.mark.asyncio
+    async def test_m2_dk_dispatches_to_dk_builder(self) -> None:
+        """DK M2 dispatch routes to the DK scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEDkSuccess(pct=3.25),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-DK"):
+            await builder.build_m2_inputs("DK", date(2024, 12, 31), history_years=2)
+
+    @pytest.mark.asyncio
+    async def test_m4_dk_dispatches_to_dk_builder(self) -> None:
+        """DK M4 dispatch routes to the DK scaffold (raises InsufficientDataError)."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTEDkSuccess(pct=3.25),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError, match="CAL-DK-M4-FCI"):
+            await builder.build_m4_inputs("DK", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
     async def test_m2_ca_dispatches_to_ca_builder(self) -> None:
