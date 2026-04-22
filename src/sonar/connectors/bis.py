@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import httpx
@@ -67,11 +67,14 @@ RATE_LIMIT_SLEEP_SECONDS = 1.0
 # WS_TC migrated from 1.0 → 2.0 during 2026; WS_LONG_PP renamed → WS_SPP
 # during Week 5 / CAL-072. Consumers that need `(flow_id, version)`
 # tuples should use the DATAFLOW_WS_* helpers below (back-compat).
+# WS_EER added Week 10 Sprint J (2026-04-22) for NEER per T1 country +
+# EA aggregate (XM) — 17/17 coverage confirmed in Commit 1 pre-flight.
 DATAFLOW_VERSIONS: Final[dict[str, str]] = {
     "WS_TC": "2.0",
     "WS_DSR": "1.0",
     "WS_CREDIT_GAP": "1.0",
     "WS_SPP": "1.0",
+    "WS_EER": "1.0",
 }
 
 # Tuple-shaped aliases retained for call sites that import the
@@ -81,6 +84,41 @@ DATAFLOW_WS_DSR = ("WS_DSR", DATAFLOW_VERSIONS["WS_DSR"])
 DATAFLOW_WS_CREDIT_GAP = ("WS_CREDIT_GAP", DATAFLOW_VERSIONS["WS_CREDIT_GAP"])
 DATAFLOW_WS_TC = ("WS_TC", DATAFLOW_VERSIONS["WS_TC"])
 DATAFLOW_WS_SPP = ("WS_SPP", DATAFLOW_VERSIONS["WS_SPP"])
+DATAFLOW_WS_EER = ("WS_EER", DATAFLOW_VERSIONS["WS_EER"])
+
+# BIS WS_EER supports 16 T1 countries + XM (EA aggregate). The key
+# format for broad-basket nominal monthly is ``M.N.B.{REF_AREA}``.
+# Per Sprint J Commit 1 pre-flight (2026-04-22), all 17 return HTTP
+# 200 with monthly observations. The connector rejects unsupported
+# T2 countries at the wrapper layer to surface sourcing gaps loudly.
+BIS_EER_COUNTRY_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "US",
+        "DE",
+        "FR",
+        "IT",
+        "ES",
+        "NL",
+        "PT",
+        "GB",
+        "JP",
+        "CA",
+        "AU",
+        "NZ",
+        "CH",
+        "SE",
+        "NO",
+        "DK",
+        "XM",
+    }
+)
+
+# Canonical SONAR ISO code → BIS REF_AREA mapping. SONAR uses ``EA``
+# for the euro-area aggregate where BIS uses ``XM`` per SDMX
+# conventions (``XM`` = euro area, ISO 4217 reserved).
+_SONAR_TO_BIS_EER_COUNTRY: Final[dict[str, str]] = {
+    "EA": "XM",
+}
 
 CgDtype = Literal["A", "B", "C"]  # A=actual, B=trend, C=gap
 
@@ -102,6 +140,24 @@ class BisObservation:
     source_series_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class BisEerObservation:
+    """Monthly BIS effective-exchange-rate observation (index level).
+
+    Distinct from :class:`BisObservation` because WS_EER publishes a
+    nominal/real NEER **index** (base period 2010 = 100, dimensionless)
+    rather than a percentage-of-GDP ratio. The ``value_index`` field
+    carries the published level; consumers in M4 FCI transform to
+    z-score over a rolling 30Y window per spec §4.
+    """
+
+    country_code: str  # SONAR canonical — ``EA`` maps from BIS ``XM``
+    observation_date: date  # month-end
+    value_index: float
+    source: str = "BIS_WS_EER"
+    source_series_key: str = ""
+
+
 def _quarter_label_to_end_date(label: str) -> date:
     """Convert SDMX quarter label 'YYYY-Qn' to quarter-end date."""
     year_s, q_s = label.split("-Q")
@@ -111,6 +167,17 @@ def _quarter_label_to_end_date(label: str) -> date:
     # Quarter-end day per calendar.
     last_day = {3: 31, 6: 30, 9: 30, 12: 31}[month]
     return date(year, month, last_day)
+
+
+def _month_label_to_end_date(label: str) -> date:
+    """Convert SDMX monthly label 'YYYY-MM' to month-end date."""
+    year_s, m_s = label.split("-")
+    year = int(year_s)
+    month = int(m_s)
+    if month == 12:
+        return date(year, 12, 31)
+    next_month_first = date(year, month + 1, 1)
+    return date(next_month_first.year, next_month_first.month, 1) - timedelta(days=1)
 
 
 def _try_parse_iso(label: str) -> date | None:
@@ -280,6 +347,70 @@ class BisConnector:
             end_date=end_date,
         )
 
+    # -------------------------------------------------------------------
+    # M4 FCI NEER component (Sprint J — Week 10 Day 2)
+    # -------------------------------------------------------------------
+    #
+    # WS_EER(1.0) dataflow exposes effective exchange-rate indices for
+    # 60+ reference areas at monthly cadence. Key format for broad-basket
+    # nominal monthly = ``M.N.B.{REF_AREA}``. SONAR consumes the BIS feed
+    # as the single cross-country NEER source for M4 FCI since FRED only
+    # covers US (DTWEXBGS); BIS coverage is 17/17 for T1 + XM per Sprint
+    # J Commit 1 pre-flight probe. Daily FCI compute uses most-recent
+    # monthly value + ``_M4_NEER_MONTHLY_CADENCE`` flag (daily
+    # interpolation via bilateral-FX composite deferred to
+    # CAL-M4-NEER-FREQUENCY-DAILY).
+
+    async def fetch_neer(
+        self,
+        country: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[BisEerObservation]:
+        """BIS broad-basket nominal NEER (monthly, index 2010=100).
+
+        ``country`` is the SONAR ISO 2-letter code; EA is silently
+        mapped to BIS ``XM``. Unsupported T2 countries raise
+        :class:`ValueError` with a CAL pointer.
+
+        Returns ``list[BisEerObservation]`` sorted ascending by
+        ``observation_date`` (month-end). Empty response is allowed
+        (returns empty list — BIS publishes with ~2-month lag on some
+        small economies); callers layer staleness checks.
+        """
+        country_upper = country.upper()
+        bis_ref = _SONAR_TO_BIS_EER_COUNTRY.get(country_upper, country_upper)
+        if bis_ref not in BIS_EER_COUNTRY_CODES:
+            msg = (
+                f"BIS WS_EER NEER only supports T1 + EA (XM) at Sprint J "
+                f"scope; got {country!r}. Unsupported countries open "
+                f"CAL-M4-NEER-T2-EXPANSION."
+            )
+            raise ValueError(msg)
+        key = f"M.N.B.{bis_ref}"
+        raw_obs = await self._fetch_observations(
+            DATAFLOW_WS_EER,
+            key=key,
+            country=country_upper,
+            source_tag="BIS_WS_EER",
+            start_date=start_date,
+            end_date=end_date,
+        )
+        # Re-wrap the generic BisObservation rows as monthly EER rows —
+        # the shared parser returns BisObservation (value_pct field) but
+        # for NEER the value is an index level, not a ratio, so we
+        # surface a distinct dataclass to the consumer.
+        return [
+            BisEerObservation(
+                country_code=country_upper,
+                observation_date=o.observation_date,
+                value_index=o.value_pct,
+                source="BIS_WS_EER",
+                source_series_key=key,
+            )
+            for o in raw_obs
+        ]
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
@@ -341,7 +472,7 @@ def _parse_series(
                 value_pct = float(raw)
             except (TypeError, ValueError):
                 continue
-            obs_date = _try_parse_iso(label) or _quarter_label_to_end_date(label)
+            obs_date = _try_parse_iso(label) or _label_to_end_date(label)
             out.append(
                 BisObservation(
                     country_code=country,
@@ -354,16 +485,36 @@ def _parse_series(
     return out
 
 
+def _label_to_end_date(label: str) -> date:
+    """Route SDMX period label to the correct cadence end-of-period.
+
+    Handles the ``YYYY-Qn`` quarterly and ``YYYY-MM`` monthly label
+    formats used by the BIS dataflows consumed at Sprint J scope
+    (WS_DSR / WS_TC / WS_SPP / WS_CREDIT_GAP = quarterly;
+    WS_EER = monthly). Other cadences fall through to
+    :func:`_quarter_label_to_end_date` for back-compat with earlier
+    dataflow shapes.
+    """
+    if "-Q" in label:
+        return _quarter_label_to_end_date(label)
+    if len(label) == 7 and label[4] == "-":
+        return _month_label_to_end_date(label)
+    return _quarter_label_to_end_date(label)
+
+
 __all__ = [
     "ACCEPT_HEADER",
     "AGENCY_ID",
     "BASE_URL",
+    "BIS_EER_COUNTRY_CODES",
     "DATAFLOW_VERSIONS",
     "DATAFLOW_WS_CREDIT_GAP",
     "DATAFLOW_WS_DSR",
+    "DATAFLOW_WS_EER",
     "DATAFLOW_WS_SPP",
     "DATAFLOW_WS_TC",
     "BisConnector",
+    "BisEerObservation",
     "BisObservation",
     "CgDtype",
 ]

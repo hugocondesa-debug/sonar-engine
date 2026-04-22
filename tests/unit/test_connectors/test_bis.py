@@ -16,10 +16,13 @@ from sonar.connectors.bis import (
     ACCEPT_HEADER,
     AGENCY_ID,
     BASE_URL,
+    BIS_EER_COUNTRY_CODES,
     DATAFLOW_VERSIONS,
     BisConnector,
+    BisEerObservation,
     BisObservation,
     _date_to_period,
+    _month_label_to_end_date,
     _parse_series,
     _quarter_label_to_end_date,
 )
@@ -278,5 +281,105 @@ async def test_live_canary_ws_dsr_us(tmp_cache_dir: Path) -> None:
         obs = await conn.fetch_dsr("US", date(2023, 10, 1), date(2024, 6, 30))
         assert len(obs) >= 1
         assert all(5.0 <= o.value_pct <= 30.0 for o in obs)
+    finally:
+        await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Week 10 Sprint J — WS_EER NEER extension
+# ---------------------------------------------------------------------------
+
+
+def test_month_label_to_end_date() -> None:
+    assert _month_label_to_end_date("2024-01") == date(2024, 1, 31)
+    assert _month_label_to_end_date("2024-02") == date(2024, 2, 29)  # leap
+    assert _month_label_to_end_date("2023-02") == date(2023, 2, 28)
+    assert _month_label_to_end_date("2024-12") == date(2024, 12, 31)
+    assert _month_label_to_end_date("2024-04") == date(2024, 4, 30)
+
+
+def test_bis_eer_country_codes_cover_t1_plus_xm() -> None:
+    for c in (
+        "US",
+        "DE",
+        "FR",
+        "IT",
+        "ES",
+        "NL",
+        "PT",
+        "GB",
+        "JP",
+        "CA",
+        "AU",
+        "NZ",
+        "CH",
+        "SE",
+        "NO",
+        "DK",
+        "XM",
+    ):
+        assert c in BIS_EER_COUNTRY_CODES
+    assert len(BIS_EER_COUNTRY_CODES) == 17
+
+
+@pytest.mark.parametrize(
+    ("country", "fixture_stem", "bis_ref"),
+    [
+        ("US", "bis_neer_us_2023_2024", "US"),
+        ("DE", "bis_neer_de_2023_2024", "DE"),
+        ("EA", "bis_neer_xm_2023_2024", "XM"),
+    ],
+)
+async def test_fetch_neer_from_cassette(
+    httpx_mock: HTTPXMock,
+    bis_connector: BisConnector,
+    country: str,
+    fixture_stem: str,
+    bis_ref: str,
+) -> None:
+    """NEER round-trip for US/DE/EA via cassettes. EA -> XM translation."""
+    payload = _load_fixture(fixture_stem)
+    httpx_mock.add_response(method="GET", json=payload)
+    obs = await bis_connector.fetch_neer(country, date(2023, 1, 1), date(2024, 12, 31))
+    assert len(obs) >= 20
+    assert all(isinstance(o, BisEerObservation) for o in obs)
+    # SONAR country surfaces uppercase EA (not BIS's XM) to the consumer.
+    assert obs[0].country_code == country.upper()
+    assert obs[0].source == "BIS_WS_EER"
+    assert obs[0].source_series_key == f"M.N.B.{bis_ref}"
+    # Monthly cadence — month-end dates, values are index levels (2010=100).
+    assert obs[0].observation_date.day >= 28
+    assert all(50.0 < o.value_index < 200.0 for o in obs)
+
+
+async def test_fetch_neer_unsupported_country_raises(
+    bis_connector: BisConnector,
+) -> None:
+    with pytest.raises(ValueError, match="CAL-M4-NEER-T2-EXPANSION"):
+        await bis_connector.fetch_neer("CN", date(2024, 1, 1), date(2024, 6, 30))
+
+
+async def test_fetch_neer_url_shape(
+    httpx_mock: HTTPXMock,
+    bis_connector: BisConnector,
+) -> None:
+    """Dispatch uses WS_EER 1.0 dataflow + M.N.B.{REF_AREA} key + EA->XM."""
+    payload = _load_fixture("bis_neer_xm_2023_2024")
+    httpx_mock.add_response(method="GET", json=payload)
+    await bis_connector.fetch_neer("EA", date(2024, 1, 1), date(2024, 6, 30))
+    [req] = httpx_mock.get_requests()
+    expected_path = f"{BASE_URL}/data/dataflow/{AGENCY_ID}/WS_EER/1.0/M.N.B.XM"
+    assert str(req.url).startswith(expected_path), str(req.url)
+
+
+@pytest.mark.slow
+async def test_live_canary_ws_eer_de(tmp_cache_dir: Path) -> None:
+    """Sprint J — live BIS WS_EER NEER for DE Q4/2024."""
+    conn = BisConnector(cache_dir=str(tmp_cache_dir), rate_limit_seconds=0.5)
+    try:
+        obs = await conn.fetch_neer("DE", date(2024, 10, 1), date(2024, 12, 31))
+        assert len(obs) >= 1
+        assert all(o.source == "BIS_WS_EER" for o in obs)
+        assert all(80.0 < o.value_index < 140.0 for o in obs)
     finally:
         await conn.aclose()
