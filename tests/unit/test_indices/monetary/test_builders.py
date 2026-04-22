@@ -1187,10 +1187,14 @@ class TestBuildM4Us:
 class TestBuildM2Jp:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 JP scaffold is wire-ready but raises until JP gap/CPI land."""
+        """M2 JP scaffold raises until CPI + forecast land (output-gap is Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTEJpSuccess(pct=0.50)
-        with pytest.raises(InsufficientDataError, match="CAL-JP-OUTPUT-GAP"):
+        # Sprint C Week 10: output-gap wired via OECD EO when connector
+        # injected; without oecd_eo the raise mentions
+        # CAL-M2-T1-OUTPUT-GAP-EXPANSION as the umbrella, and
+        # CAL-CPI-INFL-T1-WRAPPERS for CPI + forecast.
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_jp_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -1370,10 +1374,10 @@ class TestBuildM1Ca:
 class TestBuildM2Ca:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 CA scaffold is wire-ready but raises until CA gap/CPI land."""
+        """M2 CA scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTECaSuccess(pct=3.25)
-        with pytest.raises(InsufficientDataError, match="CAL-130"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_ca_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -1557,10 +1561,10 @@ class TestBuildM1Au:
 class TestBuildM2Au:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 AU scaffold is wire-ready but raises until AU gap/CPI land."""
+        """M2 AU scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTEAuSuccess(pct=4.10)
-        with pytest.raises(InsufficientDataError, match="CAL-AU"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_au_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -1747,10 +1751,10 @@ class TestBuildM1Nz:
 class TestBuildM2Nz:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 NZ scaffold is wire-ready but raises until NZ gap/CPI land."""
+        """M2 NZ scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTENzSuccess(pct=3.75)
-        with pytest.raises(InsufficientDataError, match="CAL-NZ"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_nz_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -1983,10 +1987,10 @@ class TestBuildM1Ch:
 class TestBuildM2Ch:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 CH scaffold is wire-ready but raises until CH gap/CPI land."""
+        """M2 CH scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTEChSuccess(pct=1.5)
-        with pytest.raises(InsufficientDataError, match="CAL-CH"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_ch_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -2203,10 +2207,10 @@ class TestBuildM1No:
 class TestBuildM2No:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 NO scaffold is wire-ready but raises until NO gap/CPI land."""
+        """M2 NO scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTENoSuccess(pct=4.5)
-        with pytest.raises(InsufficientDataError, match="CAL-NO"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_no_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -2445,10 +2449,10 @@ class TestBuildM1Se:
 class TestBuildM2Se:
     @pytest.mark.asyncio
     async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 SE scaffold is wire-ready but raises until SE gap/CPI land."""
+        """M2 SE scaffold raises until CPI + forecast land (output-gap Sprint C scope)."""
         fred = _FakeFredConnector()
         te = _FakeTESeSuccess(pct=4.0)
-        with pytest.raises(InsufficientDataError, match="CAL-SE"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await build_m2_se_inputs(
                 fred,  # type: ignore[arg-type]
                 date(2024, 12, 31),
@@ -2962,7 +2966,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEAuSuccess(pct=4.10),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-AU"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("AU", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3031,7 +3035,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTENzSuccess(pct=3.75),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-NZ"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("NZ", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3098,7 +3102,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEChSuccess(pct=1.5),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-CH"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("CH", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3166,7 +3170,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTENoSuccess(pct=4.5),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-NO"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("NO", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3234,7 +3238,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTESeSuccess(pct=4.0),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-SE"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("SE", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3330,7 +3334,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-130"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3354,7 +3358,7 @@ class TestMonetaryInputsBuilderFacade:
             ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
             te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
         )
-        with pytest.raises(InsufficientDataError, match="CAL-JP"):
+        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
             await builder.build_m2_inputs("JP", date(2024, 12, 31), history_years=2)
 
     @pytest.mark.asyncio
@@ -3446,3 +3450,198 @@ class TestBuildM1UkDeprecatedAlias:
         assert uk_inputs == gb_inputs
         assert uk_inputs.country_code == "GB"
         assert "GB_BANK_RATE_TE_PRIMARY" in uk_inputs.upstream_flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint C — OECD EO output-gap wiring per T1 country (Week 10)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeOECDEOSuccess:
+    """Stub OECD EO connector that returns a single-observation gap."""
+
+    gap_pct: float = -1.5
+    ref_area: str = "FAKE"
+
+    async def fetch_latest_output_gap(self, country_code: str, observation_date: date):  # type: ignore[no-untyped-def]
+        from sonar.connectors.oecd_eo import OutputGapObservation  # noqa: PLC0415
+
+        return OutputGapObservation(
+            country_code=country_code,
+            observation_date=date(observation_date.year, 12, 31),
+            gap_pct=self.gap_pct,
+            ref_area=self.ref_area,
+        )
+
+
+@dataclass
+class _FakeOECDEOUnavailable:
+    """Stub OECD EO connector that soft-fails (returns None)."""
+
+    async def fetch_latest_output_gap(self, country_code: str, observation_date: date):  # type: ignore[no-untyped-def]
+        return None
+
+
+class TestSprintCOutputGapWiring:
+    """Verify each Week-9 M2 builder accepts ``oecd_eo`` and reflects the
+    output-gap wiring in the raise message (Sprint C Week 10)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("country", "builder"),
+        [
+            ("JP", build_m2_jp_inputs),
+            ("CA", build_m2_ca_inputs),
+            ("AU", build_m2_au_inputs),
+            ("NZ", build_m2_nz_inputs),
+            ("CH", build_m2_ch_inputs),
+            ("NO", build_m2_no_inputs),
+            ("SE", build_m2_se_inputs),
+            ("DK", build_m2_dk_inputs),
+        ],
+    )
+    async def test_oecd_eo_success_narrows_raise_message(
+        self,
+        country: str,
+        builder: object,
+    ) -> None:
+        """When OECD EO returns a gap, the raise message acknowledges the
+        output-gap is wired via OECD EO — narrowed blocker for CPI +
+        inflation-forecast only."""
+        fred = _FakeFredConnector()
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
+        with pytest.raises(InsufficientDataError) as excinfo:
+            await builder(  # type: ignore[operator]
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+            )
+        message = str(excinfo.value)
+        assert "output-gap live via OECD EO" in message
+        assert f"M2 {country}" in message
+        assert "CAL-M2-T1-OUTPUT-GAP-EXPANSION" in message
+        assert "CAL-CPI-INFL-T1-WRAPPERS" in message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("country", "builder"),
+        [
+            ("JP", build_m2_jp_inputs),
+            ("CA", build_m2_ca_inputs),
+            ("AU", build_m2_au_inputs),
+            ("NZ", build_m2_nz_inputs),
+            ("CH", build_m2_ch_inputs),
+            ("NO", build_m2_no_inputs),
+            ("SE", build_m2_se_inputs),
+            ("DK", build_m2_dk_inputs),
+        ],
+    )
+    async def test_oecd_eo_unavailable_falls_back_to_original_message(
+        self,
+        country: str,
+        builder: object,
+    ) -> None:
+        """When OECD EO soft-fails, the raise message flags output-gap
+        as not-wired (canonical pre-Sprint-C phrasing)."""
+        fred = _FakeFredConnector()
+        oecd = _FakeOECDEOUnavailable()
+        with pytest.raises(InsufficientDataError) as excinfo:
+            await builder(  # type: ignore[operator]
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                oecd_eo=oecd,  # type: ignore[arg-type]
+                history_years=2,
+            )
+        message = str(excinfo.value)
+        assert "output-gap is not wired for this invocation" in message
+        assert f"M2 {country}" in message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("country", "builder"),
+        [
+            ("JP", build_m2_jp_inputs),
+            ("CA", build_m2_ca_inputs),
+            ("AU", build_m2_au_inputs),
+            ("NZ", build_m2_nz_inputs),
+            ("CH", build_m2_ch_inputs),
+            ("NO", build_m2_no_inputs),
+            ("SE", build_m2_se_inputs),
+            ("DK", build_m2_dk_inputs),
+        ],
+    )
+    async def test_oecd_eo_absent_still_raises_with_pre_sprint_c_phrasing(
+        self,
+        country: str,
+        builder: object,
+    ) -> None:
+        """When ``oecd_eo`` is not injected, the raise message is the
+        pre-Sprint-C form (output-gap unwired for this invocation)."""
+        fred = _FakeFredConnector()
+        with pytest.raises(InsufficientDataError) as excinfo:
+            await builder(  # type: ignore[operator]
+                fred,  # type: ignore[arg-type]
+                date(2024, 12, 31),
+                history_years=2,
+            )
+        message = str(excinfo.value)
+        assert "output-gap is not wired for this invocation" in message
+        assert f"M2 {country}" in message
+
+    @pytest.mark.asyncio
+    async def test_facade_passes_oecd_eo_to_ca_builder(self) -> None:
+        """``MonetaryInputsBuilder`` wires ``oecd_eo`` through M2 CA dispatch."""
+        oecd = _FakeOECDEOSuccess(gap_pct=-0.1)
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
+            oecd_eo=oecd,  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError) as excinfo:
+            await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
+        # Output-gap is now confirmed wired (facade passed oecd_eo through).
+        assert "output-gap live via OECD EO" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_facade_defaults_oecd_eo_none_pre_sprint_c_phrasing(
+        self,
+    ) -> None:
+        """Facade without ``oecd_eo`` kwarg → pre-Sprint-C raise phrasing."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+            te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
+        )
+        with pytest.raises(InsufficientDataError) as excinfo:
+            await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
+        assert "output-gap is not wired for this invocation" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_us_builder_signature_unchanged_no_regression(self) -> None:
+        """US M2 builder signature stays CBO-primary — no oecd_eo kwarg.
+
+        HALT-0 trigger: US canonical path must not drift to OECD EO
+        annual (coarser than CBO quarterly). Verify by calling
+        ``build_m2_us_inputs`` the same way Sprint-C-precedent tests do.
+        """
+        # build_m2_us_inputs expects fred + cbo positional — this is the
+        # signature that existed pre-Sprint-C. If it broke, this test
+        # would fail at parameter binding long before reaching the
+        # fakes. We don't exercise a happy-path here — that's covered
+        # in TestBuildM2Us — we just guard the kwargs surface.
+        import inspect  # noqa: PLC0415
+
+        from sonar.indices.monetary.builders import (  # noqa: PLC0415
+            build_m2_us_inputs,
+        )
+
+        sig = inspect.signature(build_m2_us_inputs)
+        # oecd_eo is intentionally NOT a parameter on US M2.
+        assert "oecd_eo" not in sig.parameters
+        # cbo still a required positional (US output-gap primary).
+        assert sig.parameters["cbo"].kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,)

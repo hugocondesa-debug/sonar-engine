@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from sonar.connectors.fred import FredConnector
     from sonar.connectors.nationalbanken import NationalbankenConnector
     from sonar.connectors.norgesbank import NorgesBankConnector
+    from sonar.connectors.oecd_eo import OECDEOConnector
     from sonar.connectors.rba import RBAConnector
     from sonar.connectors.rbnz import RBNZConnector
     from sonar.connectors.riksbank import RiksbankConnector
@@ -247,6 +248,85 @@ def _to_dated(obs_iter: Sequence[object], value_attr: str = "value") -> list[_Da
         v = getattr(o, value_attr)
         out.append(_DatedValue(observation_date=d, value=float(v)))
     return out
+
+
+def _m2_blocked_msg(
+    *,
+    country_code: str,
+    sprint_label: str,
+    cpi_cal_item: str,
+    forecast_cal_item: str,
+    output_gap_wired: bool,
+    extra_tail: str = "",
+) -> str:
+    """Build the narrowed ``InsufficientDataError`` message for a T1 M2 scaffold.
+
+    Sprint C (Week 10) delivered the output-gap half of
+    ``CAL-M2-T1-OUTPUT-GAP-EXPANSION``. The raise message per country
+    now reflects which components remain blockers: when OECD EO
+    successfully returned a value for the anchor date, the message
+    explicitly acknowledges that output-gap is wired and limits the
+    blocker to CPI + inflation-forecast.
+    """
+    if output_gap_wired:
+        core = (
+            f"M2 {country_code} builder (scaffold shipped {sprint_label}; "
+            f"output-gap live via OECD EO per Sprint C Week 10 — "
+            f"CAL-M2-T1-OUTPUT-GAP-EXPANSION) still requires CPI YoY + "
+            f"inflation-forecast {country_code} connectors that are not "
+            f"yet wired (see {cpi_cal_item} / {forecast_cal_item})."
+        )
+    else:
+        core = (
+            f"M2 {country_code} builder (scaffold shipped {sprint_label}) "
+            f"still requires CPI YoY + output-gap + inflation-forecast "
+            f"{country_code} connectors (see {cpi_cal_item} / "
+            f"CAL-M2-T1-OUTPUT-GAP-EXPANSION / {forecast_cal_item}) — "
+            f"OECD EO unavailable or connector not injected at this "
+            f"call site, so output-gap is not wired for this invocation."
+        )
+    tail = f"{extra_tail} " if extra_tail else ""
+    return f"{core} {tail}Raises so the pipeline skips M2 {country_code} cleanly."
+
+
+async def _try_fetch_oecd_output_gap_pct(
+    oecd_eo: OECDEOConnector | None,
+    country_code: str,
+    observation_date: date,
+) -> float | None:
+    """Fetch the latest OECD EO output gap (%) — soft-fail on anything.
+
+    Sprint C wires OECD EO as the canonical output-gap source for every
+    T1 country that lacks a native quarterly potential-GDP feed (i.e.
+    all T1 except US, which keeps CBO GDPPOT). Callers in the per-
+    country M2 builders use this helper to:
+
+    - confirm the output-gap component is wired end-to-end (log a
+      structured ``monetary_builder.m2.output_gap_wired`` info line);
+    - leave the ``InsufficientDataError`` raise in place with a
+      narrower message, since CPI + inflation-forecast are tracked
+      separately under per-country CAL items.
+
+    Returns ``None`` when either the connector is not supplied, the
+    country is not mapped, or the OECD EO endpoint soft-fails.
+    """
+    if oecd_eo is None:
+        return None
+    from sonar.connectors.oecd_eo import is_t1_covered  # noqa: PLC0415
+
+    if not is_t1_covered(country_code):
+        return None
+    obs = await oecd_eo.fetch_latest_output_gap(country_code, observation_date)
+    if obs is None:
+        return None
+    log.info(
+        "monetary_builder.m2.output_gap_wired",
+        country=country_code,
+        observation_year=obs.observation_date.year,
+        gap_pct=round(obs.gap_pct, 3),
+        source="OECD_EO",
+    )
+    return obs.gap_pct
 
 
 # ---------------------------------------------------------------------------
@@ -764,42 +844,29 @@ async def build_m1_jp_inputs(
 
 async def build_m2_jp_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD JP gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     boj: BoJConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 JP inputs (scaffold — raises until JP gap source lands).
+    """Assemble M2 JP inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint L ships the dispatch wire-ready so the pipeline can route
-    ``--country JP`` without crashing. The JP Taylor-gap inputs require
-    three sources that are not yet connected at this scope:
-
-    - **JP CPI YoY**: no ``fetch_jp_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint L scope (brief §1 defers CPI/unemployment to
-      generic TE ``fetch_indicator`` probes).
-    - **Output gap**: Japan has no CBO equivalent; OECD EO + BoJ Tankan
-      are both outside L0 coverage today (CAL-JP-OUTPUT-GAP).
-    - **Inflation forecast**: BoJ does not publish a UMich-analog 5Y
-      breakeven series, and the TE ``inflation expectations`` feed lags
-      at quarterly cadence (CAL-JP-M2-INFL-FORECAST).
-
-    Once any of those sources lands, this function resolves the cascade
-    like :func:`build_m2_us_inputs` does for the CBO output-gap path —
-    mirroring the Sprint I-patch cascade shape so the pattern stays
-    consistent across Tier-1 countries. Until then,
-    :class:`InsufficientDataError` keeps the pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which logs
-    a structured ``monetary_pipeline.builder_skipped`` warning rather
-    than crashing).
+    Sprint L shipped the dispatch wire-ready. Sprint C (Week 10) closed
+    the output-gap half of CAL-JP-OUTPUT-GAP by wiring OECD EO as the
+    canonical source (``ref_area=JPN``, annual cadence — BoJ Tankan
+    proxy + native potential-GDP series remain out of L0 coverage).
+    Remaining blockers: CAL-JP-M2-CPI + CAL-JP-M2-INFL-FORECAST (folded
+    into CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 JP builder scaffold shipped Sprint L but requires CPI YoY, "
-        "output-gap, and inflation-forecast JP connectors that are not "
-        "yet wired (see CAL-JP-OUTPUT-GAP, CAL-JP-M2-CPI, "
-        "CAL-JP-M2-INFL-FORECAST). Raises so the pipeline skips M2 JP "
-        "cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "JP", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="JP",
+        sprint_label="Sprint L",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -1008,40 +1075,38 @@ async def build_m1_ca_inputs(
 
 async def build_m2_ca_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD CA gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     boc: BoCConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 CA inputs (scaffold — raises until CA gap source lands).
+    """Assemble M2 CA inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint S ships the dispatch wire-ready so the pipeline can route
-    ``--country CA`` without crashing. The CA Taylor-gap inputs require
-    three sources that are not yet connected at this scope:
+    Sprint S shipped the dispatch wire-ready. Sprint C (Week 10) closed
+    the output-gap half of CAL-130 by wiring OECD EO as the canonical
+    source (``ref_area=CAN``, annual cadence). The remaining blockers
+    for M2 CA live compute are:
 
-    - **CA CPI YoY**: no ``fetch_ca_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint S scope (CAL-134).
-    - **Output gap**: Canada-specific — the BoC itself publishes a
-      quarterly output gap via Valet series (``DMREST_SEGP_GAP``
-      candidate) but the wiring is not Sprint S scope (CAL-130).
-      OECD EO CA also maps through the same connector family.
-    - **Inflation forecast**: BoC publishes quarterly Monetary Policy
-      Report forecasts — Valet-hosted but unwired Sprint S (CAL-135).
+    - **CA CPI YoY**: ``fetch_ca_cpi_yoy`` still missing (CAL-134 →
+      CAL-CPI-INFL-T1-WRAPPERS).
+    - **Inflation forecast**: BoC MPR quarterly forecasts still
+      unwired (CAL-135 → CAL-CPI-INFL-T1-WRAPPERS).
 
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which
-    logs a structured ``monetary_pipeline.builder_skipped`` warning
-    rather than crashing).
+    When ``oecd_eo`` is injected, the builder confirms the output-
+    gap wiring end-to-end (structured ``monetary_builder.m2.output_
+    gap_wired`` log line) before raising. Once CPI + forecast land,
+    the body flips to the full US-equivalent assembly path — the
+    output-gap component will already be fetched.
     """
-    msg = (
-        "M2 CA builder scaffold shipped Sprint S but requires CPI YoY, "
-        "output-gap, and inflation-forecast CA connectors that are not "
-        "yet wired (see CAL-130 / CAL-134 / CAL-135). Raises so the "
-        "pipeline skips M2 CA cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CA", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="CA",
+        sprint_label="Sprint S",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -1256,40 +1321,28 @@ async def build_m1_au_inputs(
 
 async def build_m2_au_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD AU gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     rba: RBAConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 AU inputs (scaffold — raises until AU gap source lands).
+    """Assemble M2 AU inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint T ships the dispatch wire-ready so the pipeline can route
-    ``--country AU`` without crashing. The AU Taylor-gap inputs require
-    three sources that are not yet connected at this scope:
-
-    - **AU CPI YoY**: no ``fetch_au_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint T scope (CAL-AU-CPI).
-    - **Output gap**: Australia-specific — the RBA publishes a
-      quarterly output gap via SMP technical notes but no scriptable
-      endpoint exists at Sprint T scope (CAL-AU-GAP). OECD EO AU also
-      maps through the same connector family.
-    - **Inflation forecast**: RBA publishes quarterly SMP forecasts —
-      HTML-hosted but unwired Sprint T (CAL-AU-INFL-FORECAST).
-
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which
-    logs a structured ``monetary_pipeline.builder_skipped`` warning
-    rather than crashing).
+    Sprint T shipped the dispatch wire-ready. Sprint C (Week 10) closed
+    the output-gap half of CAL-AU-GAP by wiring OECD EO as the
+    canonical source (``ref_area=AUS``, annual cadence). Remaining
+    blockers: CAL-AU-CPI + CAL-AU-INFL-FORECAST (folded into
+    CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 AU builder scaffold shipped Sprint T but requires CPI YoY, "
-        "output-gap, and inflation-forecast AU connectors that are not "
-        "yet wired (see CAL-AU-CPI / CAL-AU-GAP / CAL-AU-INFL-FORECAST). "
-        "Raises so the pipeline skips M2 AU cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "AU", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="AU",
+        sprint_label="Sprint T",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -1518,42 +1571,28 @@ async def build_m1_nz_inputs(
 
 async def build_m2_nz_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD NZ gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     rbnz: RBNZConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 NZ inputs (scaffold — raises until NZ gap source lands).
+    """Assemble M2 NZ inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint U-NZ ships the dispatch wire-ready so the pipeline can
-    route ``--country NZ`` without crashing. The NZ Taylor-gap inputs
-    require three sources that are not yet connected at this scope:
-
-    - **NZ CPI YoY**: no ``fetch_nz_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint U-NZ scope (CAL-NZ-CPI).
-    - **Output gap**: New Zealand-specific — Stats NZ + the Treasury
-      (HYEFU/BEFU) publish quarterly output-gap estimates but no
-      scriptable endpoint exists at Sprint U-NZ scope
-      (CAL-NZ-M2-OUTPUT-GAP). OECD EO NZ maps through the same
-      connector family.
-    - **Inflation forecast**: RBNZ publishes quarterly Monetary Policy
-      Statement (MPS) forecasts — HTML / PDF-hosted, unwired Sprint
-      U-NZ (CAL-NZ-INFL-FORECAST).
-
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which
-    logs a structured ``monetary_pipeline.builder_skipped`` warning
-    rather than crashing).
+    Sprint U-NZ shipped the dispatch wire-ready. Sprint C (Week 10)
+    closed the output-gap half of CAL-NZ-M2-OUTPUT-GAP by wiring OECD
+    EO as the canonical source (``ref_area=NZL``, annual cadence).
+    Remaining blockers: CAL-NZ-CPI + CAL-NZ-INFL-FORECAST (folded
+    into CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 NZ builder scaffold shipped Sprint U-NZ but requires CPI YoY, "
-        "output-gap, and inflation-forecast NZ connectors that are not "
-        "yet wired (see CAL-NZ-CPI / CAL-NZ-M2-OUTPUT-GAP / "
-        "CAL-NZ-INFL-FORECAST). Raises so the pipeline skips M2 NZ cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NZ", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="NZ",
+        sprint_label="Sprint U-NZ",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -1802,42 +1841,29 @@ async def build_m1_ch_inputs(
 
 async def build_m2_ch_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD CH gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     snb: SNBConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 CH inputs (scaffold — raises until CH sources land).
+    """Assemble M2 CH inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint V ships the dispatch wire-ready so the pipeline can route
-    ``--country CH`` without crashing. The CH Taylor-gap inputs require
-    three sources that are not yet connected at this scope:
-
-    - **CH CPI YoY**: no ``fetch_ch_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint V scope (CAL-CH-CPI). SNB publishes CPI on
-      the ``cpikern`` cube but the parse path needs its own wrapper.
-    - **Output gap**: Switzerland-specific — SECO publishes the
-      quarterly KOF-SECO output gap but no scriptable endpoint exists
-      at Sprint V scope (CAL-CH-GAP). OECD EO CH also maps through the
-      same connector family.
-    - **Inflation forecast**: SNB publishes quarterly Monetary Policy
-      Assessment forecasts — HTML-hosted but unwired Sprint V
-      (CAL-CH-INFL-FORECAST).
-
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which
-    logs a structured ``monetary_pipeline.builder_skipped`` warning
-    rather than crashing).
+    Sprint V shipped the dispatch wire-ready. Sprint C (Week 10) closed
+    the output-gap half of CAL-CH-GAP by wiring OECD EO as the
+    canonical source (``ref_area=CHE``, annual cadence — SNB does not
+    publish a domestic output gap, so the OECD sanctioned proxy is
+    canonical for CH). Remaining blockers: CAL-CH-CPI +
+    CAL-CH-INFL-FORECAST (folded into CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 CH builder scaffold shipped Sprint V but requires CPI YoY, "
-        "output-gap, and inflation-forecast CH connectors that are not "
-        "yet wired (see CAL-CH-CPI / CAL-CH-GAP / CAL-CH-INFL-FORECAST). "
-        "Raises so the pipeline skips M2 CH cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "CH", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="CH",
+        sprint_label="Sprint V",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -2072,45 +2098,28 @@ async def build_m1_no_inputs(
 
 async def build_m2_no_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD NO gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     norgesbank: NorgesBankConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 NO inputs (scaffold — raises until NO gap source lands).
+    """Assemble M2 NO inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint X-NO ships the dispatch wire-ready so the pipeline can route
-    ``--country NO`` without crashing. The NO Taylor-gap inputs require
-    three sources that are not yet connected at this scope:
-
-    - **NO CPI YoY**: no ``fetch_no_cpi_yoy`` wrapper on either TE or
-      FRED within Sprint X-NO scope (CAL-NO-CPI). Statistics Norway
-      (SSB) publishes monthly CPI via a SDMX endpoint at
-      ``data.ssb.no/api/v0/en/table/03013`` which would be the natural
-      connector landing.
-    - **Output gap**: Norway-specific — Statistics Norway + Norges
-      Bank's own "regional network" qualitative survey contribute, but
-      no scriptable quarterly output-gap endpoint exists at Sprint
-      X-NO scope (CAL-NO-M2-OUTPUT-GAP). OECD EO NO maps through the
-      same connector family.
-    - **Inflation forecast**: Norges Bank publishes quarterly Monetary
-      Policy Report (MPR) forecasts — PDF + HTML-hosted, unwired Sprint
-      X-NO (CAL-NO-INFL-FORECAST). The MPR publication rhythm (four
-      MPRs per year) gives a natural quarterly refresh cadence.
-
-    Once any of those sources lands, this function resolves the cascade
-    like :func:`build_m2_us_inputs` does for the CBO output-gap path.
-    Until then, :class:`InsufficientDataError` keeps the pipeline clean
-    (caught by :func:`daily_monetary_indices.build_live_monetary_inputs`
-    which logs a structured ``monetary_pipeline.builder_skipped``
-    warning rather than crashing).
+    Sprint X-NO shipped the dispatch wire-ready. Sprint C (Week 10)
+    closed the output-gap half of CAL-NO-M2-OUTPUT-GAP by wiring
+    OECD EO as the canonical source (``ref_area=NOR``, annual
+    cadence). Remaining blockers: CAL-NO-CPI + CAL-NO-INFL-FORECAST
+    (folded into CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 NO builder scaffold shipped Sprint X-NO but requires CPI YoY, "
-        "output-gap, and inflation-forecast NO connectors that are not "
-        "yet wired (see CAL-NO-CPI / CAL-NO-M2-OUTPUT-GAP / "
-        "CAL-NO-INFL-FORECAST). Raises so the pipeline skips M2 NO cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "NO", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="NO",
+        sprint_label="Sprint X-NO",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -2373,45 +2382,28 @@ async def build_m1_se_inputs(
 
 async def build_m2_se_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD SE gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     riksbank: RiksbankConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 SE inputs (scaffold — raises until SE sources land).
+    """Assemble M2 SE inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint W-SE ships the dispatch wire-ready so the pipeline can
-    route ``--country SE`` without crashing. The SE Taylor-gap inputs
-    require three sources that are not yet connected at this scope:
-
-    - **SE CPI / CPIF YoY**: no ``fetch_se_cpi_yoy`` wrapper on either
-      TE or FRED within Sprint W-SE scope (CAL-SE-CPI). SCB publishes
-      CPIF via the SCB Statistical Database
-      (``https://api.scb.se/OV0104/v1/doris/en/ssd/START/PR/PR0101/``)
-      but the parse path needs its own wrapper.
-    - **Output gap**: Sweden-specific — Konjunkturinstitutet (NIER)
-      publishes the quarterly Swedish output gap but no scriptable
-      endpoint exists at Sprint W-SE scope (CAL-SE-GAP). OECD EO SE
-      also maps through the same connector family.
-    - **Inflation forecast**: Riksbank publishes quarterly MPR
-      forecasts — HTML-hosted but unwired Sprint W-SE
-      (CAL-SE-INFL-FORECAST).
-
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean (caught by
-    :func:`daily_monetary_indices.build_live_monetary_inputs` which
-    logs a structured ``monetary_pipeline.builder_skipped`` warning
-    rather than crashing).
+    Sprint W-SE shipped the dispatch wire-ready. Sprint C (Week 10)
+    closed the output-gap half of CAL-SE-GAP by wiring OECD EO as
+    the canonical source (``ref_area=SWE``, annual cadence). Remaining
+    blockers: CAL-SE-CPI + CAL-SE-INFL-FORECAST (folded into
+    CAL-CPI-INFL-T1-WRAPPERS).
     """
-    msg = (
-        "M2 SE builder scaffold shipped Sprint W-SE but requires CPI / "
-        "CPIF YoY, output-gap, and inflation-forecast SE connectors "
-        "that are not yet wired (see CAL-SE-CPI / CAL-SE-GAP / "
-        "CAL-SE-INFL-FORECAST). Raises so the pipeline skips M2 SE "
-        "cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "SE", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="SE",
+        sprint_label="Sprint W-SE",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
     )
     raise InsufficientDataError(msg)
 
@@ -2693,52 +2685,40 @@ async def build_m1_dk_inputs(
 
 async def build_m2_dk_inputs(
     fred: FredConnector,  # noqa: ARG001 - wired for future OECD DK gap path
-    observation_date: date,  # noqa: ARG001
+    observation_date: date,
     *,
     te: TEConnector | None = None,  # noqa: ARG001
     nationalbanken: NationalbankenConnector | None = None,  # noqa: ARG001
+    oecd_eo: OECDEOConnector | None = None,
     history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 DK inputs (scaffold — raises until DK sources land).
+    """Assemble M2 DK inputs — output-gap live via OECD EO (Sprint C).
 
-    Sprint Y-DK ships the dispatch wire-ready so the pipeline can
-    route ``--country DK`` without crashing. The DK Taylor-gap inputs
-    require three sources that are not yet connected at this scope:
+    Sprint Y-DK shipped the dispatch wire-ready. Sprint C (Week 10)
+    closed the output-gap half of CAL-DK-GAP by wiring OECD EO as
+    the canonical source (``ref_area=DNK``, annual cadence).
+    Remaining blockers: CAL-DK-CPI + CAL-DK-INFL-FORECAST (folded
+    into CAL-CPI-INFL-T1-WRAPPERS).
 
-    - **DK CPI / HICP YoY**: no ``fetch_dk_cpi_yoy`` wrapper on TE,
-      FRED, or Statbank within Sprint Y-DK scope (CAL-DK-CPI). DK
-      HICP is published by Statistics Denmark (Statbank tables
-      PRIS113 / PRIS9; could land via the same Statbank.dk REST API
-      Sprint Y-DK already wired for the monetary tables).
-    - **Output gap**: DK-specific — Statistics Denmark + EU
-      Commission DG-ECFIN publish the Danish output gap quarterly
-      but no scriptable endpoint exists at Sprint Y-DK scope
-      (CAL-DK-GAP). OECD EO DK is a viable alternative target.
-    - **Inflation forecast**: Nationalbanken publishes the
-      "Outlook for the Danish Economy" twice a year — PDF/HTML, no
-      scriptable endpoint at Sprint Y-DK scope (CAL-DK-INFL-FORECAST).
-
-    Important: even when all three sources land, the M2 Taylor-gap
-    formula will need a DK-specific adaptation because Nationalbanken
-    does not run an independent monetary policy — the policy-rate
-    response function is dominated by the EUR-peg-defence imperative,
-    so a vanilla domestic Taylor rule will systematically misfit.
-    The M2 spec revision required for EUR-peg countries is a
-    Phase 2+ scope item (CAL-DK-M2-EUR-PEG-TAYLOR).
-
-    Once any of those sources lands, this function resolves the
-    cascade like :func:`build_m2_us_inputs` does for the CBO output-
-    gap path. Until then, :class:`InsufficientDataError` keeps the
-    pipeline clean.
+    Important: even when all three components land, the vanilla M2
+    Taylor-gap formula will systematically misfit DK because
+    Nationalbanken does not run an independent monetary policy —
+    the policy-rate response function is dominated by the EUR-peg-
+    defence imperative. The EUR-peg-aware spec revision is tracked
+    separately under ``CAL-DK-M2-EUR-PEG-TAYLOR`` (Phase 2+).
     """
-    msg = (
-        "M2 DK builder scaffold shipped Sprint Y-DK but requires CPI / "
-        "HICP YoY, output-gap, and inflation-forecast DK connectors "
-        "that are not yet wired (see CAL-DK-CPI / CAL-DK-GAP / "
-        "CAL-DK-INFL-FORECAST). Note also CAL-DK-M2-EUR-PEG-TAYLOR — "
-        "the vanilla Taylor-rule formula will mis-fit given the EUR-"
-        "peg-defence policy regime. Raises so the pipeline skips M2 "
-        "DK cleanly."
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "DK", observation_date)
+    msg = _m2_blocked_msg(
+        country_code="DK",
+        sprint_label="Sprint Y-DK",
+        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
+        output_gap_wired=gap_pct is not None,
+        extra_tail=(
+            "Note also CAL-DK-M2-EUR-PEG-TAYLOR — the vanilla "
+            "Taylor-rule formula will mis-fit given the EUR-peg-"
+            "defence policy regime."
+        ),
     )
     raise InsufficientDataError(msg)
 
@@ -2976,6 +2956,7 @@ class MonetaryInputsBuilder:
         norgesbank: NorgesBankConnector | None = None,
         nationalbanken: NationalbankenConnector | None = None,
         te: TEConnector | None = None,
+        oecd_eo: OECDEOConnector | None = None,
     ) -> None:
         self.fred = fred
         self.cbo = cbo
@@ -2990,6 +2971,7 @@ class MonetaryInputsBuilder:
         self.norgesbank = norgesbank
         self.nationalbanken = nationalbanken
         self.te = te
+        self.oecd_eo = oecd_eo
 
     async def build_m1_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
         self, country: str, observation_date: date, **kwargs: object
@@ -3081,6 +3063,9 @@ class MonetaryInputsBuilder:
         self, country: str, observation_date: date, **kwargs: object
     ) -> M2TaylorGapsInputs:
         if country == "US":
+            # US keeps CBO GDPPOT (quarterly) as canonical — OECD EO USA is
+            # annual and strictly coarser. No regression path: US builder
+            # signature unchanged Sprint C.
             return await build_m2_us_inputs(self.fred, self.cbo, observation_date, **kwargs)  # type: ignore[arg-type]
         if country == "JP":
             return await build_m2_jp_inputs(
@@ -3088,6 +3073,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 boj=self.boj,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "CA":
@@ -3096,6 +3082,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 boc=self.boc,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "AU":
@@ -3104,6 +3091,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 rba=self.rba,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "NZ":
@@ -3112,6 +3100,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 rbnz=self.rbnz,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "CH":
@@ -3120,6 +3109,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 snb=self.snb,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "NO":
@@ -3128,6 +3118,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 norgesbank=self.norgesbank,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "SE":
@@ -3136,6 +3127,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 riksbank=self.riksbank,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "DK":
@@ -3144,6 +3136,7 @@ class MonetaryInputsBuilder:
                 observation_date,
                 te=self.te,
                 nationalbanken=self.nationalbanken,
+                oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
         msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
