@@ -1468,6 +1468,312 @@ class TEConnector:
         return fcst
 
     # -------------------------------------------------------------------
+    # Week 10 Sprint F Commit 2 — CH / SE / NO / DK + GB / JP CPI wrappers
+    # Negative-rate era (CH / SE / DK) does NOT affect CPI — these wrappers
+    # ship the standard positive-only CPI YoY series and require no rate-
+    # regime flag (contrast the M1 cascade builders which emit
+    # _NEGATIVE_RATE_ERA_DATA on policy-rate observations). Source-drift
+    # guards identical to Commit 1.
+    # -------------------------------------------------------------------
+
+    async def fetch_ch_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """CH headline CPI YoY — BfS Consumer Price Index, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``switzerland`` returns the
+        Bundesamt für Statistik (BfS) CPI year-on-year change directly
+        (HistoricalDataSymbol ``SZCPIYOY``). Monthly cadence back-filled
+        to 1956-01-31 (~843 observations at Sprint F probe 2026-04-22).
+        The SNB monetary-policy "price stability" mandate anchors on
+        this series — target band 0-2 %, represented as a 1 %
+        midpoint in :mod:`sonar.indices.monetary._config`.
+
+        Guards source identity via the ``SZCPIYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("CH", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_CH_CPI_YOY)
+        ):
+            err = (
+                "TE CH-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CH_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_ch_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """CH inflation-rate forecast — TE projection for Switzerland CPI YoY.
+
+        SNB publishes a conditional inflation forecast alongside each
+        Monetary Policy Assessment (quarterly). TE's forecast blends
+        the SNB path with TE's own model output.
+
+        Source-drift guard on ``SZCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("CH", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_CH_CPI_YOY
+        ):
+            err = (
+                "TE CH-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_CH_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_se_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """SE headline CPI YoY — SCB Consumer Price Index, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``sweden`` returns the
+        Statistikmyndigheten SCB CPI year-on-year change (Historical
+        DataSymbol ``SWCPYOY`` — 7-character code, *not* ``SWCPIYOY``;
+        do not normalise). Monthly cadence back-filled to 1980-01-31
+        (~555 observations at Sprint F probe).
+
+        Note: the Riksbank's policy target has been **CPIF** (CPI
+        excluding the impact of mortgage-rate changes on owner-occupied
+        housing) since 2017-09-07, not CPI. TE's ``inflation rate``
+        series is CPI (headline) — the CPI / CPIF gap is typically ≤
+        30 bps. A future CPIF wrapper can be added under a separate
+        TE indicator slug if the M2 Taylor compute requires CPIF
+        strictness; for Sprint F the CPI headline is the M2 input per
+        the brief and mirrors what most published headline
+        comparisons use.
+
+        Guards source identity via the ``SWCPYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("SE", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_SE_CPI_YOY)
+        ):
+            err = (
+                "TE SE-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_SE_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_se_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """SE inflation-rate forecast — TE projection for Sweden CPI YoY.
+
+        Note the CPI-vs-CPIF caveat above; the TE forecast returns the
+        headline CPI projection, not CPIF. Source-drift guard on
+        ``SWCPYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("SE", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_SE_CPI_YOY
+        ):
+            err = (
+                "TE SE-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_SE_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_no_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """NO headline CPI YoY — StatsNorway CPI, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``norway`` returns the
+        StatsNorway (SSB) CPI year-on-year (HistoricalDataSymbol
+        ``NOCPIYOY``). Monthly cadence back-filled to 1950-01-31 (~915
+        observations at Sprint F probe). Norges Bank's 2 % inflation
+        target (reduced from 2.5 % on 2018-03-02) anchors on this
+        series; the primary domestic alternative CPI-ATE
+        (core excluding energy and tax) is a separate TE indicator not
+        in Sprint F scope.
+
+        Guards source identity via the ``NOCPIYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("NO", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_NO_CPI_YOY)
+        ):
+            err = (
+                "TE NO-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NO_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_no_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """NO inflation-rate forecast — TE projection for Norway CPI YoY.
+
+        Norges Bank publishes an MPR inflation path quarterly; TE's
+        forecast blends MPR with TE's own model output. Source-drift
+        guard on ``NOCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("NO", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_NO_CPI_YOY
+        ):
+            err = (
+                "TE NO-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_NO_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_dk_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """DK headline CPI YoY — Danmarks Statistik CPI, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``denmark`` returns the
+        DST CPI year-on-year (HistoricalDataSymbol ``DNCPIYOY``).
+        Monthly cadence back-filled to 1981-01-31 (~543 observations
+        at Sprint F probe).
+
+        DK has **no domestic inflation target** — Nationalbanken's
+        mandate is exchange-rate stability (DKK/EUR peg), so the de-
+        facto anchor is imported from the ECB's 2 % HICP target via
+        the peg. The M2 DK builder emits
+        ``DK_INFLATION_TARGET_IMPORTED_FROM_EA`` on every compute to
+        surface the convention (mirrors the M1 DK pattern from
+        Sprint Y-DK).
+
+        Guards source identity via the ``DNCPIYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("DK", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_DK_CPI_YOY)
+        ):
+            err = (
+                "TE DK-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_DK_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_dk_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """DK inflation-rate forecast — TE projection for Denmark CPI YoY.
+
+        Nationalbanken does not publish a domestic inflation forecast
+        (peg regime); the Economic Council (Vismændene) publishes
+        semi-annual forecasts, and TE blends those with its own model.
+        Source-drift guard on ``DNCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("DK", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_DK_CPI_YOY
+        ):
+            err = (
+                "TE DK-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_DK_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_gb_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """GB headline CPI YoY — ONS Consumer Prices Index, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``united kingdom`` returns
+        the ONS headline CPI year-on-year (HistoricalDataSymbol
+        ``UKRPCJYR`` — note this is *not* ``UKCPIYOY``; TE retains the
+        legacy "UK Retail Price Consumer — Jevons Year" code for the
+        modern CPI series). Monthly cadence back-filled to 1989-01-31
+        (~447 observations at Sprint F probe).
+
+        Crucially, ``UKRPCJYR`` is the ONS CPI (headline — 2 % BoE
+        target series), *not* RPI or RPIX. The M2 GB builder uses
+        this for the Taylor compute; the BoE's historical RPIX target
+        (pre-2003) is not in Sprint F scope.
+
+        Guards source identity via the ``UKRPCJYR`` symbol check.
+        """
+        obs = await self.fetch_indicator("GB", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_GB_CPI_YOY)
+        ):
+            err = (
+                "TE GB-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_GB_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_gb_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """GB inflation-rate forecast — TE projection for UK CPI YoY.
+
+        BoE Monetary Policy Report publishes quarterly CPI projections
+        at 1Y / 2Y / 3Y horizons; TE blends MPR with TE's own model
+        output. Source-drift guard on ``UKRPCJYR``.
+        """
+        fcst = await self.fetch_inflation_forecast("GB", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_GB_CPI_YOY
+        ):
+            err = (
+                "TE GB-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_GB_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    async def fetch_jp_cpi_yoy(self, start: date, end: date) -> list[TEIndicatorObservation]:
+        """JP headline CPI YoY — Statistics Bureau CPI, TE-sourced.
+
+        TE ``inflation rate`` indicator for ``japan`` returns the
+        Statistics Bureau all-items CPI year-on-year (HistoricalData
+        Symbol ``JNCPIYOY``). Monthly cadence back-filled to 1958-01-31
+        (~818 observations at Sprint F probe). The BoJ 2 % price-
+        stability target (adopted 2013) anchors on this headline
+        series; core-CPI variants (core, core-core) are separate TE
+        indicators not in Sprint F scope.
+
+        Guards source identity via the ``JNCPIYOY`` symbol check.
+        """
+        obs = await self.fetch_indicator("JP", TE_INDICATOR_INFLATION_RATE, start, end)
+        if (
+            obs
+            and obs[0].historical_data_symbol
+            and not obs[0].historical_data_symbol.startswith(TE_EXPECTED_SYMBOL_JP_CPI_YOY)
+        ):
+            err = (
+                "TE JP-cpi-yoy source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_JP_CPI_YOY!r}, got "
+                f"{obs[0].historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return obs
+
+    async def fetch_jp_inflation_forecast(self, observation_date: date) -> TEInflationForecast:
+        """JP inflation-rate forecast — TE projection for Japan CPI YoY.
+
+        BoJ Outlook Report publishes quarterly CPI projections; TE
+        blends BoJ Outlook with TE's own model output. Source-drift
+        guard on ``JNCPIYOY``.
+        """
+        fcst = await self.fetch_inflation_forecast("JP", observation_date)
+        if fcst.historical_data_symbol and not fcst.historical_data_symbol.startswith(
+            TE_EXPECTED_SYMBOL_JP_CPI_YOY
+        ):
+            err = (
+                "TE JP-inflation-forecast source drift: expected "
+                f"{TE_EXPECTED_SYMBOL_JP_CPI_YOY!r}, got "
+                f"{fcst.historical_data_symbol!r}"
+            )
+            raise DataUnavailableError(err)
+        return fcst
+
+    # -------------------------------------------------------------------
     # Per-country equity index (Week 10 Sprint B scaffolding)
     # -------------------------------------------------------------------
 

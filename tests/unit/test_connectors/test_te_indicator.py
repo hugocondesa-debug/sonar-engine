@@ -2483,3 +2483,190 @@ async def test_live_canary_nz_cpi_yoy(tmp_cache_dir: Path) -> None:
         assert obs[0].frequency == "Quarterly"
     finally:
         await conn.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Sprint F Commit 2 — CH / SE / NO / DK / GB / JP CPI + forecast wrappers
+# Parametrised against a single happy-path fixture table; source-drift +
+# cassette + live canary exercised per country to catch symbol changes.
+# ---------------------------------------------------------------------------
+
+
+_C2_HISTORICAL_FIXTURES: dict[str, tuple[str, str, str, float]] = {
+    # ISO → (country_label, symbol, frequency, fixture_value)
+    "CH": ("Switzerland", "SZCPIYOY", "Monthly", 0.3),
+    "SE": ("Sweden", "SWCPYOY", "Monthly", 0.6),
+    "NO": ("Norway", "NOCPIYOY", "Monthly", 3.6),
+    "DK": ("Denmark", "DNCPIYOY", "Monthly", 1.2),
+    "GB": ("United Kingdom", "UKRPCJYR", "Monthly", 3.3),
+    "JP": ("Japan", "JNCPIYOY", "Monthly", 1.3),
+}
+
+
+def _build_historical_payload(iso: str) -> list[dict[str, object]]:
+    label, symbol, freq, value = _C2_HISTORICAL_FIXTURES[iso]
+    return [
+        {
+            "Country": label,
+            "Category": "Inflation Rate",
+            "DateTime": "2024-12-31T00:00:00",
+            "Value": value,
+            "Frequency": freq,
+            "HistoricalDataSymbol": symbol,
+        }
+    ]
+
+
+def _build_forecast_payload(iso: str, q4: float = 2.3) -> list[dict[str, object]]:
+    label, symbol, freq, latest = _C2_HISTORICAL_FIXTURES[iso]
+    return [
+        {
+            "Country": label,
+            "Category": "Inflation Rate",
+            "LatestValue": latest,
+            "LatestValueDate": "2024-12-31T00:00:00",
+            "q1": q4 - 0.3,
+            "q2": q4 - 0.1,
+            "q3": q4 + 0.1,
+            "q4": q4,
+            "YearEnd": q4 - 0.2,
+            "YearEnd2": q4 - 0.4,
+            "YearEnd3": q4 - 0.6,
+            "q1_date": "2025-03-31T00:00:00",
+            "q2_date": "2025-06-30T00:00:00",
+            "q3_date": "2025-09-30T00:00:00",
+            "q4_date": "2025-12-31T00:00:00",
+            "ForecastLastUpdate": "2024-12-20T10:00:00",
+            "Frequency": freq,
+            "HistoricalDataSymbol": symbol,
+        }
+    ]
+
+
+async def _run_cpi_happy_path(iso: str, te: TEConnector, httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(method="GET", json=_build_historical_payload(iso))
+    fetch = getattr(te, f"fetch_{iso.lower()}_cpi_yoy")
+    obs = await fetch(date(2024, 1, 1), date(2024, 12, 31))
+    assert len(obs) == 1
+    assert obs[0].country == iso
+    assert obs[0].historical_data_symbol == _C2_HISTORICAL_FIXTURES[iso][1]
+    assert obs[0].frequency == _C2_HISTORICAL_FIXTURES[iso][2]
+
+
+async def _run_cpi_drift(iso: str, te: TEConnector, httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        json=[
+            {
+                "Country": _C2_HISTORICAL_FIXTURES[iso][0],
+                "Category": "Inflation Rate",
+                "DateTime": "2024-12-31T00:00:00",
+                "Value": 1.0,
+                "HistoricalDataSymbol": "DRIFTED",
+            }
+        ],
+    )
+    fetch = getattr(te, f"fetch_{iso.lower()}_cpi_yoy")
+    with pytest.raises(DataUnavailableError, match=f"{iso}-cpi-yoy source drift"):
+        await fetch(date(2024, 1, 1), date(2024, 12, 31))
+
+
+async def _run_forecast_happy_path(iso: str, te: TEConnector, httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(method="GET", json=_build_forecast_payload(iso, q4=2.3))
+    fetch = getattr(te, f"fetch_{iso.lower()}_inflation_forecast")
+    fcst = await fetch(date(2024, 12, 31))
+    assert fcst.country == iso
+    assert fcst.historical_data_symbol == _C2_HISTORICAL_FIXTURES[iso][1]
+    assert fcst.forecast_12m_pct == pytest.approx(2.3)
+    assert fcst.latest_value_date == date(2024, 12, 31)
+
+
+async def _run_forecast_drift(iso: str, te: TEConnector, httpx_mock: HTTPXMock) -> None:
+    drifted = [dict(_build_forecast_payload(iso)[0]) | {"HistoricalDataSymbol": "DRIFTED"}]
+    httpx_mock.add_response(method="GET", json=drifted)
+    fetch = getattr(te, f"fetch_{iso.lower()}_inflation_forecast")
+    with pytest.raises(DataUnavailableError, match=f"{iso}-inflation-forecast source drift"):
+        await fetch(date(2024, 12, 31))
+
+
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_cpi_yoy_c2_happy_path(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    await _run_cpi_happy_path(iso, te_connector, httpx_mock)
+
+
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_cpi_yoy_c2_source_drift(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    await _run_cpi_drift(iso, te_connector, httpx_mock)
+
+
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_inflation_forecast_c2_happy_path(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    await _run_forecast_happy_path(iso, te_connector, httpx_mock)
+
+
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_inflation_forecast_c2_source_drift(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    await _run_forecast_drift(iso, te_connector, httpx_mock)
+
+
+@pytest.mark.parametrize(
+    "iso",
+    ["CH", "SE", "NO", "DK", "GB", "JP"],
+)
+async def test_cpi_yoy_c2_from_cassette(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    """Real TE cassettes validate the full-history decode for all six C2 countries."""
+    payload = _load_cassette(f"te_{iso.lower()}_cpi_yoy_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    fetch = getattr(te_connector, f"fetch_{iso.lower()}_cpi_yoy")
+    obs = await fetch(date(2020, 1, 1), date(2025, 6, 30))
+    # Sprint F §2 probe baselines — conservative lower bounds.
+    min_obs = {"CH": 500, "SE": 300, "NO": 500, "DK": 400, "GB": 300, "JP": 500}[iso]
+    assert len(obs) >= min_obs
+    assert obs[0].historical_data_symbol == _C2_HISTORICAL_FIXTURES[iso][1]
+
+
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_inflation_forecast_c2_from_cassette(
+    iso: str, httpx_mock: HTTPXMock, te_connector: TEConnector
+) -> None:
+    payload = _load_cassette(f"te_{iso.lower()}_inflation_forecast_2024_01_02.json")
+    httpx_mock.add_response(method="GET", json=payload)
+    fetch = getattr(te_connector, f"fetch_{iso.lower()}_inflation_forecast")
+    fcst = await fetch(date(2024, 12, 31))
+    assert fcst.country == iso
+    assert fcst.historical_data_symbol == _C2_HISTORICAL_FIXTURES[iso][1]
+    # Band: modern (2020+) headline inflation forecasts for advanced
+    # economies stay in [-2, 10]%.
+    assert -2.0 <= fcst.forecast_12m_pct <= 10.0
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("iso", ["CH", "SE", "NO", "DK", "GB", "JP"])
+async def test_live_canary_c2_cpi_yoy(iso: str, tmp_cache_dir: Path) -> None:
+    api_key = os.environ.get("TE_API_KEY")
+    if not api_key:
+        pytest.skip("TE_API_KEY not set")
+    conn = TEConnector(api_key=api_key, cache_dir=str(tmp_cache_dir))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=365 * 2)
+        fetch = getattr(conn, f"fetch_{iso.lower()}_cpi_yoy")
+        obs = await fetch(start, today)
+        assert len(obs) >= 12
+        assert obs[0].historical_data_symbol == _C2_HISTORICAL_FIXTURES[iso][1]
+        # Recent-window sanity band: advanced-economy headline CPI YoY
+        # has stayed within [-2, 15]% through the 2020-2026 window.
+        for o in obs[-12:]:
+            assert -2.0 <= o.value <= 15.0
+    finally:
+        await conn.aclose()
