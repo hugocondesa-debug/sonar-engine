@@ -40,6 +40,7 @@ from sonar.indices.monetary.builders import (
     build_m2_ca_inputs,
     build_m2_ch_inputs,
     build_m2_dk_inputs,
+    build_m2_gb_inputs,
     build_m2_jp_inputs,
     build_m2_no_inputs,
     build_m2_nz_inputs,
@@ -1185,34 +1186,7 @@ class TestBuildM4Us:
 # ---------------------------------------------------------------------------
 
 
-class TestBuildM2Jp:
-    @pytest.mark.asyncio
-    async def test_raises_insufficient_data_pending_connectors(self) -> None:
-        """M2 JP scaffold raises until CPI + forecast land (output-gap is Sprint C scope)."""
-        fred = _FakeFredConnector()
-        te = _FakeTEJpSuccess(pct=0.50)
-        # Sprint C Week 10: output-gap wired via OECD EO when connector
-        # injected; without oecd_eo the raise mentions
-        # CAL-M2-T1-OUTPUT-GAP-EXPANSION as the umbrella, and
-        # CAL-CPI-INFL-T1-WRAPPERS for CPI + forecast.
-        with pytest.raises(InsufficientDataError, match="CAL-CPI-INFL-T1-WRAPPERS"):
-            await build_m2_jp_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                te=te,  # type: ignore[arg-type]
-                history_years=2,
-            )
-
-    @pytest.mark.asyncio
-    async def test_raises_even_without_connectors(self) -> None:
-        """Scaffold raises regardless of connector presence (pre-wire state)."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError):
-            await build_m2_jp_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
+# M2 JP full compute lives in :class:`TestBuildM2SprintFFlipped` (Sprint F Commit 5).
 
 
 # ---------------------------------------------------------------------------
@@ -3272,11 +3246,14 @@ class TestMonetaryInputsBuilderFacade:
             await builder.build_m4_inputs("EA", date(2024, 12, 31))
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "NL", "PT", "EA", "GB"])
-    async def test_m2_unsupported_country_references_sprint_c_state(self, country: str) -> None:
-        """Sprint C Week 10: M2 countries without a scaffold get a raise
-        message that references OECD EO wire-ready state so the operator
-        knows output-gap is unblocked and only the scaffold is missing."""
+    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "NL", "PT", "EA"])
+    async def test_m2_unsupported_ea_country_references_phase_2_backlog(self, country: str) -> None:
+        """Sprint F Week 10: M2 EA + per-country EA members are deferred to Phase 2+.
+
+        Sprint F completed the non-EA T1 countries (US + 9 live). EA
+        members and EA aggregate M2 live compute are out of scope — the
+        raise message redirects operators to the CAL items.
+        """
         builder = MonetaryInputsBuilder(
             fred=_FakeFredConnector(),  # type: ignore[arg-type]
             cbo=_FakeCboConnector(),  # type: ignore[arg-type]
@@ -3285,8 +3262,8 @@ class TestMonetaryInputsBuilderFacade:
         with pytest.raises(NotImplementedError) as excinfo:
             await builder.build_m2_inputs(country, date(2024, 12, 31))
         message = str(excinfo.value)
-        assert "CAL-M2-T1-OUTPUT-GAP-EXPANSION" in message
-        assert "OECD EO output-gap coverage is wire-ready" in message
+        assert "CAL-M2-EA-PER-COUNTRY" in message
+        assert "CAL-M2-EA-AGGREGATE" in message
 
 
 # ---------------------------------------------------------------------------
@@ -3378,92 +3355,14 @@ class _FakeOECDEOUnavailable:
         return None
 
 
-class TestSprintCOutputGapWiringJp:
-    """Verify JP M2 builder still honours the Sprint C raise-message contract.
+class TestSprintFUsBaselineGuard:
+    """Sprint F HALT-2 regression guard: US M2 canonical compute invariant.
 
-    Sprint F Week 10 Day 2 flipped CA/AU/NZ/CH/SE/NO/DK builders to full
-    compute (see :class:`TestSprintFM2FullCompute` below). JP remains a
-    scaffold until Commit 5 wires TE JP CPI + forecast alongside EA + GB.
+    All six prior commits flipped per-country M2 builders; the US builder
+    was intentionally not touched (CBO GDPPOT quarterly is strictly
+    better than OECD EO annual for US). This class re-asserts that the
+    US signature, dispatch, and output contract are unchanged.
     """
-
-    @pytest.mark.asyncio
-    async def test_oecd_eo_success_narrows_raise_message(self) -> None:
-        fred = _FakeFredConnector()
-        oecd = _FakeOECDEOSuccess(gap_pct=-0.5)
-        with pytest.raises(InsufficientDataError) as excinfo:
-            await build_m2_jp_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                oecd_eo=oecd,  # type: ignore[arg-type]
-                history_years=2,
-            )
-        message = str(excinfo.value)
-        assert "output-gap live via OECD EO" in message
-        assert "M2 JP" in message
-        assert "CAL-CPI-INFL-T1-WRAPPERS" in message
-
-    @pytest.mark.asyncio
-    async def test_oecd_eo_unavailable_falls_back_to_original_message(self) -> None:
-        fred = _FakeFredConnector()
-        oecd = _FakeOECDEOUnavailable()
-        with pytest.raises(InsufficientDataError) as excinfo:
-            await build_m2_jp_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                oecd_eo=oecd,  # type: ignore[arg-type]
-                history_years=2,
-            )
-        message = str(excinfo.value)
-        assert "output-gap is not wired for this invocation" in message
-        assert "M2 JP" in message
-
-    @pytest.mark.asyncio
-    async def test_oecd_eo_absent_still_raises_jp(self) -> None:
-        """JP remains a Sprint C scaffold: no ``oecd_eo`` → pre-Sprint-C raise phrasing."""
-        fred = _FakeFredConnector()
-        with pytest.raises(InsufficientDataError) as excinfo:
-            await build_m2_jp_inputs(
-                fred,  # type: ignore[arg-type]
-                date(2024, 12, 31),
-                history_years=2,
-            )
-        message = str(excinfo.value)
-        assert "output-gap is not wired for this invocation" in message
-        assert "M2 JP" in message
-
-    @pytest.mark.asyncio
-    async def test_facade_passes_oecd_eo_to_ca_builder(self) -> None:
-        """``MonetaryInputsBuilder`` wires ``oecd_eo`` through M2 CA dispatch.
-
-        Sprint F: CA builder flipped to full compute; without the Sprint F
-        CPI + forecast wrappers the fake still raises — but with a
-        different message surface than pre-Sprint-F (CPI unavailable, not
-        CAL-blocker phrasing). The dispatch wiring itself is the
-        invariant under test.
-        """
-        oecd = _FakeOECDEOSuccess(gap_pct=-0.1)
-        builder = MonetaryInputsBuilder(
-            fred=_FakeFredConnector(),  # type: ignore[arg-type]
-            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
-            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
-            te=_FakeTECaSuccess(pct=3.25),  # type: ignore[arg-type]
-            oecd_eo=oecd,  # type: ignore[arg-type]
-        )
-        with pytest.raises(InsufficientDataError):
-            await builder.build_m2_inputs("CA", date(2024, 12, 31), history_years=2)
-
-    @pytest.mark.asyncio
-    async def test_facade_defaults_oecd_eo_none_for_jp(self) -> None:
-        """Facade without ``oecd_eo`` kwarg → JP raises with pre-Sprint-C phrasing."""
-        builder = MonetaryInputsBuilder(
-            fred=_FakeFredConnector(),  # type: ignore[arg-type]
-            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
-            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
-            te=_FakeTEJpSuccess(pct=0.50),  # type: ignore[arg-type]
-        )
-        with pytest.raises(InsufficientDataError) as excinfo:
-            await builder.build_m2_inputs("JP", date(2024, 12, 31), history_years=2)
-        assert "output-gap is not wired for this invocation" in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_us_builder_signature_unchanged_no_regression(self) -> None:
@@ -3490,9 +3389,42 @@ class TestSprintCOutputGapWiringJp:
         # cbo still a required positional (US output-gap primary).
         assert sig.parameters["cbo"].kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,)
 
+    @pytest.mark.asyncio
+    async def test_us_dispatches_through_facade_unchanged(self) -> None:
+        """MonetaryInputsBuilder routes US M2 to the canonical CBO-primary path.
+
+        Sprint F HALT-2 regression guard: the facade US branch must not
+        accidentally route through any per-country builder. This test
+        locks the facade behaviour: calling build_m2_inputs("US", ...)
+        reaches :func:`build_m2_us_inputs` (which uses fred + cbo, no
+        oecd_eo). ``_FakeCboConnector`` emits a synthetic output-gap
+        obs + ``_FakeFredConnector`` emits the rest; a happy-path
+        result proves the CBO path is in effect.
+        """
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        inputs = await builder.build_m2_inputs("US", date(2024, 1, 2), history_years=2)
+        assert inputs.country_code == "US"
+        assert inputs.output_gap_source == "CBO"
+        # US canonical path uses ("fred", "cbo") source tuple — no te, no oecd_eo.
+        assert inputs.source_connector == ("fred", "cbo")
+        # US M2 r_star pulled from r_star_values.yaml (US canonical, not proxy).
+        assert "R_STAR_PROXY" not in inputs.upstream_flags
+        # US forecast uses UMich 5Y — flag pattern preserved.
+        assert "INFLATION_FORECAST_PROXY_UMICH" in inputs.upstream_flags
+        # No Sprint F country-specific flags should leak into US compute.
+        for flag in inputs.upstream_flags:
+            assert not flag.startswith("US_M2_CPI_TE_LIVE")
+            assert not flag.startswith("US_M2_FULL_COMPUTE_LIVE")
+            assert not flag.startswith("US_M2_OUTPUT_GAP_OECD_EO_LIVE")
+
 
 # ---------------------------------------------------------------------------
-# Sprint F — M2 full-compute parametric tests for CA / AU / NZ / CH / SE / NO / DK
+# Sprint F — M2 full-compute parametric tests for the 9 flipped countries
+# (CA / AU / NZ / CH / SE / NO / DK / GB / JP).
 # ---------------------------------------------------------------------------
 
 
@@ -3527,6 +3459,8 @@ class _FakeTESprintF:
         "NO": ("fetch_no_policy_rate", "NOBRDEP"),
         "SE": ("fetch_se_policy_rate", "SWRRATEI"),
         "DK": ("fetch_dk_policy_rate", "DEBRDISC"),
+        "GB": ("fetch_gb_bank_rate", "UKBRBASE"),
+        "JP": ("fetch_jp_bank_rate", "BOJDTR"),
     }
     _CPI_SYMBOL: ClassVar[dict[str, str]] = {
         "CA": "CACPIYOY",
@@ -3536,6 +3470,8 @@ class _FakeTESprintF:
         "NO": "NOCPIYOY",
         "SE": "SWCPYOY",
         "DK": "DNCPIYOY",
+        "GB": "UKRPCJYR",
+        "JP": "JNCPIYOY",
     }
 
     def __init__(
@@ -3622,6 +3558,8 @@ _SPRINT_F_BUILDERS: dict[str, object] = {
     "NO": build_m2_no_inputs,
     "SE": build_m2_se_inputs,
     "DK": build_m2_dk_inputs,
+    "GB": build_m2_gb_inputs,
+    "JP": build_m2_jp_inputs,
 }
 
 
@@ -3633,6 +3571,8 @@ _SPRINT_F_SECONDARY_KW: dict[str, str] = {
     "NO": "norgesbank",
     "SE": "riksbank",
     "DK": "nationalbanken",
+    "GB": "boe",
+    "JP": "boj",
 }
 
 

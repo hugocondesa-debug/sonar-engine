@@ -89,6 +89,7 @@ __all__ = [
     "build_m2_ca_inputs",
     "build_m2_ch_inputs",
     "build_m2_dk_inputs",
+    "build_m2_gb_inputs",
     "build_m2_jp_inputs",
     "build_m2_no_inputs",
     "build_m2_nz_inputs",
@@ -868,6 +869,64 @@ async def build_m1_gb_inputs(
 
 
 # ---------------------------------------------------------------------------
+# M2 — GB (Week 10 Sprint F — full compute; scaffold-less — first-ship)
+# ---------------------------------------------------------------------------
+
+
+async def build_m2_gb_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector | None = None,
+    boe: BoEDatabaseConnector | None = None,
+    oecd_eo: OECDEOConnector | None = None,
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
+) -> M2TaylorGapsInputs:
+    """Assemble M2 GB inputs — full compute live (Week 10 Sprint F).
+
+    GB has never had a Sprint C / Sprint T-style scaffold — this is
+    the first-ship M2 GB builder. Composes:
+
+    1. Bank Rate via :func:`_gb_bank_rate_cascade` (TE primary → BoE
+       IADB native → FRED ``BOERUKA`` staleness fallback).
+    2. CPI YoY via :meth:`TEConnector.fetch_gb_cpi_yoy` (ONS
+       ``UKRPCJYR`` symbol — note: modern CPI under legacy TE code).
+    3. 12m forecast via :meth:`TEConnector.fetch_gb_inflation_forecast`
+       (BoE MPR projections inform the TE forecast blend).
+    4. Output gap via OECD EO (``ref_area=GBR``).
+
+    BoE's 2 % CPI target anchors ``inflation_target_pct``;
+    ``r_star_pct`` is 0.5 % from ``r_star_values.yaml`` (BoE MPR +
+    DMP Q4 2024 synthesis) with ``R_STAR_PROXY`` flag propagated.
+
+    ``boe`` kwarg accepted for signature parity with
+    :func:`build_m1_gb_inputs`; reserved for Phase 2+ when the BoE
+    IADB-based CPI or forecast path lands.
+    """
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _gb_bank_rate_cascade(
+        start, observation_date, te=te, boe=boe, fred=fred
+    )
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_gb_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "GB", observation_date, "fetch_gb_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "GB", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="GB",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+    )
+
+
+# ---------------------------------------------------------------------------
 # M1 — JP (Sprint L — TE primary → BoJ native → FRED stale-flagged)
 # ---------------------------------------------------------------------------
 
@@ -1020,32 +1079,47 @@ async def build_m1_jp_inputs(
 
 
 async def build_m2_jp_inputs(
-    fred: FredConnector,  # noqa: ARG001 - wired for future OECD JP gap path
+    fred: FredConnector,
     observation_date: date,
     *,
-    te: TEConnector | None = None,  # noqa: ARG001
-    boj: BoJConnector | None = None,  # noqa: ARG001
+    te: TEConnector | None = None,
+    boj: BoJConnector | None = None,
     oecd_eo: OECDEOConnector | None = None,
-    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+    history_years: int = M2_DEFAULT_LOOKBACK_YEARS,
 ) -> M2TaylorGapsInputs:
-    """Assemble M2 JP inputs — output-gap live via OECD EO (Sprint C).
+    """Assemble M2 JP inputs — full compute live (Week 10 Sprint F).
 
-    Sprint L shipped the dispatch wire-ready. Sprint C (Week 10) closed
-    the output-gap half of CAL-JP-OUTPUT-GAP by wiring OECD EO as the
-    canonical source (``ref_area=JPN``, annual cadence — BoJ Tankan
-    proxy + native potential-GDP series remain out of L0 coverage).
-    Remaining blockers: CAL-JP-M2-CPI + CAL-JP-M2-INFL-FORECAST (folded
-    into CAL-CPI-INFL-T1-WRAPPERS).
+    Sprint L wired the dispatch; Sprint C wired OECD EO output-gap
+    (``ref_area=JPN``); Sprint F (this commit) wires TE CPI YoY + 12m
+    forecast via :meth:`TEConnector.fetch_jp_cpi_yoy` and
+    :meth:`TEConnector.fetch_jp_inflation_forecast`. BoJ Outlook
+    Report projections inform the TE forecast blend.
+
+    BoJ's 2 % inflation target (adopted 2013) anchors ``inflation
+    _target_pct``; ``r_star_pct`` is 0 % from ``r_star_values.yaml``
+    (QQE-era staff synthesis) with ``R_STAR_PROXY`` flag propagated.
     """
-    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "JP", observation_date)
-    msg = _m2_blocked_msg(
-        country_code="JP",
-        sprint_label="Sprint L",
-        cpi_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        forecast_cal_item="CAL-CPI-INFL-T1-WRAPPERS",
-        output_gap_wired=gap_pct is not None,
+    start = observation_date - timedelta(days=history_years * 366)
+    policy_hist, cascade_flags, cascade_sources = await _jp_bank_rate_cascade(
+        start, observation_date, te=te, boj=boj, fred=fred
     )
-    raise InsufficientDataError(msg)
+    cpi_obs = await _try_fetch_cpi_yoy(te, start, observation_date, "fetch_jp_cpi_yoy")
+    forecast_12m_pct, forecast_flags = await _try_fetch_inflation_forecast_12m(
+        te, "JP", observation_date, "fetch_jp_inflation_forecast"
+    )
+    gap_pct = await _try_fetch_oecd_output_gap_pct(oecd_eo, "JP", observation_date)
+    return await _assemble_m2_full_compute(
+        country_code="JP",
+        observation_date=observation_date,
+        policy_hist=policy_hist,
+        cascade_flags=cascade_flags,
+        cascade_sources=cascade_sources,
+        cpi_observations=cpi_obs,
+        forecast_12m_pct=forecast_12m_pct,
+        forecast_flags=forecast_flags,
+        output_gap_pct=gap_pct,
+        history_years=history_years,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3442,19 +3516,30 @@ class MonetaryInputsBuilder:
                 oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
-        # Sprint C Week 10: OECD EO connector covers DE/FR/IT/ES/NL/PT/GB/EA
-        # + other EO REF_AREA codes, but the per-country M2 scaffolds
-        # (policy-rate cascade, CPI YoY wrapper, inflation-forecast slot)
-        # still need to be created per country before dispatch can route
-        # to a live builder. Tracked under
-        # ``CAL-M2-T1-OUTPUT-GAP-EXPANSION`` residual + per-country
-        # follow-up items.
+        if country in ("GB", "UK"):
+            return await build_m2_gb_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boe=self.boe,
+                oecd_eo=self.oecd_eo,
+                **kwargs,  # type: ignore[arg-type]
+            )
+        # EA + per-country EA members (DE/FR/IT/ES/NL/PT) remain
+        # unimplemented at M2 Sprint F scope — Sprint F prioritised the
+        # non-EA T1 countries where the Taylor compute has a well-defined
+        # per-country policy-rate instrument. For EA members the policy
+        # rate is the ECB Deposit Facility Rate (shared, not per-country)
+        # so a per-country Taylor rule is academically ambiguous without
+        # a country-specific reaction-function spec. Tracked under
+        # CAL-M2-EA-PER-COUNTRY for Phase 2+ work. EA aggregate M2 is
+        # tracked separately under CAL-M2-EA-AGGREGATE.
         msg = (
             f"M2 builder not implemented for country={country!r}. "
-            f"OECD EO output-gap coverage is wire-ready per Sprint C "
-            f"Week 10 (see CAL-M2-T1-OUTPUT-GAP-EXPANSION) — remaining "
-            f"blocker is the per-country M2 scaffold "
-            f"(policy-rate cascade + CPI YoY + inflation-forecast slot)."
+            f"Sprint F Week 10 Day 2 ships US + 9 non-EA T1 countries "
+            f"(CA/AU/NZ/CH/SE/NO/DK + GB/JP) live; EA + per-country EA "
+            f"members deferred to Phase 2+ (see CAL-M2-EA-PER-COUNTRY + "
+            f"CAL-M2-EA-AGGREGATE)."
         )
         raise NotImplementedError(msg)
 
