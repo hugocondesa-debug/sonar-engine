@@ -152,3 +152,34 @@ CH:
   last_updated: "2024-03-30"
   source: "Norges Bank MPR 1/2024 + Staff Memo 7/2023 — neutral-rate range mid (SONAR Phase 1 proxy)"
   proxy: true              # consumers emit R_STAR_PROXY per spec §4
+
+SE:
+  # Sveriges Riksbank does not publish an HLW-equivalent natural rate
+  # with a point estimate. The Riksbank Monetary Policy Report (MPR)
+  # discusses the neutral interest rate qualitatively each quarter;
+  # the latest (MPR March 2026) cites staff analysis placing the
+  # Swedish neutral nominal policy rate in the [2.00, 3.00] % range,
+  # midpoint 2.50 %, which translates to ~0.5 % real after the 2 %
+  # CPIF target — with an additional ~0.25 pp haircut for structural
+  # downward pressure (ageing demographics + Nordic low-r* clustering
+  # that also shows up in the CH / NO natural-rate literature). SONAR
+  # anchors at 0.75 % real as the midpoint of the 0.50-1.00 % range
+  # implied by the MPR synthesis + Riksbank Studies Papers 2023-2024
+  # ("The trend level of the real interest rate in Sweden"). This
+  # matches the NZ anchor (1.75 %) minus the ~1 pp Nordic structural
+  # compression that separates the Antipodean and European low-r*
+  # clusters; and it places SE above CH (0.25 %) because the Swedish
+  # economy lacks the CHF-specific safe-haven compression.
+  #
+  # Important context: the 2015-02-12 → 2019-11-30 negative-rate
+  # corridor (Riksbank policy rate as low as -0.50 %) put the ex-post
+  # real policy rate persistently below r*, which — like the parallel
+  # SNB episode — is consistent with an explicit exchange-rate /
+  # disinflation-containment mandate during that window rather than
+  # a signal about the structural r* itself. Downstream emits
+  # R_STAR_PROXY on every SE M1/M2 call per spec §4 until an academic
+  # HLW-SE series or a Riksbank publication with a point estimate lands.
+  r_star_pct: 0.0075      # 0.75 % — Riksbank MPR March 2026 neutral-range synthesis (SONAR Phase 1 proxy)
+  last_updated: "2026-03-31"
+  source: "Riksbank Monetary Policy Report March 2026 + Studies Papers 2023-2024 — Swedish neutral-rate range synthesis (SONAR Phase 1 proxy)"
+  proxy: true              # consumers emit R_STAR_PROXY per spec §4

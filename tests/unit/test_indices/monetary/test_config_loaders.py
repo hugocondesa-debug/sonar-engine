@@ -134,6 +134,22 @@ class TestRStarLoader:
         assert "Norges Bank" in str(no["source"])
         assert no.get("proxy") is True
 
+    def test_se_direct_with_proxy_flag(self) -> None:
+        """SE has its own entry marked ``proxy: true`` — Swedish r*
+        anchored at the Riksbank MPR March 2026 neutral-range midpoint
+        (0.75 % real); Nordic low-r* cluster but above CH because SE
+        lacks the CHF safe-haven compression."""
+        r_star, is_proxy = resolve_r_star("SE")
+        assert r_star == pytest.approx(0.0075)
+        assert is_proxy is True
+
+    def test_se_entry_has_source_metadata(self) -> None:
+        values = load_r_star_values()
+        se = values["SE"]
+        assert "source" in se
+        assert "Riksbank" in str(se["source"])
+        assert se.get("proxy") is True
+
 
 class TestBcTargetsLoader:
     def test_us_to_fed(self) -> None:
@@ -198,7 +214,17 @@ class TestBcTargetsLoader:
         assert resolve_inflation_target("NO") == pytest.approx(0.02)
         assert load_country_to_target()["NO"] == "Norges Bank"
 
-    def test_targets_dict_nine_central_banks(self) -> None:
+    def test_se_resolves_to_riksbank_target(self) -> None:
+        """SE monetary inputs resolve to the Riksbank 2 % CPIF target
+        (explicit point target since 1993; CPIF basis since 2017 to
+        remove the mechanical impact of the policy rate on the target
+        measure). Unlike CH's 0-2 % band, the Riksbank ships a clean
+        point target — no SE-specific band flag is emitted.
+        """
+        assert resolve_inflation_target("SE") == pytest.approx(0.02)
+        assert load_country_to_target()["SE"] == "Riksbank"
+
+    def test_targets_dict_ten_central_banks(self) -> None:
         targets = load_bc_targets()
         assert {
             "Fed",
@@ -210,6 +236,7 @@ class TestBcTargetsLoader:
             "RBNZ",
             "SNB",
             "Norges Bank",
+            "Riksbank",
         } <= set(targets.keys())
 
 
