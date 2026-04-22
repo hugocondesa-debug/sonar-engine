@@ -35,10 +35,25 @@ placeholder connector and ``docs/adr/ADR-0009-national-cb-connectors-ea-peripher
 for the pattern lessons applicable to the four successor sprints
 (IT/ES/PT/NL).
 
+Week 10 Sprint G (2026-04-22, combined IT + ES pilot) extended the
+ADR-0009 probe discipline to the second and third EA-periphery
+successors. Both landed in HALT-0 territory but via different
+sub-cases: IT is strict "all paths dead" (ECB legacy SDMX
+decommissioned; BdI Infostat subdomains NXDOMAIN; MEF Tesoro
+HTML-only; ECB SDW FM + IRS EA-aggregate; FRED 10Y-monthly) while
+ES lands on a new "HTTP 200 + non-daily" sub-case (BdE BIE REST
+``https://app.bde.es/bierest/`` is live and publishes 11-tenor
+Spanish sovereign yields but all at monthly frequency, below the
+daily pipeline cadence). ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``
+are BLOCKED; see :mod:`sonar.connectors.banca_ditalia` +
+:mod:`sonar.connectors.banco_espana` for the scaffolded placeholders.
+Pattern-library update in ADR-0009 captures the new sub-case.
+
 Reference: ``docs/data_sources/monetary.md`` §3.2 ECB SDW; spec
 ``docs/specs/overlays/nss-curves.md`` §2 T1 DE/EA-AAA;
 ``docs/planning/retrospectives/week10-sprint-ea-periphery-report.md``;
-``docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md``.
+``docs/planning/retrospectives/week10-sprint-curves-fr-bdf-report.md``;
+``docs/planning/retrospectives/week10-sprint-curves-it-es-report.md``.
 """
 
 from __future__ import annotations

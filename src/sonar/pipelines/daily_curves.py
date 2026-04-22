@@ -50,6 +50,20 @@ connector captures the empirical state. See ADR-0009 for the
 national-CB connector pattern lessons applicable to the four
 successor sprints (IT/ES/PT/NL).
 
+Week 10 Sprint G (2026-04-22, combined IT + ES pilot) executed
+sprints 2 + 3 of the ADR-0009 successor set. Both landed in HALT-0:
+IT is strict "all 5 paths dead" (ECB legacy SDMX decommissioned;
+BdI Infostat API subdomains NXDOMAIN; MEF HTML-only; ECB SDW FM + IRS
+EA-aggregate; FRED 10Y-monthly). ES is "HTTP 200 + non-daily" — the
+Banco de España BIE REST API (``https://app.bde.es/bierest/``) is
+live and publishes 11-tenor Spanish sovereign yields but at
+monthly frequency, below the daily pipeline cadence. Both
+``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE`` are BLOCKED; the
+scaffolded :mod:`sonar.connectors.banca_ditalia` +
+:mod:`sonar.connectors.banco_espana` connectors capture the
+empirical state. PT-BPSTAT + NL-DNB remain pending (ADR-0009
+successor sprints 4 + 5).
+
 CLI entrypoints:
 
     python -m sonar.pipelines.daily_curves --country US --date 2024-01-02
