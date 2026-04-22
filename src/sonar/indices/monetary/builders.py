@@ -3139,7 +3139,20 @@ class MonetaryInputsBuilder:
                 oecd_eo=self.oecd_eo,
                 **kwargs,  # type: ignore[arg-type]
             )
-        msg = f"M2 builder not implemented for country={country!r} (Week 7+ OECD/AMECO gap)"
+        # Sprint C Week 10: OECD EO connector covers DE/FR/IT/ES/NL/PT/GB/EA
+        # + other EO REF_AREA codes, but the per-country M2 scaffolds
+        # (policy-rate cascade, CPI YoY wrapper, inflation-forecast slot)
+        # still need to be created per country before dispatch can route
+        # to a live builder. Tracked under
+        # ``CAL-M2-T1-OUTPUT-GAP-EXPANSION`` residual + per-country
+        # follow-up items.
+        msg = (
+            f"M2 builder not implemented for country={country!r}. "
+            f"OECD EO output-gap coverage is wire-ready per Sprint C "
+            f"Week 10 (see CAL-M2-T1-OUTPUT-GAP-EXPANSION) — remaining "
+            f"blocker is the per-country M2 scaffold "
+            f"(policy-rate cascade + CPI YoY + inflation-forecast slot)."
+        )
         raise NotImplementedError(msg)
 
     async def build_m4_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form

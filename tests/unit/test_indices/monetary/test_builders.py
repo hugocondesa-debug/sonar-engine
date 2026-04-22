@@ -3393,6 +3393,23 @@ class TestMonetaryInputsBuilderFacade:
         with pytest.raises(NotImplementedError, match="EA"):
             await builder.build_m4_inputs("EA", date(2024, 12, 31))
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "NL", "PT", "EA", "GB"])
+    async def test_m2_unsupported_country_references_sprint_c_state(self, country: str) -> None:
+        """Sprint C Week 10: M2 countries without a scaffold get a raise
+        message that references OECD EO wire-ready state so the operator
+        knows output-gap is unblocked and only the scaffold is missing."""
+        builder = MonetaryInputsBuilder(
+            fred=_FakeFredConnector(),  # type: ignore[arg-type]
+            cbo=_FakeCboConnector(),  # type: ignore[arg-type]
+            ecb_sdw=_FakeEcbConnector(),  # type: ignore[arg-type]
+        )
+        with pytest.raises(NotImplementedError) as excinfo:
+            await builder.build_m2_inputs(country, date(2024, 12, 31))
+        message = str(excinfo.value)
+        assert "CAL-M2-T1-OUTPUT-GAP-EXPANSION" in message
+        assert "OECD EO output-gap coverage is wire-ready" in message
+
 
 # ---------------------------------------------------------------------------
 # Backward compat alias (ADR-0007 / CAL-128) — removal Week 10 Day 1
