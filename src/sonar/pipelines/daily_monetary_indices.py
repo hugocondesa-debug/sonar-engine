@@ -731,10 +731,25 @@ def main(
         )
     finally:
         session.close()
+        # ADR-0011 Principle 2 extended to cleanup: per-connector
+        # aclose() may crash under asyncio event-loop churn (httpx
+        # clients cache the loop they first used under the live
+        # backend, so the subsequent asyncio.run here raises
+        # ``RuntimeError: Event loop is closed``). Catch + log so a
+        # cleanup error does not mask the orchestrator exit code.
         for conn in connectors_to_close:
             close = getattr(conn, "aclose", None)
-            if close is not None:
+            if close is None:
+                continue
+            try:
                 asyncio.run(close())
+            except Exception as exc:
+                log.warning(
+                    "monetary_pipeline.connector_aclose_error",
+                    connector=type(conn).__name__,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
 
     log.info(
         "monetary_pipeline.summary",
