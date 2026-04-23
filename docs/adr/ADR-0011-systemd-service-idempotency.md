@@ -204,6 +204,75 @@ princípio é retro-inserido como obrigação canónica para todo
 pipeline async novo. Regression guard: `test_pipeline_no_asyncio_run_per_country`
 conta `asyncio.run(` no source do módulo e falha se > 1 site existir.
 
+### Princípio 7 — Worktree data lifecycle
+
+**Worktrees criadas via `sprint_setup.sh` TÊM DE ter a DB canónica
+acessível via symlink para `data/sonar-dev.db` do primary repo.**
+Rationale: builder-only sprints (M3, L4 composites, ERP per-country,
+etc.) precisam de read access a upstream-persisted data; sprints de
+migration / schema-change precisam de writable canonical state para
+evitar divergência entre worktrees.
+
+Pattern canónico (automatizado em `sprint_setup.sh` post-Week 10
+Lesson #14 fix):
+
+```bash
+PRIMARY_DB="${REPO_ROOT}/data/sonar-dev.db"
+WORKTREE_DB="${WT_PATH}/data/sonar-dev.db"
+
+if [[ -f "$PRIMARY_DB" ]]; then
+    mkdir -p "${WT_PATH}/data"
+    # Remove 0-byte stub que `git worktree add` checkout-a; preserva
+    # ficheiro real (WARN + keep).
+    if [[ -f "$WORKTREE_DB" && ! -L "$WORKTREE_DB" ]]; then
+        [[ $(stat -c%s "$WORKTREE_DB") -eq 0 ]] && rm "$WORKTREE_DB"
+    fi
+    # Symlink apenas se slot estiver vazio — idempotente.
+    [[ ! -e "$WORKTREE_DB" ]] && ln -sf "$PRIMARY_DB" "$WORKTREE_DB"
+fi
+```
+
+Symlink (não copy) porque:
+
+- **Single source of truth** — writes do Sprint X visíveis
+  imediatamente no primary, sem merge step.
+- **Avoids divergence** — CC Sprint X's backfill visível a Sprint Y
+  a ler a mesma DB em paralelo.
+- **Idempotente via Princípio 1** — duplicate writes across
+  concurrent worktrees tratados a row-level (UNIQUE constraint
+  handler). Symlinks não mudam essa garantia; reforçam-na porque
+  todas as escritas apontam ao mesmo ficheiro físico.
+
+Evidence (Sprint O arranque 2026-04-23 Day 3 late):
+
+```
+# ANTES do fix (sprint_setup.sh pre-R2):
+$ ls -la data/sonar-dev.db
+-rw-rw-r-- 1 macro macro 0 Apr 23 21:30  data/sonar-dev.db   ← 0-byte stub
+$ sqlite3 data/sonar-dev.db "SELECT COUNT(*) FROM yield_curves_spot"
+0                                                              ← audit empty
+
+# DEPOIS do fix (sprint_setup.sh post-R2):
+$ ls -la data/sonar-dev.db
+lrwxrwxrwx 1 macro macro  56  data/sonar-dev.db -> ../../sonar-engine/data/sonar-dev.db
+$ sqlite3 data/sonar-dev.db "SELECT COUNT(*) FROM yield_curves_spot"
+1234                                                           ← canonical coverage
+```
+
+Operator reserva direito de desviar (copy + isolated DB) para
+destructive schema experiments — ex. uma sprint que testa migration
+com risk de corrupção quer ledger isolado, não wire-through ao
+primary. Nesse caso o operator:
+
+1. Cria a worktree normalmente (fix aplica o symlink default).
+2. Remove o symlink: `rm ${WT_PATH}/data/sonar-dev.db`.
+3. Copy o primary DB: `cp ${REPO_ROOT}/data/sonar-dev.db ${WT_PATH}/data/`.
+4. Procede com o experimento.
+
+Scenario (c) do `sprint_setup.sh` (worktree DB is real file, not
+symlink, not 0-byte) WARN-preserves, não overwrite — cobre esta
+deviation path sem sprint re-setup destructivo.
+
 ---
 
 ## Alternativas consideradas

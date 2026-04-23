@@ -193,7 +193,55 @@ sqlite3 data/sonar-dev.db ".schema <table>"
   single `asyncio.run()` at process entry, connectors via
   `AsyncExitStack` + `async with` context. Prevents event-loop churn
   killing `httpx.AsyncClient` instances bound to dead loops.
+- **ADR-0011 Principle 7** (Sprint V Day 3 late): Worktree data
+  lifecycle — worktrees MUST symlink `data/sonar-dev.db` to primary.
+  `sprint_setup.sh` automates the 3-scenario handler (absent /
+  0-byte / real file). Operator may deviate (copy + isolated DB) for
+  destructive schema experiments — scenario (c) WARN-preserves.
+
+### Sprint V shipped (Week 10 Day 3 late — R2 bundle)
+
+Four new lessons emerged Day 3 late afternoon + evening; permanent
+fixes shipped as R2 bundle mirroring R1 pattern.
+
+- **Lesson #11** — Empty commit prevention
+  (`.pre-commit-config.yaml`). Local `no-empty-commits` hook at
+  commit-msg stage rejects empty staged tree with actionable
+  re-stage message. Guards merge / cherry-pick / revert via
+  `MERGE_HEAD` / `CHERRY_PICK_HEAD` / `REVERT_HEAD` guards.
+- **Lesson #12** — Brief format v3.1 → v3.2
+  (`docs/planning/brief-format-v3.md`). §6 systemd clause split
+  into Tier A (CC pre-merge scope: local CLI + `bash -lc` wrapper
+  smoke + tests + worktree-local grep) and Tier B (operator
+  post-merge scope within 24h: `sudo systemctl start` + journalctl
+  + is-active + timer re-enable).
+- **Lesson #13** — Auto-commit watcher investigation
+  (`docs/governance/auto-commit-watcher-investigation.md`). Forensic
+  baseline: no user systemd / cron / inotify / git-hook / plugin
+  evidence on VPS. H1 (parallel CC instance via second tmux
+  session) is the high-confidence hypothesis. Three options (A
+  disable / B canonize / C scope-limit) with explicit
+  when-to-pick + action + risk framing. **Decision deferred** —
+  operator reviews at Week 11 triage (CAL-WATCHER-DECISION).
+- **Lesson #14** — Worktree DB auto-link
+  (`scripts/ops/sprint_setup.sh` + ADR-0011 Principle 7). Script
+  automates the symlink step between tmux setup and Final state
+  print; 3-scenario handler (absent / 0-byte / real file);
+  sandbox-tested before ship.
+
+### Total lessons Week 10
+
+11 lessons discovered across Day 1-3. 10 shipped permanent fix (8
+code/ops + 2 documentation/governance). 1 investigation-only
+(#13 watcher) pending operator decision.
+
+- Lessons #1-#7: R1 bundle Day 3 — `sprint_setup.sh` + `sprint_merge.sh`
+  + `brief-format-v3.md` v3 → v3.1 + `cc-arranque-prompt.md`.
+- Lessons #11-#14: R2 bundle Day 3 late — `.pre-commit-config.yaml`
+  + `brief-format-v3.md` v3.1 → v3.2 + auto-commit watcher
+  investigation + `sprint_setup.sh` DB auto-link + ADR-0011
+  Principle 7.
 
 ---
 
-*Last mirror refresh: 2026-04-23 Week 10 Day 3 R1 retro bundle.*
+*Last mirror refresh: 2026-04-23 Week 10 Day 3 late R2 retro bundle.*
