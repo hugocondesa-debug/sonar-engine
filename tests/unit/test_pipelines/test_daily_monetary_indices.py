@@ -347,3 +347,61 @@ def test_classify_m2_compute_mode_full_takes_precedence_over_partial() -> None:
         "GB_M2_FULL_COMPUTE_LIVE",
     )
     assert _classify_m2_compute_mode(flags) == "FULL"
+
+
+def test_classify_m4_compute_mode_full_sprint_j() -> None:
+    """Sprint J EA-proxy tier — 5-component FULL compute flag wins."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m4_compute_mode,
+    )
+
+    flags = (
+        "EA_M4_VOL_TE_LIVE",
+        "EA_M4_CREDIT_SPREAD_FRED_OAS_LIVE",
+        "EA_M4_10Y_YIELD_LIVE",
+        "EA_M4_NEER_BIS_LIVE",
+        "EA_M4_NEER_MONTHLY_CADENCE",
+        "EA_M4_MORTGAGE_ECB_MIR_LIVE",
+        "EA_M4_FULL_COMPUTE_LIVE",
+    )
+    assert _classify_m4_compute_mode(flags) == "FULL"
+
+
+def test_classify_m4_compute_mode_scaffold() -> None:
+    """Sprint J SCAFFOLD_ONLY flag surfaces through the classifier."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m4_compute_mode,
+    )
+
+    flags = ("GB_M4_NEER_BIS_LIVE", "GB_M4_SCAFFOLD_ONLY")
+    assert _classify_m4_compute_mode(flags) == "SCAFFOLD"
+
+
+def test_classify_m4_compute_mode_canonical_us_nfci() -> None:
+    """US NFCI direct-provider path emits no Sprint J flags → CANONICAL."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m4_compute_mode,
+    )
+
+    flags = ("US_M4_NFCI_FRED_LIVE",)
+    assert _classify_m4_compute_mode(flags) == "CANONICAL"
+
+
+def test_classify_m4_compute_mode_full_takes_precedence_over_scaffold() -> None:
+    """FULL beats SCAFFOLD when both happen to appear — contract invariant."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _classify_m4_compute_mode,
+    )
+
+    flags = ("DE_M4_SCAFFOLD_ONLY", "DE_M4_FULL_COMPUTE_LIVE")
+    assert _classify_m4_compute_mode(flags) == "FULL"
+
+
+def test_monetary_supported_countries_includes_sprint_j_ea_members() -> None:
+    """Sprint J C6 — DE/FR/IT/ES/NL/PT added for M4 FCI dispatch."""
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        MONETARY_SUPPORTED_COUNTRIES,
+    )
+
+    for cc in ("DE", "FR", "IT", "ES", "NL", "PT"):
+        assert cc in MONETARY_SUPPORTED_COUNTRIES, cc

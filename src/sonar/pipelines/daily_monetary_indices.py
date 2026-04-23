@@ -109,6 +109,18 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 MONETARY_SUPPORTED_COUNTRIES: tuple[str, ...] = (
     "US",
     "EA",
+    # Sprint J (Week 10) — EA-member M4 FCI FULL compute via shared-EA
+    # proxy pattern (VSTOXX + BAML EA HY OAS + BIS NEER + ECB MIR +
+    # TE 10Y). M1 / M2 for these countries remain NotImplementedError
+    # (policy-rate is shared ECB DFR; per-country Taylor is academically
+    # ambiguous — CAL-M2-EA-PER-COUNTRY) and are captured as
+    # `monetary_pipeline.builder_skipped` in the live-input logger.
+    "DE",
+    "FR",
+    "IT",
+    "ES",
+    "NL",
+    "PT",
     "GB",
     "UK",
     "JP",
@@ -196,6 +208,34 @@ def _classify_m2_compute_mode(flags: tuple[str, ...]) -> str:
     return "LEGACY"
 
 
+def _classify_m4_compute_mode(flags: tuple[str, ...]) -> str:
+    """Return ``"FULL"`` / ``"SCAFFOLD"`` / ``"CANONICAL"`` per Sprint J flag contract.
+
+    Mirrors :func:`_classify_m2_compute_mode` but for the M4 FCI axis.
+    M4 has strict semantics: the compute-side enforces
+    ``MIN_CUSTOM_COMPONENTS = 5`` so the partial bucket is absent by
+    construction — a sub-5 country is either a SCAFFOLD (builder
+    raised ``InsufficientDataError``) or absent entirely from the
+    ``results.m4`` slot.
+
+    - ``FULL``: any flag ending ``_M4_FULL_COMPUTE_LIVE`` (Sprint J
+      EA-proxy tier — EA aggregate + DE/FR/IT/ES/NL/PT).
+    - ``SCAFFOLD``: any flag ending ``_M4_SCAFFOLD_ONLY`` (emitted by
+      builders that compose partial inputs but the compute side will
+      still reject; included for observability symmetry).
+    - ``CANONICAL``: none of the Sprint J flags present. Covers the
+      US NFCI direct-provider path (spec §4 step 1 short-circuit)
+      and any future builder that predates Sprint J.
+    """
+    for flag in flags:
+        if flag.endswith("_M4_FULL_COMPUTE_LIVE"):
+            return "FULL"
+    for flag in flags:
+        if flag.endswith("_M4_SCAFFOLD_ONLY"):
+            return "SCAFFOLD"
+    return "CANONICAL"
+
+
 async def build_live_monetary_inputs(
     country_code: str,
     observation_date: date,
@@ -251,6 +291,14 @@ async def build_live_monetary_inputs(
             index="m4",
             country=country,
             error=str(exc),
+        )
+    else:
+        log.info(
+            "monetary_pipeline.m4_compute_mode",
+            country=country,
+            observation_date=observation_date.isoformat(),
+            mode=_classify_m4_compute_mode(m4.upstream_flags),
+            flags=tuple(m4.upstream_flags),
         )
     return MonetaryIndicesInputs(
         country_code=country,
@@ -356,6 +404,7 @@ def _build_live_connectors(
     (JP / CA / AU / NZ / CH / NO / SE / DK). US stays on the CBO
     GDPPOT quarterly path (strictly finer than OECD EO annual).
     """
+    from sonar.connectors.bis import BisConnector  # noqa: PLC0415
     from sonar.connectors.boc import BoCConnector  # noqa: PLC0415
     from sonar.connectors.boe_database import BoEDatabaseConnector  # noqa: PLC0415
     from sonar.connectors.boj import BoJConnector  # noqa: PLC0415
@@ -374,6 +423,7 @@ def _build_live_connectors(
     fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
     cbo = CboConnector(fred=fred)
     ecb = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb")
+    bis = BisConnector(cache_dir=f"{cache_dir}/bis")
     boc = BoCConnector(cache_dir=f"{cache_dir}/boc")
     boe = BoEDatabaseConnector(cache_dir=f"{cache_dir}/boe")
     boj = BoJConnector(cache_dir=f"{cache_dir}/boj")
@@ -400,10 +450,12 @@ def _build_live_connectors(
         nationalbanken=nationalbanken,
         te=te,
         oecd_eo=oecd_eo,
+        bis=bis,
     )
     connectors: list[object] = [
         fred,
         ecb,
+        bis,
         boc,
         boe,
         boj,
