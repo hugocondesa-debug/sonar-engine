@@ -199,6 +199,47 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# DB canonical link (Week 10 Lesson #14 fix)
+#
+# `git worktree add` checks out tracked placeholder files under data/,
+# leaving `data/sonar-dev.db` as a 0-byte stub in the worktree. Pre-flight
+# audits (sqlite3 queries, schema diffs, coverage checks) then silently
+# return empty — forcing the operator to manually symlink into the primary
+# repo's live DB before CC can start. This step automates that.
+#
+# Three scenarios:
+#   (a) primary DB exists + worktree DB absent       → symlink
+#   (b) primary DB exists + worktree DB = 0-byte stub → remove stub, symlink
+#   (c) primary DB exists + worktree DB is real file → WARN, preserve
+# ---------------------------------------------------------------------------
+PRIMARY_DB="${REPO_ROOT}/data/sonar-dev.db"
+WORKTREE_DB="${WT_PATH}/data/sonar-dev.db"
+
+if [[ -f "$PRIMARY_DB" ]]; then
+    mkdir -p "${WT_PATH}/data"
+
+    # Remove 0-byte stub if present; preserve any real file (warn only).
+    if [[ -f "$WORKTREE_DB" ]] && [[ ! -L "$WORKTREE_DB" ]]; then
+        DB_SIZE=$(stat -c%s "$WORKTREE_DB")
+        if [[ "$DB_SIZE" -eq 0 ]]; then
+            rm "$WORKTREE_DB"
+        else
+            log "  - WARNING: non-zero file at $WORKTREE_DB, not overwriting"
+            log "            If this is a stale copy, remove manually and re-run"
+        fi
+    fi
+
+    # Create symlink only if target slot is empty (preserves case (c)).
+    if [[ ! -e "$WORKTREE_DB" ]]; then
+        ln -sf "$PRIMARY_DB" "$WORKTREE_DB"
+        log "  ✓ DB symlinked: data/sonar-dev.db -> $PRIMARY_DB"
+    fi
+else
+    log "  - WARNING: canonical DB not found at $PRIMARY_DB"
+    log "            Worktree data/ may be empty; audit queries will fail"
+fi
+
+# ---------------------------------------------------------------------------
 # Final state
 # ---------------------------------------------------------------------------
 echo
