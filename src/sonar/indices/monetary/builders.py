@@ -50,7 +50,7 @@ from sonar.indices.monetary.m4_fci import (
 from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from sonar.connectors.bis import BisConnector
     from sonar.connectors.boc import BoCConnector
@@ -103,9 +103,15 @@ __all__ = [
     "build_m4_de_inputs",
     "build_m4_dk_inputs",
     "build_m4_ea_inputs",
+    "build_m4_es_inputs",
+    "build_m4_fr_inputs",
+    "build_m4_gb_inputs",
+    "build_m4_it_inputs",
     "build_m4_jp_inputs",
+    "build_m4_nl_inputs",
     "build_m4_no_inputs",
     "build_m4_nz_inputs",
+    "build_m4_pt_inputs",
     "build_m4_se_inputs",
     "build_m4_us_inputs",
 ]
@@ -3652,6 +3658,225 @@ async def build_m4_de_inputs(
 
 
 # ---------------------------------------------------------------------------
+# M4 — EA periphery members (Sprint J C5 — FR/IT/ES/NL/PT) + GB scaffold
+# ---------------------------------------------------------------------------
+#
+# Sprint J C5 closes the shared-EA-proxy tier: FR + IT + ES + NL + PT
+# land as FULL-compute builders per pre-flight §4 matrix (5 components
+# each via VSTOXX + BAML EA HY OAS shared proxies + country-specific
+# TE 10Y + BIS NEER + ECB MIR). GB ships as a new SCAFFOLD (only BIS
+# GB NEER + TE/BoE 10Y viable at our tier; V2TX vol + per-country
+# corporate OAS + BoE IUMTLMV mortgage tracked under
+# CAL-M4-VOL-T2-TIER3-* / -CREDIT-SPREAD-T2-PER-COUNTRY /
+# -MORTGAGE-RATE-T1-NATIVE-EXPANSION).
+
+
+async def _build_m4_ea_member_inputs(
+    country_code: str,
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """EA-member 5-component FULL compute via shared-EA proxies.
+
+    Country-specific streams: TE ``{CC}`` 10Y yield + BIS
+    ``{CC}`` NEER + ECB MIR ``M.{CC}.B.A2C.A.R.A.2250.EUR.N``.
+    Shared-EA proxies: VSTOXX (TE equity vol markets) + BAML EA HY OAS
+    (FRED). Surfaces the Sprint J upstream_flags convention via
+    :func:`_assemble_m4_ea_custom_inputs`.
+    """
+    vol, spread, yld, neer, mort = await _ea_custom_common_streams(
+        fred=fred,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        mir_country=country_code,
+        neer_country=country_code,
+        yield_country=country_code,
+        observation_date=observation_date,
+        history_years=history_years,
+    )
+    return await _assemble_m4_ea_custom_inputs(
+        country_code=country_code,
+        observation_date=observation_date,
+        history_years=history_years,
+        vol_daily=vol,
+        credit_spread_daily=spread,
+        ten_year_yield_daily=yld,
+        neer_monthly=neer,
+        mortgage_monthly=mort,
+        source_connector=("te", "fred", "bis", "ecb_sdw"),
+    )
+
+
+async def build_m4_fr_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 FR inputs (Sprint J C5 — EA-member FULL via shared proxy)."""
+    return await _build_m4_ea_member_inputs(
+        "FR",
+        fred,
+        observation_date,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        history_years=history_years,
+    )
+
+
+async def build_m4_it_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 IT inputs (Sprint J C5 — EA-member FULL via shared proxy)."""
+    return await _build_m4_ea_member_inputs(
+        "IT",
+        fred,
+        observation_date,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        history_years=history_years,
+    )
+
+
+async def build_m4_es_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 ES inputs (Sprint J C5 — EA-member FULL via shared proxy)."""
+    return await _build_m4_ea_member_inputs(
+        "ES",
+        fred,
+        observation_date,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        history_years=history_years,
+    )
+
+
+async def build_m4_nl_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 NL inputs (Sprint J C5 — EA-member FULL via shared proxy)."""
+    return await _build_m4_ea_member_inputs(
+        "NL",
+        fred,
+        observation_date,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        history_years=history_years,
+    )
+
+
+async def build_m4_pt_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 PT inputs (Sprint J C5 — EA-member FULL via shared proxy)."""
+    return await _build_m4_ea_member_inputs(
+        "PT",
+        fred,
+        observation_date,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        history_years=history_years,
+    )
+
+
+async def build_m4_gb_inputs(
+    fred: FredConnector,  # noqa: ARG001 — wired for future GB FCI components
+    observation_date: date,  # noqa: ARG001
+    *,
+    te: TEConnector | None = None,  # noqa: ARG001
+    boe: BoEDatabaseConnector | None = None,  # noqa: ARG001
+    bis: BisConnector | None = None,  # noqa: ARG001
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,  # noqa: ARG001
+) -> M4FciInputs:
+    """Assemble M4 GB inputs (Sprint J C5 — scaffold, raises).
+
+    GB lacks the NFCI direct-provider shortcut (spec §4 step 1 is US
+    only) and fails the shared-EA proxy eligibility test (GB is not
+    on the MIR dataflow and its equity vol symbol ``V2TX`` / ``VFTSE``
+    is not provisioned at our TE tier). Pre-flight §4 matrix places
+    GB at **2/5 custom-FCI components** (BIS GB NEER + TE/BoE GB 10Y);
+    below the ``MIN_CUSTOM_COMPONENTS = 5`` floor. Builder raises with
+    ``GB_M4_SCAFFOLD_ONLY`` semantics so the pipeline skips M4 GB
+    cleanly, mirroring M4 JP / CA / AU / NZ / CH / SE / NO / DK.
+    Pending components tracked in:
+
+    - ``CAL-M4-VOL-T2-TIER3-GB-JP-CA-AU-NZ-CH-SE-NO-DK`` — national
+      equity vol index sourcing (TE tier-3 symbols or Yahoo/stooq
+      extension).
+    - ``CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY`` — per-country IG/HY OAS
+      beyond BAML US/EA HY.
+    - ``CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION`` — BoE Bankstats
+      IUMTLMV household mortgage rate (gated behind Akamai per Sprint
+      I-patch empirical probe).
+    """
+    msg = (
+        "M4 GB builder scaffold shipped Sprint J C5 but <5/5 custom-FCI "
+        "components available (have BIS GB NEER + TE/BoE GB 10Y; need "
+        "credit spread + vol + mortgage — see "
+        "CAL-M4-VOL-T2-TIER3-GB-JP-CA-AU-NZ-CH-SE-NO-DK, "
+        "CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY, "
+        "CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION). Raises so the "
+        "pipeline skips M4 GB cleanly."
+    )
+    raise InsufficientDataError(msg)
+
+
+# Sprint J dispatch table — EA-proxy tier (EA aggregate + 6 EA members).
+# GB is not here (scaffold; handled via the explicit branch below).
+_M4_EA_PROXY_BUILDERS: dict[
+    str,
+    Callable[..., Awaitable[M4FciInputs]],
+] = {
+    "EA": build_m4_ea_inputs,
+    "DE": build_m4_de_inputs,
+    "FR": build_m4_fr_inputs,
+    "IT": build_m4_it_inputs,
+    "ES": build_m4_es_inputs,
+    "NL": build_m4_nl_inputs,
+    "PT": build_m4_pt_inputs,
+}
+
+
+# ---------------------------------------------------------------------------
 # Orchestration facade
 # ---------------------------------------------------------------------------
 
@@ -3907,7 +4132,7 @@ class MonetaryInputsBuilder:
     ) -> M4FciInputs:
         if country == "US":
             return await build_m4_us_inputs(self.fred, observation_date, **kwargs)  # type: ignore[arg-type]
-        if country in ("EA", "DE"):
+        if country in _M4_EA_PROXY_BUILDERS:
             # Sprint J (Week 10 Day 2) — EA aggregate + per-country EA
             # member M4 FCI custom-path FULL compute via shared-EA
             # proxy pattern (VSTOXX + BAML EA HY OAS) plus
@@ -3918,13 +4143,21 @@ class MonetaryInputsBuilder:
                     f"MonetaryInputsBuilder (Sprint J shared-EA proxy pattern)."
                 )
                 raise NotImplementedError(msg)
-            builder = build_m4_ea_inputs if country == "EA" else build_m4_de_inputs
-            return await builder(
+            return await _M4_EA_PROXY_BUILDERS[country](
                 self.fred,
                 observation_date,
                 te=self.te,
                 bis=self.bis,
                 ecb_sdw=self.ecb_sdw,
+                **kwargs,
+            )
+        if country == "GB":
+            return await build_m4_gb_inputs(
+                self.fred,
+                observation_date,
+                te=self.te,
+                boe=self.boe,
+                bis=self.bis,
                 **kwargs,  # type: ignore[arg-type]
             )
         if country == "JP":

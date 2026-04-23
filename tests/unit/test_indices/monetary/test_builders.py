@@ -53,9 +53,15 @@ from sonar.indices.monetary.builders import (
     build_m4_de_inputs,
     build_m4_dk_inputs,
     build_m4_ea_inputs,
+    build_m4_es_inputs,
+    build_m4_fr_inputs,
+    build_m4_gb_inputs,
+    build_m4_it_inputs,
     build_m4_jp_inputs,
+    build_m4_nl_inputs,
     build_m4_no_inputs,
     build_m4_nz_inputs,
+    build_m4_pt_inputs,
     build_m4_se_inputs,
     build_m4_us_inputs,
 )
@@ -1382,6 +1388,58 @@ class TestSprintJUsBaselineGuard:
             if f.startswith(("US_M4_VOL", "US_M4_CREDIT", "US_M4_FULL_COMPUTE"))
         ]
         assert leak == [], leak
+
+
+class TestBuildM4EaMembersSprintJ:
+    """Sprint J C5 — EA-member FULL compute parametrised over FR/IT/ES/NL/PT."""
+
+    @pytest.mark.parametrize(
+        ("country", "builder"),
+        [
+            ("FR", build_m4_fr_inputs),
+            ("IT", build_m4_it_inputs),
+            ("ES", build_m4_es_inputs),
+            ("NL", build_m4_nl_inputs),
+            ("PT", build_m4_pt_inputs),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_happy_path_full_compute(self, country: str, builder: object) -> None:
+        fred = _FakeFredConnectorM4()
+        te = _FakeTEConnectorM4()
+        bis = _FakeBisConnectorM4(neer_index=101.0)
+        ecb = _FakeEcbSdwConnectorM4(mortgage_rate_pct=3.30)
+        inputs = await builder(  # type: ignore[operator]
+            fred,
+            date(2024, 12, 31),
+            te=te,
+            bis=bis,
+            ecb_sdw=ecb,
+            history_years=2,
+        )
+        assert inputs.country_code == country
+        # 5 components present; custom-path FULL_COMPUTE flag emitted.
+        assert f"{country}_M4_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+        assert f"{country}_M4_NEER_MONTHLY_CADENCE" in inputs.upstream_flags
+        assert inputs.vol_index == pytest.approx(18.0)
+        assert inputs.credit_spread_bps == pytest.approx(3.20)
+        assert inputs.gov_10y_yield_pct == pytest.approx(0.021, abs=1e-6)
+        assert inputs.fx_neer_pct == pytest.approx(101.0)
+        assert inputs.mortgage_rate_pct == pytest.approx(0.033, abs=1e-6)
+
+
+class TestBuildM4GbSprintJ:
+    """Sprint J C5 — GB scaffold raises (2/5 custom-FCI components)."""
+
+    @pytest.mark.asyncio
+    async def test_gb_scaffold_raises_insufficient_data(self) -> None:
+        from sonar.overlays.exceptions import InsufficientDataError  # noqa: PLC0415
+
+        with pytest.raises(InsufficientDataError, match="M4 GB builder scaffold"):
+            await build_m4_gb_inputs(
+                _FakeFredConnector(),  # type: ignore[arg-type]
+                date(2024, 12, 31),
+            )
 
 
 # ---------------------------------------------------------------------------
