@@ -656,6 +656,125 @@ Pattern library v2.2 codifica Shape S1 (Svensson-rich, TE Path 1
 PASS) vs Shape S2 (point-estimates only, TE Path 1 HALT-0). Sprint M
 é primeira observação S2 + primeira **não-inversão** do ledger v2.
 
+## Addendum Sprint T (2026-04-23) — sparse T1 sweep (AU/NZ/CH/SE/NO/DK); classifier S1/S2 em aplicação de larga escala
+
+Sprint T aplicou o classifier S1/S2 v2.2 a **6 países T1 esparsos**
+não-EA (AUD/NZD/CHF/SEK/NOK/DKK) num sweep único — primeira
+aplicação empírica do classifier como triage binário sobre coorte ≥4.
+TE Path 1 probe mandatório antes de Path 2 scaffold (v2 canónico) +
+S1/S2 decision rule conforme v2.2.
+
+### Resultado empírico Sprint T probe (2026-04-23)
+
+Per-country probe matrix (doc completa em
+`docs/backlog/probe-results/sprint-t-sparse-t1-sweep-probe.md`):
+
+| Country | TE tenors | Svensson? | Classifier | Outcome | CAL opened |
+|---|---|---|---|---|---|
+| AU | 8 (1Y-30Y minus 15Y + 1M-6M) | Y | **S1** | PASS | — |
+| NZ | 3 (1Y, 2Y, 10Y) | N | **S2** | HALT-0 | CAL-CURVES-NZ-PATH-2 |
+| CH | 2 (2Y, 10Y) | N | **S2** | HALT-0 | CAL-CURVES-CH-PATH-2 |
+| SE | 2 (2Y, 10Y) | N | **S2** | HALT-0 | CAL-CURVES-SE-PATH-2 |
+| NO | 3 (6M, 52W, 10Y) | N | **S2** | HALT-0 | CAL-CURVES-NO-PATH-2 |
+| DK | 2 (2Y, 10Y) | N | **S2** | HALT-0 | CAL-CURVES-DK-PATH-2 |
+
+**1 S1 PASS (AU) / 5 S2 HALT-0.** Abaixo da hipótese §1 do brief
+(3-5 PASS expected). Hit rate per-hypothesis: 1/6 = 17%. O modelo
+mental "sovereign-market size → TE coverage" foi sistematicamente
+refutado para NZD/CHF/SEK/NOK/DKK — apenas AUD clear a barreira S1.
+
+### Ledger v2 actualizado ao fecho Sprint T
+
+**Inversões cumulativas (S1 PASS — TE Path 1 suficiente, Path 2 não
+requerida)**: IT (Sprint H) + ES (Sprint H) + FR (Sprint I) + PT (Sprint M)
++ **AU (Sprint T — primeira sparse-T1)** → **5 inversões**.
+
+**Não-inversões cumulativas (S2 HALT-0 — Path 1 insuficiente, Path 2
+warranted)**: NL (Sprint M) + **NZ + CH + SE + NO + DK (Sprint T)** →
+**6 não-inversões**.
+
+A regra v2 "probe TE Path 1 first, escalate Path 2/3 only on empirical
+Path 1 failure" mantém-se firme. Post-Sprint-T o ledger tem mix
+inversão/não-inversão quase paritário (5:6), reforçando que o TE Path 1
+serve como filtro binário útil mas não exhaustivo — cada país exige
+probe empírico dedicado.
+
+### Pattern library v2.3 amendments (candidatos)
+
+Sprint T introduz 3 amendments candidatos para v2.3 (a codificar em
+sprint successor dedicado, não neste addendum):
+
+1. **`/search` endpoint é high-recall mas não exhaustivo**: em NZ, o
+   símbolo `GNZGB1:IND` (531 obs, daily-live) retornou via per-tenor
+   sweep mas **não** estava listado em `/search/new-zealand%20government%20bond`.
+   Implicação: manter per-tenor sweep como disciplina (mesmo
+   post-`/search`) — custo ~12 calls, valor ground-truth coverage.
+2. **Multi-prefix families dentro do mesmo país**: NO expõe dois
+   prefixos distintos simultaneamente — `GNOR{n}YR:GOV` (10Y) +
+   `NORYIELD{n}M:GOV` / `NORYIELD52W:GOV` (6M + 52W). Sem precedente
+   em T1 anterior (IT/ES/FR/PT/AU todas mantêm prefix único por país).
+   Probe future MUST sweep all plausible prefix candidates; log em
+   probe matrix se `/search` retornar ≥2 prefixos distintos.
+3. **Systematic hypothesis bias — sparse-T1 ≠ mid-tier-T1**: a
+   heurística "sovereign-market maior ⇒ TE coverage melhor" é
+   confiável para periphery EA (IT/ES/FR/PT) mas refutada para sparse
+   T1 non-EA (CHF haven, NOK sovereign wealth, SEK Nordic, DKK
+   EUR-peg). Prior empírico sparse-T1 S1 PASS probability deve
+   defaulta-se ~25-30%, não 55-80%.
+
+### Per-country probe outcomes table (Sprint H + I + M + T)
+
+| Country | TE tenors | Svensson? | Outcome | CAL closed/opened | Shape |
+|---|---|---|---|---|---|
+| IT | 12 | Y | Sprint H PASS | IT-BDI closed | S1 |
+| ES | 9 | Y | Sprint H PASS | ES-BDE closed | S1 |
+| FR | 10 | Y | Sprint I PASS | FR-TE-PROBE closed (FR-BDF stays BLOCKED) | S1 |
+| PT | 10 | Y | Sprint M PASS | PT-BPSTAT closed pre-open | S1 |
+| NL | 4 | N | Sprint M HALT-0 | NL-DNB-PROBE opens Week 11 | S2 |
+| AU | 8 | Y | Sprint T PASS | AU-PATH-2 closed pre-open | S1 |
+| NZ | 3 | N | Sprint T HALT-0 | NZ-PATH-2 opens Week 11 | S2 |
+| CH | 2 | N | Sprint T HALT-0 | CH-PATH-2 opens Week 11 | S2 |
+| SE | 2 | N | Sprint T HALT-0 | SE-PATH-2 opens Week 11 | S2 |
+| NO | 3 | N | Sprint T HALT-0 | NO-PATH-2 opens Week 11 | S2 |
+| DK | 2 | N | Sprint T HALT-0 | DK-PATH-2 opens Week 11 | S2 |
+
+### Follow-ups (Sprint T addendum)
+
+1. **CAL-CURVES-NZ-PATH-2** open para Week 11+ — RBNZ (Reserve Bank of
+   New Zealand) statistics portal probe (`www.rbnz.govt.nz/statistics`,
+   bond yields table B2 candidate).
+2. **CAL-CURVES-CH-PATH-2** — SNB Stats Portal probe
+   (`data.snb.ch`, CHF yield curves; potential SNB-published Svensson
+   fit parallel to Bundesbank's BBSIS).
+3. **CAL-CURVES-SE-PATH-2** — Riksbank statistics portal probe
+   (`www.riksbank.se/en-gb/statistics/`).
+4. **CAL-CURVES-NO-PATH-2** — Norges Bank statistics portal probe
+   (`www.norges-bank.no/en/topics/Statistics/`).
+5. **CAL-CURVES-DK-PATH-2** — Danmarks Nationalbanken statsbank probe
+   (`nationalbanken.statbank.dk`; parcial infra existente via Sprint
+   Y-DK Nationalbanken cascade connector — pode estender-se a
+   yield-curve wrapper sem novo connector).
+6. **Pattern library v2.3 codification** em sprint successor dedicado
+   (não neste addendum) — amendments §3.1-3.3 acima precisam de
+   validação em probe cohort adicional antes de formalização.
+
+### Post-Sprint T coverage state
+
+**T1 curves coverage 11/16** (US/DE/EA/GB/JP/CA + IT/ES/FR/PT **+ AU**).
+Cinco CAL items CLOSED via TE cascade (IT-BDI Sprint H + ES-BDE Sprint H
++ FR-TE-PROBE Sprint I + PT-BPSTAT Sprint M + **AU-PATH-2 Sprint T**,
+este último pre-open). Cinco CAL items OPENED para Week 11+
+(NZ-PATH-2, CH-PATH-2, SE-PATH-2, NO-PATH-2, DK-PATH-2). Um BLOCKED
+conserved (FR-BDF — direct-CB upgrade path). Um pendente pre-Sprint-T
+(NL-DNB-PROBE — Week 11). AU overlays cascade de produção arranca
+em 2026-04-24 05:00 UTC (primeira execução systemd post-merge).
+
+Pattern library v2.2 robustecida pela primeira aplicação de larga
+escala: classifier correctamente antecipou o binário S1/S2 em 6/6
+países (sem borderline 5-tenor ambíguo; gap 8↔3 tenors limpo). A
+correctness do classifier é confirmada; a hipótese geográfica
+subjacente (sparse-T1 ⊃ S1 probability) é refutada.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
@@ -686,6 +805,16 @@ PASS) vs Shape S2 (point-estimates only, TE Path 1 HALT-0). Sprint M
 - `docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md` — raw
   per-tenor probe matrix + /search cross-validation for PT + NL
   (2026-04-23).
+- `docs/planning/week10-sprint-t-sparse-t1-sweep-au-nz-ch-se-no-dk-brief.md`
+  — Sprint T 6-country sparse T1 sweep brief (v3.2 format, first
+  large-scale S1/S2 classifier application post-v2.2 codification).
+- `docs/backlog/probe-results/sprint-t-sparse-t1-sweep-probe.md` — raw
+  per-tenor probe matrix + /search cross-validation for
+  AU/NZ/CH/SE/NO/DK (2026-04-23); 1 S1 PASS + 5 S2 HALT-0.
+- `docs/planning/retrospectives/week10-sprint-t-sparse-t1-sweep-report.md`
+  — Sprint T retro (closes AU-PATH-2 via Path 1 canonical; opens 5
+  per-country `CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2`; documents
+  hypothesis bias against sparse-T1 TE coverage priors).
 - `docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`
   — Sprint A precedent (ECB SDW periphery HALT).
 - `docs/planning/retrospectives/week10-sprint-cal138-report.md` —

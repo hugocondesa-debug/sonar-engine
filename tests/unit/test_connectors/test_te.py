@@ -224,15 +224,18 @@ async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
 
 def test_yield_curve_symbols_supported_countries() -> None:
     """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) + Sprint I (FR) +
-    Sprint M (PT) empirical scope. NL deferred per Sprint M Path 1
+    Sprint M (PT) + Sprint T (AU — first sparse-T1 S1 PASS under
+    ADR-0009 v2.2) empirical scope. NL deferred per Sprint M Path 1
     HALT-0 (only 4 tenors via TE — see CAL-CURVES-NL-DNB-PROBE +
-    docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md)."""
-    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES", "FR", "PT"}
+    sprint-m-pt-nl-te-probe.md); NZ/CH/SE/NO/DK deferred per Sprint T
+    Path 1 HALT-0 (all ≤3 tenors — see CAL-CURVES-{X}-PATH-2 +
+    sprint-t-sparse-t1-sweep-probe.md)."""
+    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"}
 
 
 def test_yield_curve_symbols_tenor_counts() -> None:
     """Per empirical probe 2026-04-22 / 2026-04-23: GB=12, JP=9, CA=6,
-    IT=12, ES=9, FR=10, PT=10."""
+    IT=12, ES=9, FR=10, PT=10, AU=8."""
     assert len(TE_YIELD_CURVE_SYMBOLS["GB"]) == 12
     assert len(TE_YIELD_CURVE_SYMBOLS["JP"]) == 9
     assert len(TE_YIELD_CURVE_SYMBOLS["CA"]) == 6
@@ -240,6 +243,7 @@ def test_yield_curve_symbols_tenor_counts() -> None:
     assert len(TE_YIELD_CURVE_SYMBOLS["ES"]) == 9  # missing 1M, 2Y, 20Y
     assert len(TE_YIELD_CURVE_SYMBOLS["FR"]) == 10  # missing 3Y, 15Y
     assert len(TE_YIELD_CURVE_SYMBOLS["PT"]) == 10  # missing 1M, 15Y
+    assert len(TE_YIELD_CURVE_SYMBOLS["AU"]) == 8  # missing 1M, 3M, 6M, 15Y
 
 
 def test_yield_curve_symbols_gb_spectrum() -> None:
@@ -352,6 +356,34 @@ def test_yield_curve_symbols_pt_spectrum() -> None:
     # the curve fetch and the legacy 10Y wrapper agree on the canonical
     # series for PT.
     assert TE_10Y_SYMBOLS["PT"] == pt["10Y"]
+
+
+def test_yield_curve_symbols_au_spectrum() -> None:
+    """AU covers 1Y-30Y minus 15Y (8 tenors; Sprint T — first sparse-T1
+    S1 PASS under ADR-0009 v2.2).
+
+    Per empirical probe 2026-04-23 AU's ``GACGB`` family uses the bare
+    ``Y`` suffix uniformly for 1Y-7Y + 20Y + 30Y; 10Y alone drops the
+    suffix as ``GACGB10`` — matching the IT / GB / JP / FR 10Y
+    precedent. 1M/3M/6M + 15Y + any ``YR`` spelling returned empty
+    across every probed variant; these are TE-coverage structural gaps
+    confirmed via TE ``/search/australia%20government%20bond`` (which
+    lists exactly the 8 symbols asserted below). 8 ≥
+    MIN_OBSERVATIONS_FOR_SVENSSON, so Svensson-capable with 2 short
+    (1Y-2Y) + 3 mid (3Y-7Y) + 3 long (10Y-30Y) structural coverage.
+    """
+    au = TE_YIELD_CURVE_SYMBOLS["AU"]
+    assert set(au) == {"1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"}
+    assert au["10Y"] == "GACGB10:IND"  # no Y suffix on 10Y (empirical)
+    assert au["1Y"] == "GACGB1Y:IND"  # bare Y on 1Y (vs ES's GSPG1YR / PT's GSPT1Y)
+    assert au["2Y"] == "GACGB2Y:IND"  # bare Y on 2Y (vs PT's GSPT2YR)
+    assert au["7Y"] == "GACGB7Y:IND"
+    assert au["20Y"] == "GACGB20Y:IND"
+    assert au["30Y"] == "GACGB30Y:IND"
+    # Drift guard: 10Y symbol matches the singleton in TE_10Y_SYMBOLS so
+    # the curve fetch and the legacy 10Y wrapper agree on the canonical
+    # series for AU.
+    assert TE_10Y_SYMBOLS["AU"] == au["10Y"]
 
 
 def test_yield_curve_tenor_years_match_nss() -> None:
@@ -483,15 +515,18 @@ async def test_fetch_yield_curve_nominal_fr_happy(
 async def test_fetch_yield_curve_nominal_rejects_unsupported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """AU/NZ/CH/SE/NO/DK + NL + US rejected.
+    """NZ/CH/SE/NO/DK + NL + US rejected.
 
     IT + ES moved to the supported set in Sprint H; FR in Sprint I; PT
-    in Sprint M (TE Path 1 PASS 10 tenors). NL remains rejected post
-    Sprint M Path 1 HALT-0 (only 4 tenors via TE — see
-    CAL-CURVES-NL-DNB-PROBE).
+    in Sprint M (TE Path 1 PASS 10 tenors); AU in Sprint T (TE Path 1
+    PASS 8 tenors — first sparse-T1 S1 PASS under ADR-0009 v2.2). NL
+    remains rejected post Sprint M Path 1 HALT-0 (only 4 tenors via TE
+    — see CAL-CURVES-NL-DNB-PROBE); NZ/CH/SE/NO/DK remain rejected post
+    Sprint T Path 1 HALT-0 (all ≤3 tenors — see
+    CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2).
     """
     _ = httpx_mock
-    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "NL", "US"):
+    for unsupported in ("NZ", "CH", "SE", "NO", "DK", "NL", "US"):
         with pytest.raises(ValueError, match="TE yield curve only supports"):
             await te_connector.fetch_yield_curve_nominal(
                 country=unsupported, observation_date=date(2024, 12, 31)
@@ -570,7 +605,7 @@ async def test_fetch_yield_curve_linker_rejects_unsupported(
     _ = httpx_mock
     with pytest.raises(ValueError, match="TE yield curve linker stub"):
         await te_connector.fetch_yield_curve_linker(
-            country="AU", observation_date=date(2024, 12, 31)
+            country="NZ", observation_date=date(2024, 12, 31)
         )
 
 

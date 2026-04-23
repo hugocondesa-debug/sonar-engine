@@ -205,7 +205,7 @@ EXIT_IO = 4
 # by :func:`run_one` to log at warning vs info level so journal signal
 # stays proportional to actual coverage expectations.
 _CURVES_SHIPPED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"}
 )
 
 # EA-per-country-deferred members — M1 (policy rate is shared ECB DFR)

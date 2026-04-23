@@ -222,6 +222,18 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 #   via both per-tenor ``/markets/historical`` sweep and ``/search``
 #   cross-validation (2026-04-23). 10 tenors total — Svensson-capable
 #   with headroom; closes CAL-CURVES-PT-BPSTAT pre-open. See Sprint M
+# - AU (Sprint T): ``GACGB`` prefix; ``Y`` suffix uniformly for 1Y-7Y
+#   + 20Y + 30Y, **no** suffix on 10Y (``GACGB10:IND`` — same quirk
+#   as IT/GB/JP/FR/PT). Probe-empty tenors (1M, 3M, 6M, 15Y in every
+#   spelling; any ``YR`` spelling) are TE-coverage structural gaps
+#   confirmed via both per-tenor sweep + ``/search`` cross-validation
+#   (2026-04-23). 8 tenors total (1Y-30Y with 15Y gap) — Svensson-capable
+#   with structural coverage 2 short + 3 mid + 3 long; closes
+#   CAL-CURVES-AU-PATH-2 pre-open via TE Path 1 (ADR-0009 v2.2 S1 PASS
+#   — first sparse-T1 inversion). See Sprint T probe doc at
+#   ``docs/backlog/probe-results/sprint-t-sparse-t1-sweep-probe.md``.
+#   NZ/CH/SE/NO/DK remain **S2 HALT-0** (all ≤3 TE tenors) — per-country
+#   ``CAL-CURVES-{X}-PATH-2`` opens Week 11+.
 #   probe doc at ``docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md``.
 TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
     "GB": {
@@ -305,6 +317,16 @@ TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
         "10Y": "GSPT10YR:IND",
         "20Y": "GSPT20Y:IND",
         "30Y": "GSPT30Y:IND",
+    },
+    "AU": {
+        "1Y": "GACGB1Y:IND",
+        "2Y": "GACGB2Y:IND",
+        "3Y": "GACGB3Y:IND",
+        "5Y": "GACGB5Y:IND",
+        "7Y": "GACGB7Y:IND",
+        "10Y": "GACGB10:IND",
+        "20Y": "GACGB20Y:IND",
+        "30Y": "GACGB30Y:IND",
     },
 }
 
@@ -532,6 +554,7 @@ TE_10Y_SYMBOLS: dict[str, str] = {
     "FR": "GFRN10:IND",
     "NL": "GNTH10YR:IND",
     "PT": "GSPT10YR:IND",
+    "AU": "GACGB10:IND",
 }
 
 
