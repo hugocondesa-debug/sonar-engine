@@ -51,12 +51,11 @@ __all__ = [
 ]
 
 
-# Sprint O C2 — non-EA-periphery T1 cohort members (US + DE + EA anchor
-# aggregate + GB/JP/CA). C3 extends this set to include IT/ES/FR (EA
-# periphery members); keep the literal ordering stable for doc/test
-# determinism. PT stays out (existing canonical path pre-dates Sprint O);
-# NL stays out (blocked on Sprint M curves probe).
-M3_T1_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA"})
+# Sprint O T1 9-country cohort — C2 shipped US/DE/EA/GB/JP/CA; C3
+# extends the set with IT/ES/FR (EA periphery members reached by
+# Sprint H + I curves backfill). PT stays out (existing canonical path
+# pre-dates Sprint O); NL stays out (blocked on Sprint M curves probe).
+M3_T1_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"})
 
 
 # Countries where DEGRADED is the *expected* long-run mode even after
@@ -65,8 +64,9 @@ M3_T1_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA"}
 # the canonical EA SPF / national-survey fallback lands with a DEGRADED
 # confidence penalty. Uplift to FULL requires dedicated national linker
 # connectors (CAL-EXPINF-BEI-EA-PERIPHERY) + survey probes
-# (CAL-EXPINF-SURVEY-JP-CA).
-M3_T1_DEGRADED_EXPECTED: frozenset[str] = frozenset({"JP", "CA"})
+# (CAL-EXPINF-SURVEY-JP-CA). FR is excluded — OATi/OATei depth + EA SPF
+# covers the full EXPINF composite once upstream wiring lands.
+M3_T1_DEGRADED_EXPECTED: frozenset[str] = frozenset({"JP", "CA", "IT", "ES"})
 
 
 M3_TIER_FLAG_TEMPLATE: str = "{country}_M3_T1_TIER"
@@ -78,6 +78,8 @@ M3_TIER_FLAG_TEMPLATE: str = "{country}_M3_T1_TIER"
 _LINKER_SPARSITY_FLAGS: dict[str, str] = {
     "JP": "JP_M3_BEI_LINKER_THIN_EXPECTED",
     "CA": "CA_M3_BEI_RRB_LIMITED_EXPECTED",
+    "IT": "IT_M3_BEI_BTP_EI_SPARSE_EXPECTED",
+    "ES": "ES_M3_BEI_BONOS_EI_LIMITED_EXPECTED",
 }
 
 
