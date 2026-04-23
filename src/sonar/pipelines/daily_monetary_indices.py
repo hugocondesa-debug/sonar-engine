@@ -27,15 +27,25 @@ CLI::
     python -m sonar.pipelines.daily_monetary_indices --country US --date 2024-12-31
     python -m sonar.pipelines.daily_monetary_indices --all-t1 --date 2024-12-31
 
-Exit codes mirror :mod:`daily_cost_of_capital`: 0 clean, 1 no inputs,
-3 duplicate, 4 IO.
+Exit codes (ADR-0011 aligned, Sprint T0 2026-04-23):
+
+- ``0`` — happy path: pipeline ran to completion. Includes all
+  mixes of (persisted countries + expected no_inputs for EA members
+  with CAL-M2-EA-PER-COUNTRY deferred + duplicate re-run skips).
+- ``1`` — uncaught structural exception at the orchestrator boundary
+  (per-country failures are caught + logged + continued).
+- ``4`` — IO / connector init failure before the country loop runs.
+
+Sprint T0 removed exit code 3 (duplicate) from the happy-path contract
+per ADR-0011 Principle 1: duplicates are skip + continue and no_inputs
+for EA-per-country deferred builders is expected, not fatal.
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Protocol
 
@@ -160,8 +170,27 @@ def _warn_if_deprecated_alias(country_code: str) -> None:
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1
-EXIT_DUPLICATE = 3
+EXIT_DUPLICATE = 3  # retained for back-compat; unreachable under ADR-0011
 EXIT_IO = 4
+
+# T1 curves-ship cohort — countries with shipped NSS curves (Sprint T0
+# 2026-04-23 / post-Sprint-I). For these countries, m3_forwards_missing
+# is a genuine upstream problem (curves were expected to have persisted
+# the prior daily_curves run). For countries outside this set, m3
+# forwards absent is the expected state (no curves shipped). Split used
+# by :func:`run_one` to log at warning vs info level so journal signal
+# stays proportional to actual coverage expectations.
+_CURVES_SHIPPED_COUNTRIES: frozenset[str] = frozenset(
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"}
+)
+
+# EA-per-country-deferred members — M1 (policy rate is shared ECB DFR)
+# and M2 (academically ambiguous per-country Taylor rule) raise
+# NotImplementedError by design per CAL-M2-EA-PER-COUNTRY (deferred
+# Phase 2+). no_inputs for these countries is **expected**, not an
+# error. Split used by the --all-t1 dispatcher to downgrade the
+# no_inputs log to info level.
+_EA_PER_COUNTRY_DEFERRED: frozenset[str] = frozenset({"DE", "FR", "IT", "ES", "NL", "PT"})
 
 
 class InputsBuilder(Protocol):
@@ -317,6 +346,98 @@ class MonetaryPipelineOutcome:
     persisted: dict[str, int]
 
 
+@dataclass(slots=True)
+class _MonetaryRunOutcomes:
+    """Bucketed per-country outcomes across a --all-t1 orchestration.
+
+    ADR-0011 Principle 4 — end-of-run summary emit. Four disjoint
+    buckets: persisted (at least one index row landed), no_inputs
+    (builders all skipped / returned empty), duplicate (pre-existing
+    rows — idempotent no-op re-run), failed (uncaught exception per
+    country).
+    """
+
+    persisted: list[str] = field(default_factory=list)
+    no_inputs: list[str] = field(default_factory=list)
+    duplicate: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _dispatch_country_loop(
+    *,
+    session: Session,
+    targets: list[str],
+    observation_date: date,
+    inputs_builder: InputsBuilder,
+    db_backed_builder: MonetaryDbBackedInputsBuilder,
+) -> _MonetaryRunOutcomes:
+    """Run each target country; collect outcomes across four buckets.
+
+    ADR-0011 Principle 2 — per-country isolation. A single country's
+    exception is logged + bucketed into ``failed`` and the loop
+    continues so downstream countries still get a shot.
+    """
+    outcomes = _MonetaryRunOutcomes()
+    for c in targets:
+        country_upper = c.upper()
+        try:
+            outcome = run_one(
+                session,
+                c,
+                observation_date,
+                inputs_builder=inputs_builder,
+                db_backed_builder=db_backed_builder,
+            )
+            if sum(outcome.persisted.values()) == 0:
+                # ADR-0011 Principle 3: no_inputs is expected for
+                # EA-per-country-deferred members (M1/M2 share ECB
+                # DFR + academically ambiguous Taylor —
+                # CAL-M2-EA-PER-COUNTRY). Downgrade to info for
+                # those; warn for other T1 countries where a gap
+                # is a genuine signal of upstream absence.
+                if country_upper in _EA_PER_COUNTRY_DEFERRED:
+                    log.info(
+                        "monetary_pipeline.expected_no_inputs",
+                        country=country_upper,
+                        date=observation_date.isoformat(),
+                        reason="ea_per_country_deferred",
+                        skips=outcome.results.skips,
+                    )
+                else:
+                    log.warning(
+                        "monetary_pipeline.no_inputs",
+                        country=country_upper,
+                        date=observation_date.isoformat(),
+                        skips=outcome.results.skips,
+                    )
+                outcomes.no_inputs.append(country_upper)
+            else:
+                outcomes.persisted.append(country_upper)
+        except DuplicatePersistError as exc:
+            # ADR-0011 Principle 1: duplicate = skip + continue.
+            # Unreachable under normal single-process systemd
+            # scheduling (pre-check upstream in daily_curves), retained
+            # here as defence in depth.
+            log.info(
+                "monetary_pipeline.duplicate_skipped",
+                country=country_upper,
+                error=str(exc),
+            )
+            outcomes.duplicate.append(country_upper)
+        except Exception as exc:  # ADR-0011 Principle 2 — per-country isolation
+            # Per-country isolation: one country's HTTP / JSON / upstream
+            # glitch does not kill the pipeline (Apr 23 natural-fire
+            # root cause pattern).
+            log.error(
+                "monetary_pipeline.country_failed",
+                country=country_upper,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            outcomes.failed.append((country_upper, f"{type(exc).__name__}: {exc}"))
+    return outcomes
+
+
 def run_one(
     session: Session,
     country_code: str,
@@ -340,15 +461,34 @@ def run_one(
 
     m3_result: IndexResult | None = None
     if db_backed_builder is not None:
-        try:
-            m3_inputs = db_backed_builder.build_m3_inputs(country_code, observation_date)
-        except Exception as exc:
-            log.warning(
-                "monetary_pipeline.db_backed_m3_error",
-                country=country_code,
-                error=str(exc),
+        country_upper = country_code.upper()
+        if country_upper not in _CURVES_SHIPPED_COUNTRIES:
+            # ADR-0011 Principle 1 / 3: skip m3 attempt when curves
+            # upstream is not shipped for this country (PT / NL / AU /
+            # NZ / CH / SE / NO / DK). The forwards row will not exist;
+            # the underlying library would emit
+            # ``m3_db_backed.forwards_missing`` warning which is noise
+            # for non-shipped countries. Info-level skip keeps journals
+            # clean; the signal for genuine upstream failure is
+            # preserved for T1 shipped countries (US/DE/EA/GB/JP/CA/
+            # IT/ES/FR) where forwards_missing remains a warning.
+            log.info(
+                "monetary_pipeline.m3_skipped_upstream_not_shipped",
+                country=country_upper,
+                date=observation_date.isoformat(),
+                reason="country_outside_curves_ship_cohort",
             )
             m3_inputs = None
+        else:
+            try:
+                m3_inputs = db_backed_builder.build_m3_inputs(country_code, observation_date)
+            except Exception as exc:
+                log.warning(
+                    "monetary_pipeline.db_backed_m3_error",
+                    country=country_code,
+                    error=str(exc),
+                )
+                m3_inputs = None
         if m3_inputs is not None:
             try:
                 m3_result = compute_m3_market_expectations_anchor(m3_inputs)
@@ -581,31 +721,41 @@ def main(
     )
 
     db_backed = _MonetaryDbBackedInputsBuilder(session)
-    exit_code = EXIT_OK
     try:
-        for c in targets:
-            try:
-                outcome = run_one(
-                    session, c, obs_date, inputs_builder=builder, db_backed_builder=db_backed
-                )
-                if sum(outcome.persisted.values()) == 0:
-                    log.warning(
-                        "monetary_pipeline.no_inputs",
-                        country=c,
-                        date=obs_date.isoformat(),
-                        skips=outcome.results.skips,
-                    )
-                    exit_code = exit_code or EXIT_NO_INPUTS
-            except DuplicatePersistError as exc:
-                log.error("monetary_pipeline.duplicate", country=c, error=str(exc))
-                exit_code = EXIT_DUPLICATE
+        outcomes = _dispatch_country_loop(
+            session=session,
+            targets=targets,
+            observation_date=obs_date,
+            inputs_builder=builder,
+            db_backed_builder=db_backed,
+        )
     finally:
         session.close()
         for conn in connectors_to_close:
             close = getattr(conn, "aclose", None)
             if close is not None:
                 asyncio.run(close())
-    sys.exit(exit_code)
+
+    log.info(
+        "monetary_pipeline.summary",
+        date=obs_date.isoformat(),
+        n_persisted=len(outcomes.persisted),
+        n_no_inputs=len(outcomes.no_inputs),
+        n_duplicate=len(outcomes.duplicate),
+        n_failed=len(outcomes.failed),
+        countries_persisted=outcomes.persisted,
+        countries_no_inputs=outcomes.no_inputs,
+        countries_duplicate=outcomes.duplicate,
+        countries_failed=[c for c, _ in outcomes.failed],
+    )
+
+    # ADR-0011 Principle 3: exit 0 whenever the pipeline ran to completion
+    # without an uncaught structural exception. Partial coverage
+    # (some persisted, others expected-no_inputs) is OK. Exit 1 only
+    # when *every* country failed with an uncaught exception.
+    if outcomes.failed and not outcomes.persisted and not outcomes.no_inputs:
+        sys.exit(EXIT_NO_INPUTS)
+    sys.exit(EXIT_OK)
 
 
 if __name__ == "__main__":  # pragma: no cover

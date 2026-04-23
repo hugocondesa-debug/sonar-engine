@@ -405,3 +405,48 @@ def test_monetary_supported_countries_includes_sprint_j_ea_members() -> None:
 
     for cc in ("DE", "FR", "IT", "ES", "NL", "PT"):
         assert cc in MONETARY_SUPPORTED_COUNTRIES, cc
+
+
+# ---------------------------------------------------------------------------
+# Sprint T0 ADR-0011 — exit-code sanitization + per-country isolation
+# ---------------------------------------------------------------------------
+
+
+def test_curves_shipped_countries_matches_daily_curves() -> None:
+    """The monetary pipeline's T1-curves-shipped set must match the set
+    the curves pipeline actually ships. Guard against drift.
+    """
+    from sonar.pipelines.daily_curves import CURVE_SUPPORTED_COUNTRIES  # noqa: PLC0415
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _CURVES_SHIPPED_COUNTRIES,
+    )
+
+    assert _CURVES_SHIPPED_COUNTRIES == CURVE_SUPPORTED_COUNTRIES
+
+
+def test_ea_per_country_deferred_disjoint_from_us() -> None:
+    """EA-per-country-deferred set covers the six EA members whose M1/M2
+    raise NotImplementedError. US is the canonical path and must not
+    appear in the deferral set — otherwise a US no_inputs would be
+    incorrectly downgraded to info level.
+    """
+    from sonar.pipelines.daily_monetary_indices import (  # noqa: PLC0415
+        _EA_PER_COUNTRY_DEFERRED,
+    )
+
+    expected = frozenset({"DE", "FR", "IT", "ES", "NL", "PT"})
+    assert expected == _EA_PER_COUNTRY_DEFERRED
+    assert "US" not in _EA_PER_COUNTRY_DEFERRED
+
+
+def test_monetary_run_outcomes_default_empty() -> None:
+    """Sprint T0 _MonetaryRunOutcomes default constructs with four
+    empty buckets — invariant relied on by the summary-emit Principle 4.
+    """
+    from sonar.pipelines.daily_monetary_indices import _MonetaryRunOutcomes  # noqa: PLC0415
+
+    outcomes = _MonetaryRunOutcomes()
+    assert outcomes.persisted == []
+    assert outcomes.no_inputs == []
+    assert outcomes.duplicate == []
+    assert outcomes.failed == []
