@@ -1,4 +1,4 @@
-# Brief Format v3.2 (active from 2026-04-23 Week 10 Day 3 late)
+# Brief Format v3.3 (active from 2026-04-23 Week 10 Day 3 late night)
 
 Builds on [`brief-format-v2.md`](./brief-format-v2.md). Same minimalist
 spirit; adds three mandatory sections after Week 9 / Day 0 Week 10
@@ -6,10 +6,11 @@ merge workflow lessons (7 incidents in 5 days). v3.1 amends v3 with
 five Week 10 lesson codifications (see §What changed in v3.1). v3.2
 refines §6 systemd clause into Tier A (CC pre-merge) + Tier B
 (operator post-merge) after Week 10 Lesson #12 (see §What changed in v3.2).
-Supersedes v2 for new sprints. Existing v2 briefs in `docs/planning/`
-are historical and ship as-is — **v3 is forward-only; no retrofit
-required**. v3 → v3.1 → v3.2 is additive — v3 / v3.1 briefs stay
-valid; retrofit only if edited.
+v3.3 codifies the brief filename convention after Week 10 Lesson #15
+(see §What changed in v3.3). Supersedes v2 for new sprints. Existing
+v2 briefs in `docs/planning/` are historical and ship as-is — **v3 is
+forward-only; no retrofit required**. v3 → v3.1 → v3.2 → v3.3 is
+additive — earlier-version briefs stay valid; retrofit only if edited.
 
 ## Purpose
 
@@ -73,6 +74,50 @@ ambiguous (written as blocker, structurally deferred).
    `systemctl is-active` + timer re-enable — operator-executed post-merge
    within 24h. Brief §6 acceptance reports Tier A as shippable criteria;
    retro §7 acknowledges Tier B as operator follow-up.
+
+## What changed in v3.3
+
+Additive codification of the brief filename convention after Week 10
+Sprint V arranque surfaced Lesson #15 — the uploaded brief filename
+dropped part of the sprint_id slug (`-permanent-fixes`), so
+`sprint_setup.sh`'s Lesson #1 fix glob returned zero matches and
+HALTed. The tooling detection worked; the author-time convention did
+not exist. v3.3 fixes that gap.
+
+1. **NEW §Filename convention (canonical)** — brief filename MUST
+   follow `week<NN>-<sprint_id>-brief.md`, where `<sprint_id>` is the
+   exact sprint ID literal (dashes, no abbreviation). Author-side
+   first gate; `sprint_setup.sh` remains the tooling-side second
+   gate.
+
+## Filename convention (canonical — v3.3)
+
+Brief filename MUST follow the pattern:
+
+    week<NN>-<sprint_id>-brief.md
+
+Where `<sprint_id>` is the EXACT sprint ID (dashes, not abbreviations).
+Example:
+
+- Sprint ID: `sprint-v-lessons-11-14-permanent-fixes`
+- Valid filename: `week10-sprint-v-lessons-11-14-permanent-fixes-brief.md`
+- INVALID: `week10-sprint-v-lessons-11-14-brief.md` (missing
+  `-permanent-fixes`)
+
+**Rationale**: `sprint_setup.sh` (Week 10 Lesson #1 fix) glob-matches
+using the sprint_id literal. Filename abbreviation breaks the glob,
+causing setup HALT. Enforcing exact sprint_id in filename prevents
+author-time errors.
+
+**Convention check before commit**:
+
+```
+EXPECTED="docs/planning/week${WEEK}-${SPRINT_ID}-brief.md"
+test -f "$EXPECTED" || echo "WARNING: brief filename does not match sprint_id"
+```
+
+Author responsibility. `sprint_setup.sh` will catch mismatches but this
+is the author-side first gate (Week 10 Lesson #15).
 
 ## Structure (13 sections)
 
@@ -388,8 +433,9 @@ Fill retrospectively during retro — flag new CALs discovered mid-sprint.
 file is preserved for historical reference; briefs already written in
 v2 (Week 4 - Week 9, Day 0 Week 10) complete their lifecycle on v2
 without retrofit. Sprints Week 10 Day 1-2 use v3. Sprints Week 10
-Day 3 (R1 bundle + Sprint M + Sprint O) use v3.1. Sprints Week 10 Day 3
-late onward (Sprint V + Sprint T) use v3.2.
+Day 3 (R1 bundle + Sprint M + Sprint O) use v3.1. Sprints Week 10
+Day 3 late (Sprint V + Sprint T) use v3.2. Sprint Z (Day 3 late
+night) onward use v3.3 (filename convention enforcement).
 
 ## References
 
