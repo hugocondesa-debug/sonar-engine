@@ -3155,3 +3155,44 @@ as sub-bullets below when it differs materially from peer countries.
 - **Impact if unresolved:** CA curve fit quality is NS-reduced; Svensson precision on hump/curvature unavailable. Downstream overlay impact modest (10Y anchor unchanged).
 - **Estimate:** 2-3h CC.
 - **Related:** CAL-138 (parent, closed); CAL-CURVES-T1-SPARSE (shared BoC Valet infrastructure).
+
+### CAL-MONETARY-SINGLE-EVENT-LOOP — daily_monetary_indices single `asyncio.run` lifecycle ✅ CLOSED
+
+- **Priority:** URGENT — resolved.
+- **Trigger:** Week 10 Day 3 Apr 23 evening natural-fire via
+  `sonar-daily-monetary-indices.service`. US + DE persisted (duplicate
+  skip), then PT / IT / ES / FR / NL failed back-to-back with
+  `RuntimeError: Event loop is closed`; connector teardown emitted
+  5× `connector_aclose_error` (FredConnector / BisConnector / ...)
+  and the service exited 1. Systemd restart loop 17:37-17:45 WEST
+  until the timer was stopped manually.
+- **Root cause:** `src/sonar/pipelines/daily_monetary_indices.py`
+  wrapped the async `build_live_monetary_inputs` facade in a sync
+  `InputsBuilder` that invoked `asyncio.run()` **per country** (linha
+  627 factory) and iterated a second `asyncio.run(conn.aclose())`
+  loop at teardown (linhas 735-748). Each `asyncio.run` creates and
+  destroys a fresh event loop; `httpx.AsyncClient` transports bind to
+  the loop of first I/O, so country #2+ hit closed-loop sockets. A
+  pre-existing comment (linha 735) acknowledged the hazard but the
+  historical mitigation was try/except warning, not cure.
+- **Fix:** Sprint T0.1 refactor — single `asyncio.run(_run_async_pipeline())`
+  at process entry; `_run_async_pipeline` manages a
+  `contextlib.AsyncExitStack`, registers every connector via
+  `stack.push_async_callback(conn.aclose)`, then awaits a single
+  async dispatcher loop that `await`s the inputs builder per country.
+  Zero `asyncio.run()` calls inside the loop. Pattern elevated to
+  ADR-0011 **Principle 6 — Async lifecycle discipline**.
+- **Validation:**
+  1. Unit: `test_async_lifecycle_single_loop` asserts single
+     `id(asyncio.get_running_loop())` across three-country dispatch.
+  2. Unit: `test_connector_aclose_lifecycle` asserts each registered
+     stub is closed exactly once, all closures on the same loop.
+  3. Unit: `test_pipeline_no_asyncio_run_per_country` static-asserts
+     the module source contains exactly one `asyncio.run(` site.
+  4. Systemd: `sudo systemctl start sonar-daily-monetary-indices.service`
+     → exit 0, journal clean of `Event loop is closed` /
+     `connector_aclose_error` / `country_failed`.
+- **Status:** CLOSED 2026-04-23 (Sprint T0.1).
+- **Related:** ADR-0011 Principle 6 (canonical pattern);
+  CAL-136 precedent (BIS live-canary teardown fix — same pattern,
+  narrower scope).
