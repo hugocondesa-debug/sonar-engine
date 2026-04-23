@@ -121,6 +121,27 @@ repos:
         files: \.(sh|bash)$
 
   # ---------------------------------------------------------------------------
+  # Empty commit guard (Week 10 Lesson #11 fix)
+  #
+  # Runs at commit-msg stage (after all auto-fixers). Rejects commits whose
+  # staged tree is empty vs HEAD — the signature of a pre-commit auto-fix that
+  # silently unstaged the operator's changes (Sprint M C5.1a pathology).
+  #
+  # Guards against false-positive on merge / cherry-pick / revert commits,
+  # which may legitimately have an empty top-level diff (Week 10 Lesson #11
+  # HALT-0 pre-empted).
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: no-empty-commits
+        name: Block empty commits (Week 10 Lesson #11)
+        entry: >-
+          bash -c 'GIT_DIR=$(git rev-parse --git-dir); for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD; do [ -f "$GIT_DIR/$f" ] && exit 0; done; if git diff --cached --quiet; then echo "ERROR — empty commit rejected (no staged changes after hooks). Likely cause: a pre-commit auto-fix unstaged your changes. Re-stage (git add -u) and retry. See docs/planning/retrospectives/week10-sprint-v-report.md Lesson 11."; exit 1; fi'
+        language: system
+        pass_filenames: false
+        stages: [commit-msg]
+
+  # ---------------------------------------------------------------------------
   # Conventional commits (optional — enforces commit message format)
   # ---------------------------------------------------------------------------
   - repo: https://github.com/compilerla/conventional-pre-commit
