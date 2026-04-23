@@ -7,6 +7,12 @@ backlog items, blockers for next work.
 
 Sorted newest-first within each phase.
 
+## Phase 1 — Week 10 — T1 Horizontal Expansion + Prod Healing
+
+| File | Phase / Week | Summary | Date |
+|---|---|---|---|
+| [`week10-sprint-t0-report.md`](./week10-sprint-t0-report.md) | Phase 1 — Week 10 Sprint T0 Prod Healing (Day 3 manhã) | ADR-0011 canónico + schema reference doc + retrofit idempotency / per-country isolation aos 3 serviços daily (curves + monetary + cost-of-capital) que falharam natural-fire Apr 23 overnight. Pattern: partial-persist + systemd retry + non-idempotent UNIQUE violation. 6 commits + backfill Apr 22 + 23 (9/9 T1 countries latest=2026-04-23). Surfaces residual CAL-MONETARY-SINGLE-EVENT-LOOP (refactor async shared loop Phase 2+). | 2026-04-23 |
+
 ## Phase 1 — Week 9 — Completionist M2 T1 Arc
 
 | File | Phase / Week | Summary | Date |
