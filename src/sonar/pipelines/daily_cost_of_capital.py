@@ -147,14 +147,17 @@ EXIT_INSUFFICIENT_DATA = 1
 EXIT_DUPLICATE = 3  # retained for back-compat; unreachable under ADR-0011
 EXIT_IO = 4
 
-# T1 countries with shipped NSS curves (Sprint T0 2026-04-23 /
-# post-Sprint-I). insufficient_data for these countries is a genuine
-# upstream signal (curves were expected from the prior daily_curves
-# run); for countries outside this set, insufficient_data is the
-# expected state. Split drives warn vs info-level logging so journals
-# communicate severity proportional to coverage expectations.
+# T1 countries with shipped NSS curves (Sprint M 2026-04-23 /
+# post-Sprint-I + PT). insufficient_data for these countries is a
+# genuine upstream signal (curves were expected from the prior
+# daily_curves run); for countries outside this set, insufficient_data
+# is the expected state. Split drives warn vs info-level logging so
+# journals communicate severity proportional to coverage expectations.
+# Drift guard: ``test_curves_shipped_countries_matches_daily_curves``
+# in ``tests/unit/test_pipelines/test_daily_cost_of_capital.py``
+# enforces equality with ``daily_curves.CURVE_SUPPORTED_COUNTRIES``.
 _CURVES_SHIPPED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
 )
 
 
