@@ -2666,6 +2666,115 @@ as sub-bullets below when it differs materially from peer countries.
   `CAL-CH-M3`, `CAL-SE-M3`, `CAL-NO-M3`, `CAL-DK-M3`
   (8 items → 1).
 
+### CAL-EXPINF-LIVE-ASSEMBLER-WIRING — US EXPINF live wiring → M3 FULL ✅ CLOSED
+
+- **Status:** CLOSED 2026-04-23 via Week 11 Sprint Q (branch
+  `sprint-q-cal-expinf-live-assembler-wiring`). Opened by Sprint O
+  audit `docs/backlog/audits/sprint-o-m3-exp-inflation-audit.md` §7
+  2026-04-22 after the M3 classifier shipped with 0/9 runtime FULL
+  (observability emit 9/9, runtime FULL 0/9 — "ghost FULL" pattern).
+- **Scope shipped:** `src/sonar/indices/monetary/exp_inflation_loader.py`
+  (new) composes FRED BEI (`T5YIE` / `T10YIE`) + FRED survey
+  (`MICH` + `EXPINF10YR`) into ``build_canonical`` kwargs; `fred`
+  added as optional field on `LiveConnectorSuite`; `LiveInputsBuilder._run`
+  replaces the Sprint 7F hard-coded ``expected_inflation=None`` with
+  the loader call; `daily_overlays._live_inputs_builder_factory` passes
+  `fred` into the suite. Verified end-to-end with 3-day backfill
+  (2026-04-21..23) — US `EXPINF_CANONICAL` `IndexValue` rows
+  `(confidence=1.0, raw_value ≈ 0.024)` persisted and M3 classifier
+  emits `mode=FULL` with `M3_FULL_LIVE` for US; 8 other T1 countries
+  stay DEGRADED with existing flag sets.
+- **Revised acceptance delta vs brief:** brief §5.1 item 4 anticipated
+  ≥3 FULL (US + EA + GB); audit §1 revealed only US has live BEI +
+  survey connectors today (Bundesbank / BoE / BoJ / BoC / ECB SDW
+  expose no live inflation endpoints; country-native linker fetchers
+  are stubs). Sprint Q ships **1/9 FULL (US)** and opens per-country
+  CALs below to land the remaining 8.
+- **Opens:** per-country BEI/survey connector CALs (below); these
+  graduate M3 FULL coverage as connectors land. ADR-0011 Principle 8
+  (observability-before-wiring) not promoted — pattern already surfaced
+  by Sprint O audit-first discipline; revisit if E1/E3/E4 sprints hit
+  the same premise gap.
+
+### CAL-EXPINF-DE-BUNDESBANK-LINKER — DE BEI via Bundesbank inflation-linked Bund (Phase 2)
+
+- **Priority:** MEDIUM — single-country FULL uplift. Unblocks DE M3
+  DEGRADED→FULL once Bundesbank linker `BBSSY` family connector lands.
+- **Scope:** `BundesbankConnector.fetch_yield_curve_linker` stub
+  (`src/sonar/connectors/bundesbank.py:134`) → real implementation on
+  `BBSSY` inflation-linked Bund series. Feeds DE branch of the Sprint Q
+  loader (new per-country dispatch) → `ExpInfBEI` → `build_canonical`
+  → `index_values(EXPINF_CANONICAL)` for DE → M3 classifier promotes
+  DE to FULL.
+- **Replaces:** `CAL-CURVES-DE-LINKER` reference in the stub docstring
+  (re-scoped to this EXPINF-specific CAL since linker is only consumed
+  by EXPINF overlay today).
+- **Dependency:** none beyond Sprint Q closure.
+
+### CAL-EXPINF-EA-ECB-SPF — EA survey expected-inflation via ECB SDW SPF (Phase 2)
+
+- **Priority:** MEDIUM — EA-wide survey anchor covers EA aggregate +
+  all EA-member periphery countries. Single connector ship unblocks
+  DE/EA/FR/IT/ES/PT/NL M3 SURVEY leg simultaneously.
+- **Scope:** ECB SDW SPF endpoint (Survey of Professional Forecasters,
+  quarterly EA HICP forecasts). Explicit Phase-2 deferral in
+  `src/sonar/connectors/ecb_sdw.py:373` + `src/sonar/connectors/te.py:1982`.
+  Loader adds EA branch composing `ExpInfSurvey` from SPF horizons.
+- **Dependency:** none.
+
+### CAL-EXPINF-GB-BOE-ILG-SPF — GB BEI via BoE inflation-linked gilts + BoE SPF (Phase 2)
+
+- **Priority:** MEDIUM — single-country FULL uplift.
+- **Scope:** `BoEDatabaseConnector` extension with inflation-linked
+  gilt (ILG) series + BoE SPF quarterly inflation forecasts. Loader
+  adds GB branch.
+- **Dependency:** none.
+
+### CAL-EXPINF-FR-BDF-OATI-LINKER — FR BEI via Banque de France OATi/OATei (Phase 2)
+
+- **Priority:** MEDIUM — OATei liquidity at 10Y-20Y is the deepest
+  EA linker market; FR FULL uplift is highest-quality EA member
+  promotion after EA aggregate.
+- **Scope:** `BanqueDeFranceConnector.fetch_yield_curve_linker` stub
+  (`src/sonar/connectors/banque_de_france.py:184`) → real OATi/OATei
+  implementation. Loader adds FR branch composing `ExpInfBEI`.
+- **Dependency:** CAL-EXPINF-EA-ECB-SPF (survey leg shared).
+
+### CAL-EXPINF-EA-PERIPHERY-LINKERS — IT/ES BEI via BTP€i / Bonos€i (Phase 2)
+
+- **Priority:** LOW-MEDIUM — long-run DEGRADED expected even post-ship
+  per `M3_T1_DEGRADED_EXPECTED` (linker thin, structurally sparse).
+  Ship still worth it to convert `M3_EXPINF_MISSING` → structural
+  `{IT,ES}_M3_BEI_{BTP_EI,BONOS_EI}_{SPARSE,LIMITED}_EXPECTED`
+  + confidence-penalty DEGRADED (a softer failure).
+- **Scope:** `BancaDItaliaConnector.fetch_yield_curve_linker` +
+  `BancoEspañaConnector.fetch_yield_curve_linker` stubs
+  (`src/sonar/connectors/banca_ditalia.py:208` +
+  `src/sonar/connectors/banco_espana.py:233`) → real BTP€i /
+  Bonos€i implementations.
+- **Dependency:** CAL-EXPINF-EA-ECB-SPF (survey leg shared).
+
+### CAL-EXPINF-SURVEY-JP-CA — JP Tankan + CA BoC Survey of Expectations (Phase 2)
+
+- **Priority:** LOW — long-run DEGRADED expected per
+  `M3_T1_DEGRADED_EXPECTED`; ship converts `M3_EXPINF_MISSING` to
+  `{JP,CA}_M3_BEI_*_EXPECTED` structural-DEGRADED flag semantics.
+- **Scope:** `BoJConnector` extension with Tankan CPI expectations +
+  `BoCConnector` extension with BoC Survey of Expectations inflation
+  forecasts. Loader adds JP + CA branches composing `ExpInfSurvey`.
+- **Dependency:** none.
+
+### CAL-M3-DEGRADED-MODE-UPLIFT — Tracking umbrella for DEGRADED→FULL transitions (Phase 2)
+
+- **Priority:** tracking — closes when all 9 T1 M3 countries reach
+  FULL (contingent on the 6 per-country CALs above).
+- **Scope:** periodic re-check of M3 coverage as EXPINF connectors
+  mature. Retrospective per quarter summarising deltas.
+- **Dependency:** CAL-EXPINF-DE-BUNDESBANK-LINKER +
+  CAL-EXPINF-EA-ECB-SPF + CAL-EXPINF-GB-BOE-ILG-SPF +
+  CAL-EXPINF-FR-BDF-OATI-LINKER + CAL-EXPINF-EA-PERIPHERY-LINKERS +
+  CAL-EXPINF-SURVEY-JP-CA.
+
 ### CAL-M4-T1-FCI-EXPANSION — M4 FCI 5-component bundles for T1 countries ✅ CLOSED
 
 - **Status:** CLOSED 2026-04-23 via Week 10 Sprint J (branch
