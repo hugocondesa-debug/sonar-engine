@@ -161,20 +161,28 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 # under CAL-CURVES-T1-SPARSE (ship path: native CB yield-curve
 # connectors Phase 2+).
 #
-# EA periphery remainder (NL / PT) via TE 10Y-only (Bloomberg symbols
-# GNTH10YR / GSPT10YR) — deferred under per-country CAL items
-# (CAL-CURVES-NL-DNB / CAL-CURVES-PT-BPSTAT) post Sprint A 2026-04-22
-# probe. IT + ES were in the same deferred cohort post Sprint G
-# (national-CB HALT-0), but Sprint H (2026-04-22) shipped both via TE
-# per-tenor cascade — the Sprint G brief §2 probe list had omitted TE
-# (see Week 10 Sprint H retro + ADR-0009 addendum). Sprint H probe
-# 2026-04-22 empirically confirmed 12-tenor IT coverage via the
-# ``GBTPGR`` BTP family over the ``/markets/historical`` endpoint.
-# Sprint I (2026-04-22) closed FR via the same per-tenor cascade — the
-# Sprint D HALT-0 conclusion ("TE GFRN10 10Y-only, below
-# MIN_OBSERVATIONS=6") was structurally the same omission as Sprint G's
-# (single-symbol probe vs full per-tenor sweep across the GFRN family).
-# CAL-CURVES-FR-TE-PROBE opened Sprint H, closed Sprint I.
+# EA periphery remainder: Sprint M (2026-04-23) re-probed PT + NL under
+# ADR-0009 v2 TE Path 1 canonical. **PT shipped** via per-tenor cascade
+# (10 tenors across the ``GSPT`` family — mirror of the IT/ES/FR
+# Sprint H + Sprint I pattern; closes CAL-CURVES-PT-BPSTAT pre-open).
+# **NL HALT-0**: TE exposes only 4 tenors (3M / 6M / 2Y / 10Y) — below
+# ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` — first Path 1 failure in the
+# ADR-0009 v2 ledger. CAL-CURVES-NL-DNB-PROBE opens for Week 11 (DNB
+# cascade Path 2). See ``docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md``
+# for the raw matrix and ADR-0009 v2 §5 addendum for the non-inversion
+# rationale.
+#
+# IT + ES were in the same deferred cohort post Sprint G (national-CB
+# HALT-0), but Sprint H (2026-04-22) shipped both via TE per-tenor
+# cascade — the Sprint G brief §2 probe list had omitted TE (see Week 10
+# Sprint H retro + ADR-0009 addendum). Sprint H probe 2026-04-22
+# empirically confirmed 12-tenor IT coverage via the ``GBTPGR`` BTP
+# family over the ``/markets/historical`` endpoint. Sprint I
+# (2026-04-22) closed FR via the same per-tenor cascade — the Sprint D
+# HALT-0 conclusion ("TE GFRN10 10Y-only, below MIN_OBSERVATIONS=6") was
+# structurally the same omission as Sprint G's (single-symbol probe vs
+# full per-tenor sweep across the GFRN family). CAL-CURVES-FR-TE-PROBE
+# opened Sprint H, closed Sprint I.
 #
 # Symbol quirks discovered empirically (do **not** normalise without a
 # fresh probe — TE symbol naming is non-uniform):
@@ -206,6 +214,15 @@ TE_EQUITY_INDEX_EXPECTED_SYMBOL: dict[str, str] = {
 #   ``MIN_OBSERVATIONS_FOR_SVENSSON``). Sprint D HALT-0 conclusion was
 #   single-symbol-probe artifact — the per-tenor sweep matches the
 #   IT/ES cascade outcome shape.
+# - PT (Sprint M): ``GSPT`` prefix; ``M`` suffix for 3M/6M (no 1M
+#   coverage), ``YR`` suffix for 2Y + 10Y only, bare-``Y`` suffix for
+#   1Y / 3Y / 5Y / 7Y / 20Y / 30Y. Mixed-suffix pattern — empirically
+#   verified per tenor, **do not normalise**. Probe-empty tenors (1M,
+#   15Y in every spelling) are TE-coverage structural gaps confirmed
+#   via both per-tenor ``/markets/historical`` sweep and ``/search``
+#   cross-validation (2026-04-23). 10 tenors total — Svensson-capable
+#   with headroom; closes CAL-CURVES-PT-BPSTAT pre-open. See Sprint M
+#   probe doc at ``docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md``.
 TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
     "GB": {
         "1M": "GUKG1M:IND",
@@ -276,6 +293,18 @@ TE_YIELD_CURVE_SYMBOLS: dict[str, dict[str, str]] = {
         "10Y": "GFRN10:IND",
         "20Y": "GFRN20Y:IND",
         "30Y": "GFRN30Y:IND",
+    },
+    "PT": {
+        "3M": "GSPT3M:IND",
+        "6M": "GSPT6M:IND",
+        "1Y": "GSPT1Y:IND",
+        "2Y": "GSPT2YR:IND",
+        "3Y": "GSPT3Y:IND",
+        "5Y": "GSPT5Y:IND",
+        "7Y": "GSPT7Y:IND",
+        "10Y": "GSPT10YR:IND",
+        "20Y": "GSPT20Y:IND",
+        "30Y": "GSPT30Y:IND",
     },
 }
 
@@ -2016,10 +2045,12 @@ class TEConnector:
 
         Supported countries: GB (12 tenors), JP (9 tenors), CA (6 tenors),
         IT (12 tenors, Sprint H), ES (9 tenors, Sprint H), FR (10 tenors,
-        Sprint I). Other non-EA T1 countries are deferred per
-        CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK have insufficient tenor
-        coverage on TE); EA periphery remainder (NL / PT) deferred per
-        per-country CAL items (see
+        Sprint I), PT (10 tenors, Sprint M). Other non-EA T1 countries
+        are deferred per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/NO/DK have
+        insufficient tenor coverage on TE); NL deferred per
+        CAL-CURVES-NL-DNB-PROBE (Sprint M Path 1 HALT-0: only 4 tenors
+        via TE, below ``MIN_OBSERVATIONS_FOR_SVENSSON``; Path 2 DNB
+        cascade scheduled Week 11 — see
         :data:`sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS`).
 
         Returns ``{tenor_label: Observation}`` with ``yield_bps`` on the
@@ -2040,11 +2071,13 @@ class TEConnector:
             msg = (
                 f"TE yield curve only supports "
                 f"{sorted(TE_YIELD_CURVE_SYMBOLS)} (CAL-138 + Sprint H + "
-                f"Sprint I empirical scope); got {country}. Other T1 "
-                f"countries defer per CAL-CURVES-T1-SPARSE (AU/NZ/CH/SE/"
-                f"NO/DK) or per per-country CAL items (NL / PT — see "
-                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS; IT + "
-                f"ES closed Sprint H, FR closed Sprint I via TE cascade)."
+                f"Sprint I + Sprint M empirical scope); got {country}. "
+                f"Other T1 countries defer per CAL-CURVES-T1-SPARSE "
+                f"(AU/NZ/CH/SE/NO/DK) or per per-country CAL items (NL — "
+                f"Sprint M HALT-0, CAL-CURVES-NL-DNB-PROBE; see "
+                f"sonar.connectors.ecb_sdw.PERIPHERY_CAL_POINTERS. IT + "
+                f"ES closed Sprint H, FR closed Sprint I, PT closed "
+                f"Sprint M via TE cascade)."
             )
             raise ValueError(msg)
 

@@ -223,18 +223,23 @@ async def test_live_canary_gb_10y_gilt(tmp_cache_dir: Path) -> None:
 
 
 def test_yield_curve_symbols_supported_countries() -> None:
-    """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) + Sprint I (FR) empirical scope."""
-    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES", "FR"}
+    """CAL-138 (GB/JP/CA) + Sprint H (IT, ES) + Sprint I (FR) +
+    Sprint M (PT) empirical scope. NL deferred per Sprint M Path 1
+    HALT-0 (only 4 tenors via TE — see CAL-CURVES-NL-DNB-PROBE +
+    docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md)."""
+    assert set(TE_YIELD_CURVE_SYMBOLS) == {"GB", "JP", "CA", "IT", "ES", "FR", "PT"}
 
 
 def test_yield_curve_symbols_tenor_counts() -> None:
-    """Per empirical probe 2026-04-22: GB=12, JP=9, CA=6, IT=12, ES=9, FR=10."""
+    """Per empirical probe 2026-04-22 / 2026-04-23: GB=12, JP=9, CA=6,
+    IT=12, ES=9, FR=10, PT=10."""
     assert len(TE_YIELD_CURVE_SYMBOLS["GB"]) == 12
     assert len(TE_YIELD_CURVE_SYMBOLS["JP"]) == 9
     assert len(TE_YIELD_CURVE_SYMBOLS["CA"]) == 6
     assert len(TE_YIELD_CURVE_SYMBOLS["IT"]) == 12  # full 1M-30Y spectrum
     assert len(TE_YIELD_CURVE_SYMBOLS["ES"]) == 9  # missing 1M, 2Y, 20Y
     assert len(TE_YIELD_CURVE_SYMBOLS["FR"]) == 10  # missing 3Y, 15Y
+    assert len(TE_YIELD_CURVE_SYMBOLS["PT"]) == 10  # missing 1M, 15Y
 
 
 def test_yield_curve_symbols_gb_spectrum() -> None:
@@ -322,6 +327,31 @@ def test_yield_curve_symbols_fr_spectrum() -> None:
     # the curve fetch and the legacy 10Y wrapper agree on the canonical
     # series for FR.
     assert TE_10Y_SYMBOLS["FR"] == fr["10Y"]
+
+
+def test_yield_curve_symbols_pt_spectrum() -> None:
+    """PT covers 3M-30Y minus 1M/15Y (10 tenors; Sprint M).
+
+    Per empirical probe 2026-04-23 PT's ``GSPT`` family is **mixed-suffix**:
+    ``M`` for 3M/6M (no 1M coverage), ``YR`` on 2Y + 10Y only, bare ``Y``
+    on 1Y / 3Y / 5Y / 7Y / 20Y / 30Y. Cross-validated against TE
+    ``/search/portugal%20government%20bond`` — exactly the 10 symbols
+    asserted below are listed (1M + 15Y are TE-coverage structural gaps,
+    not a probe-naming miss). 10 ≥ MIN_OBSERVATIONS_FOR_SVENSSON, so
+    Svensson-capable.
+    """
+    pt = TE_YIELD_CURVE_SYMBOLS["PT"]
+    assert set(pt) == {"3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"}
+    assert pt["10Y"] == "GSPT10YR:IND"  # YR suffix on 10Y (empirical, vs FR/IT bare)
+    assert pt["2Y"] == "GSPT2YR:IND"  # YR suffix on 2Y (empirical, vs FR's GFRN2Y)
+    assert pt["1Y"] == "GSPT1Y:IND"  # bare Y on 1Y (vs ES's GSPG1YR)
+    assert pt["3Y"] == "GSPT3Y:IND"
+    assert pt["20Y"] == "GSPT20Y:IND"
+    assert pt["30Y"] == "GSPT30Y:IND"
+    # Drift guard: 10Y symbol matches the singleton in TE_10Y_SYMBOLS so
+    # the curve fetch and the legacy 10Y wrapper agree on the canonical
+    # series for PT.
+    assert TE_10Y_SYMBOLS["PT"] == pt["10Y"]
 
 
 def test_yield_curve_tenor_years_match_nss() -> None:
@@ -453,12 +483,15 @@ async def test_fetch_yield_curve_nominal_fr_happy(
 async def test_fetch_yield_curve_nominal_rejects_unsupported(
     httpx_mock: HTTPXMock, te_connector: TEConnector
 ) -> None:
-    """AU/NZ/CH/SE/NO/DK + EA periphery remainder (NL/PT) + US rejected.
+    """AU/NZ/CH/SE/NO/DK + NL + US rejected.
 
-    IT + ES moved to the supported set in Sprint H; FR in Sprint I.
+    IT + ES moved to the supported set in Sprint H; FR in Sprint I; PT
+    in Sprint M (TE Path 1 PASS 10 tenors). NL remains rejected post
+    Sprint M Path 1 HALT-0 (only 4 tenors via TE — see
+    CAL-CURVES-NL-DNB-PROBE).
     """
     _ = httpx_mock
-    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "NL", "PT", "US"):
+    for unsupported in ("AU", "NZ", "CH", "SE", "NO", "DK", "NL", "US"):
         with pytest.raises(ValueError, match="TE yield curve only supports"):
             await te_connector.fetch_yield_curve_nominal(
                 country=unsupported, observation_date=date(2024, 12, 31)

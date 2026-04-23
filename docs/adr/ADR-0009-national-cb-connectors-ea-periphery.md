@@ -503,6 +503,159 @@ continuam em EA-AAA proxy-fallback.
 Pattern library v2 mantém-se canonical para Week 11+; Sprint I é
 puro empirical reinforcement.
 
+## Addendum Sprint M (2026-04-23) — PT via TE Path 1 cascade + NL Path 1 HALT-0 (1ª não-inversão)
+
+Sprint M re-probou **PT + NL** sob a disciplina ADR-0009 v2 (TE Path 1
+canonical). O resultado é **assimétrico** — primeira vez em 5
+successor sprints que os dois países sob o mesmo brief caem em estados
+diferentes:
+
+- **PT**: TE Path 1 PASS 10 tenors (1M + 15Y struct-gap confirmed).
+  Cohorts cleanly com IT/ES/FR — a "4ª inversão" da ADR-0009 v1
+  framing, reforçando a v2.
+- **NL**: TE Path 1 **FAIL** 4 tenors (3M / 6M / 2Y / 10Y). Primeira
+  **não-inversão** do ledger v2 — ou seja, primeira vez que a Path 1
+  canonical não serve. Requer Path 2 (DNB native cascade) Week 11 per
+  a ordem de cascade v2 já estabelecida.
+
+### Resultado empírico Sprint M probe (2026-04-23)
+
+Pass criterion: `length >= 500` observations + `latest <= 7 days`
+stale + ≥ 6 tenors por país (MIN_OBSERVATIONS_FOR_SVENSSON floor).
+
+**PT (GSPT family) — 10/12 tenors PASS:**
+
+| Tenor | Symbol | n obs | Latest |
+|---|---|---|---|
+| 3M | `GSPT3M:IND` | 588 | 2026-04-22 |
+| 6M | `GSPT6M:IND` | 589 | 2026-04-22 |
+| 1Y | `GSPT1Y:IND` | 586 | 2026-04-22 |
+| 2Y | `GSPT2YR:IND` | 596 | 2026-04-22 |
+| 3Y | `GSPT3Y:IND` | 603 | 2026-04-22 |
+| 5Y | `GSPT5Y:IND` | 601 | 2026-04-22 |
+| 7Y | `GSPT7Y:IND` | 588 | 2026-04-22 |
+| 10Y | `GSPT10YR:IND` | 601 | 2026-04-22 |
+| 20Y | `GSPT20Y:IND` | 594 | 2026-04-22 |
+| 30Y | `GSPT30Y:IND` | 591 | 2026-04-22 |
+| 1M | — (probe-empty all variants) | 0 | — |
+| 15Y | — (probe-empty all variants) | 0 | — |
+
+PT naming quirk: mixed-suffix. `M` em 3M/6M; `YR` em 2Y + 10Y apenas;
+bare `Y` em 1Y / 3Y / 5Y / 7Y / 20Y / 30Y. TE `/search/portugal%20government%20bond`
+confirmou as 10 acima como lista completa do catálogo — 1M + 15Y
+são gaps estruturais de cobertura TE, não probe-naming miss. Live
+canary (2026-04-21/22/23) retornou `rmse_bps ∈ [7.24, 7.53]`,
+confidence=1.0 em todos os 3 dias.
+
+**NL (GNTH family) — 4/12 tenors PASS:**
+
+| Tenor | Symbol | n obs | Latest |
+|---|---|---|---|
+| 3M | `GNTH3M:IND` | 597 | 2026-04-22 |
+| 6M | `GNTH6M:IND` | 595 | 2026-04-22 |
+| 2Y | `GNTH2YR:GOV` (note `:GOV` suffix — único NL quirk) | 598 | 2026-04-22 |
+| 10Y | `GNTH10YR:IND` | 600 | 2026-04-22 |
+| 1M / 1Y / 3Y / 5Y / 7Y / 15Y / 20Y / 30Y | — (probe-empty em todas as variantes `:IND` e `:GOV`) | 0 | — |
+
+NL `/search/netherlands%20government%20bond` confirmou as 4 acima
+como lista completa — outros 8 tenors são TE-coverage gaps
+estruturais, não probe-naming miss. O `:GOV` suffix quirk no 2Y é
+único em todo o registry (nenhum outro T1 tem `:GOV` — toda a gente
+usa `:IND`). O `Symbol` campo na response payload continua `GNTH2YR:GOV`,
+pelo que downstream guards são consistentes, mas o quirk merece
+nota para qualquer re-probe futuro.
+
+**Total NL = 4 tenors < MIN_OBSERVATIONS_FOR_SVENSSON=6 → HALT-0.**
+
+### Primeira não-inversão ADR-0009 v2 — implicações
+
+Ledger de inversões ADR-0009 v1→v2 ao fecho Sprint M:
+
+| # | Sprint | País | TE tenors | Outcome | Path 2 needed? |
+|---|---|---|---|---|---|
+| 1 | H | IT | 12 | PASS | No |
+| 2 | H | ES | 9 | PASS | No |
+| 3 | I | FR | 10 | PASS | No |
+| 4 | M | PT | 10 | PASS | No |
+| **5** | **M** | **NL** | **4** | **HALT-0** | **YES — Path 2 DNB** |
+
+NL é a primeira **não-inversão** — empiricamente prova que TE Path 1
+não é universal para EA periphery, validando a v2 framing "probe TE
+first, escalate to Path 2/3 only on empirical Path 1 failure". Sem
+esta observação, a v2 regra ficaria indistinguível de "TE sempre
+resolve" (tautologicamente verdadeira nos primeiros 4 sprints).
+
+### Regra operacional v2 mantém-se — Sprint M é primeira validação negativa
+
+A regra "probe TE Path 1 first" não muda. O que Sprint M adiciona:
+
+1. **Empirical scope TE**: TE cobre **maioria** dos EA periphery
+   (IT/ES/FR/PT = 100 % dos probed) mas **não todos** (NL = 0 %
+   Svensson-capable). Per-country probe continua obrigatório.
+2. **"4 tenors + 1 major missing"** (NL's shape: 3M/6M + single
+   2Y + 10Y, nada entre 2Y e 10Y e nada fora de 10Y) é um sinal
+   distinto de "≥6 tenors + small gaps" (IT/ES/FR/PT shape). Pattern
+   library v2.2: quando probe retorna <50 % Svensson-minimum, o
+   Path 2 fallback é **alta prioridade** para Week 11, não
+   deferral.
+3. **Symbol-namespace quirks**: NL expõe `:GOV` no 2Y (único entre
+   T1). Qualquer sweep futuro deve incluir `:GOV` variant na
+   grelha de probe.
+
+### Pattern library v2.2 — Sprint M shape distinction
+
+Sprint M formaliza dois sub-shapes de TE periphery coverage:
+
+- **Shape S1 — Svensson-rich** (IT/ES/FR/PT): ≥ 9 tenors spread
+  across 3M-30Y, full-spectrum curve-fit viable. TE Path 1 ships
+  as-is.
+- **Shape S2 — Point-estimates-only** (NL): 3-4 tenors covering
+  isolated maturities (tipicamente 3M/6M + 2Y + 10Y), insuficiente
+  para Svensson. TE Path 1 HALT-0 → Path 2 required. Shape S2 é
+  provável cohort para outros EA members não-probed (BE/AT/IE/FI —
+  T2+; AU/NZ T1 já sob CAL-CURVES-T1-SPARSE).
+
+### Per-country probe outcomes table (Sprint H + Sprint I + Sprint M)
+
+| Country | TE tenors | Svensson? | Outcome | CAL closed | Shape |
+|---|---|---|---|---|---|
+| IT | 12 | Y | Sprint H PASS | IT-BDI | S1 |
+| ES | 9 | Y | Sprint H PASS | ES-BDE | S1 |
+| FR | 10 | Y | Sprint I PASS | FR-TE-PROBE (FR-BDF stays BLOCKED) | S1 |
+| PT | 10 | Y | Sprint M PASS | PT-BPSTAT (pre-open) | S1 |
+| NL | 4 | N | Sprint M HALT-0 | — (NL-DNB-PROBE **opens** Week 11) | S2 |
+
+### Follow-ups (Sprint M addendum)
+
+1. **CAL-CURVES-NL-DNB-PROBE** open para Week 11 — probe De
+   Nederlandsche Bank nativo (statline.dnb.nl SDMX) para o 8-tenor
+   gap. Expected outcome hypothesis: DNB publica yield curves
+   sovereign diárias como EA periphery conventional; se HTTP 200 +
+   daily + ≥6 tenors → ship via DNB cascade (sub-case "native works",
+   pattern precedent: Bundesbank DE). Se HTTP 200 + monthly only →
+   sub-case C (replication ES-BDE pre-Sprint-H).
+2. **Pattern library v2.2 update** em `docs/adr/ADR-0009-...` — Shape
+   S1 vs S2 distinction codificada aqui mesmo; replication nos
+   próximos briefs periphery.
+3. **NL overlays cascade** continua EA-AAA proxy-fallback até
+   CAL-CURVES-NL-DNB-PROBE close Week 11.
+
+### Post-Sprint M coverage state
+
+**T1 curves coverage 10/16** (US/DE/EA/GB/JP/CA + IT + ES + FR **+ PT**).
+Quatro CAL items CLOSED via TE cascade (IT-BDI + ES-BDE Sprint H +
+FR-TE-PROBE Sprint I + PT-BPSTAT pre-open Sprint M). Um BLOCKED
+conserved (FR-BDF — direct-CB upgrade path; daily pipeline já não
+depende). Um pendente (**NL-DNB-PROBE** — Week 11, via sub-sprint
+dedicado ADR-0009 v2 Path 2). Overlays cascade de PT em produção a
+partir de 2026-04-24 07:30 WEST (primeira execução post-merge);
+NL continua em EA-AAA proxy-fallback até CAL-CURVES-NL-DNB-PROBE
+close.
+
+Pattern library v2.2 codifica Shape S1 (Svensson-rich, TE Path 1
+PASS) vs Shape S2 (point-estimates only, TE Path 1 HALT-0). Sprint M
+é primeira observação S2 + primeira **não-inversão** do ledger v2.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
@@ -524,6 +677,15 @@ puro empirical reinforcement.
 - `docs/planning/retrospectives/week10-sprint-curves-it-es-te-report.md`
   — Sprint H TE-cascade retro (v3 format; closes IT-BDI + ES-BDE via
   Path 1 canonical).
+- `docs/planning/week10-sprint-m-curves-pt-nl-brief.md` §2 pre-flight
+  probe matrix, §4 HALT triggers, §5 acceptance — Sprint M PT/NL
+  successor sprint brief (v3.1 format).
+- `docs/planning/retrospectives/week10-sprint-m-report.md` — Sprint M
+  partial-PASS retro (v3 format; closes PT-BPSTAT pre-open via Path 1
+  canonical; opens NL-DNB-PROBE Week 11 as first Path 1 non-inversion).
+- `docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md` — raw
+  per-tenor probe matrix + /search cross-validation for PT + NL
+  (2026-04-23).
 - `docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`
   — Sprint A precedent (ECB SDW periphery HALT).
 - `docs/planning/retrospectives/week10-sprint-cal138-report.md` —

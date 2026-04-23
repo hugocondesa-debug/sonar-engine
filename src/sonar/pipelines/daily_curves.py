@@ -18,23 +18,26 @@ daily pipelines.
   (BBSIS daily zero-coupon 9 tenors 1Y-30Y; linker stub)
 - **EA**  → :class:`~sonar.connectors.ecb_sdw.EcbSdwConnector`
   (YC dataflow EA-AAA Svensson 11 tenors 3M-30Y; linker stub)
-- **GB / JP / CA / IT / ES / FR** → :class:`~sonar.connectors.te.TEConnector`
+- **GB / JP / CA / IT / ES / FR / PT** → :class:`~sonar.connectors.te.TEConnector`
   (``/markets/historical`` Bloomberg symbols — GB 12 / JP 9 / CA 6
   tenors per CAL-138 empirical probe; IT 12 / ES 9 tenors per Sprint H
   pre-flight 2026-04-22; FR 10 tenors per Sprint I pre-flight
-  2026-04-22; linker stub)
+  2026-04-22; PT 10 tenors per Sprint M pre-flight 2026-04-23; linker
+  stub)
 
-Other T1 countries (AU/NZ/CH/SE/NO/DK + EA periphery remainder
-PT/NL) have insufficient tenor coverage on currently-wired
-connectors. The Week 10 Sprint A pre-flight probe (2026-04-22)
-confirmed that ECB SDW cannot serve per-country EA periphery curves
-— the ``YC`` dataflow is EA-aggregate only, ``FM`` lacks EA
-periphery ``REF_AREA``, and ``IRS`` publishes a single 10Y point per
-country (below ``MIN_OBSERVATIONS=6``). The remaining periphery
-(PT / NL) is tracked under per-country CAL items
-(``CAL-CURVES-PT-BPSTAT`` / ``CAL-CURVES-NL-DNB``) superseding the
-umbrella ``CAL-CURVES-EA-PERIPHERY``; AU/NZ/CH/SE/NO/DK remain under
-``CAL-CURVES-T1-SPARSE``. Pipeline raises
+Other T1 countries (AU/NZ/CH/SE/NO/DK + NL) have insufficient tenor
+coverage on currently-wired connectors. The Week 10 Sprint A
+pre-flight probe (2026-04-22) confirmed that ECB SDW cannot serve
+per-country EA periphery curves — the ``YC`` dataflow is EA-aggregate
+only, ``FM`` lacks EA periphery ``REF_AREA``, and ``IRS`` publishes a
+single 10Y point per country (below ``MIN_OBSERVATIONS=6``). Sprint M
+2026-04-23 empirically confirmed that TE Path 1 serves NL with only
+4 tenors (3M / 6M / 2Y / 10Y) — below
+``MIN_OBSERVATIONS_FOR_SVENSSON=6`` — first Path 1 HALT-0 under
+ADR-0009 v2. NL is tracked under ``CAL-CURVES-NL-DNB-PROBE``
+(Week 11 scheduling for the DNB national-CB cascade);
+AU/NZ/CH/SE/NO/DK remain under ``CAL-CURVES-T1-SPARSE``. Pipeline
+raises
 :class:`~sonar.overlays.exceptions.InsufficientDataError` for those —
 in ``--all-t1`` mode the country is skipped and the orchestrator
 continues; in ``--country <X>`` mode the exit code is
@@ -49,7 +52,9 @@ TE single-tenor; FRED 10Y-monthly). ``CAL-CURVES-FR-BDF`` is marked
 BLOCKED; the scaffolded :mod:`sonar.connectors.banque_de_france`
 connector captures the empirical state. See ADR-0009 for the
 national-CB connector pattern lessons applicable to the four
-successor sprints (IT/ES/PT/NL).
+successor sprints (IT/ES/PT/NL — IT/ES closed Sprint H 2026-04-22, FR
+closed Sprint I 2026-04-22, PT closed Sprint M 2026-04-23, NL still
+open post Sprint M Path 1 HALT-0 via ``CAL-CURVES-NL-DNB-PROBE``).
 
 Week 10 Sprint G (2026-04-22, combined IT + ES pilot) executed
 sprints 2 + 3 of the ADR-0009 successor set. Both landed in HALT-0:
@@ -69,8 +74,9 @@ therefore **ship via TE cascade** (this commit) and close both
 :mod:`sonar.connectors.banca_ditalia` +
 :mod:`sonar.connectors.banco_espana` connectors are retained as
 future direct-CB placeholders (Phase 2.5+ unblock paths documented
-in the Sprint G retro). PT-BPSTAT + NL-DNB remain pending (ADR-0009
-successor sprints 4 + 5).
+in the Sprint G retro). Sprint M (2026-04-23) closed PT-BPSTAT via the
+same TE cascade; NL-DNB remains pending post Path 1 HALT-0 (only 4
+tenors on TE; see ADR-0009 v2 §5 addendum + Sprint M probe doc).
 
 Week 10 Sprint I (2026-04-22) closed ``CAL-CURVES-FR-TE-PROBE`` via
 the same ADR-0009 v2 cascade discipline: a per-tenor sweep across the
@@ -219,35 +225,51 @@ def _curve_already_persisted(
 # - **US** via FRED (full DGS/DFII — nominal + linker)
 # - **DE** via Bundesbank (BBSIS zero-coupon 1Y-30Y)
 # - **EA** via ECB SDW (YC EA-AAA Svensson 3M-30Y aggregate)
-# - **GB / JP / CA / IT / ES / FR** via TE ``/markets/historical``
+# - **GB / JP / CA / IT / ES / FR / PT** via TE ``/markets/historical``
 #   Bloomberg symbols (CAL-138: GB 12 / JP 9 / CA 6 tenors; Sprint H:
-#   IT 12 / ES 9 tenors; Sprint I: FR 10 tenors)
+#   IT 12 / ES 9 tenors; Sprint I: FR 10 tenors; Sprint M: PT 10 tenors)
 #
-# EA periphery remainder (PT / NL) and AU/NZ/CH/SE/NO/DK are deferred
-# per per-country CAL items (``CAL-CURVES-PT-BPSTAT`` …) and
-# ``CAL-CURVES-T1-SPARSE`` respectively; passing them via ``--country <X>``
-# still raises ``InsufficientDataError`` with a CAL pointer — the sparse
-# inclusion change only concerns what ``--all-t1`` iterates.
-T1_CURVES_COUNTRIES: tuple[str, ...] = ("US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR")
+# NL + AU/NZ/CH/SE/NO/DK are deferred per per-country CAL items
+# (``CAL-CURVES-NL-DNB-PROBE`` for NL post Sprint M Path 1 HALT-0;
+# ``CAL-CURVES-T1-SPARSE`` for the rest); passing them via
+# ``--country <X>`` still raises ``InsufficientDataError`` with a CAL
+# pointer — the sparse inclusion change only concerns what
+# ``--all-t1`` iterates.
+T1_CURVES_COUNTRIES: tuple[str, ...] = (
+    "US",
+    "DE",
+    "EA",
+    "GB",
+    "JP",
+    "CA",
+    "IT",
+    "ES",
+    "FR",
+    "PT",
+)
 
-# Countries wired to a curve-fit path at Sprint I close. A country
+# Countries wired to a curve-fit path at Sprint M close. A country
 # outside this set passed to ``--country`` raises InsufficientDataError
 # with a pointer to the tracking CAL item.
 CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
 )
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
-# see the exact CAL item to subscribe to. EA periphery remainder (PT /
-# NL) points to their per-country CAL items; Sprint H 2026-04-22 moved
-# IT + ES out of the deferral map after TE cascade ship closed
+# see the exact CAL item to subscribe to. Sprint H 2026-04-22 moved IT
+# + ES out of the deferral map after TE cascade ship closed
 # ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE``; Sprint I 2026-04-22
 # moved FR out via the same TE cascade (closed
 # ``CAL-CURVES-FR-TE-PROBE``; ``CAL-CURVES-FR-BDF`` remains BLOCKED
-# upstream as the national-CB direct-connector path).
+# upstream as the national-CB direct-connector path). Sprint M
+# 2026-04-23 moved PT out via the same TE cascade (closed
+# ``CAL-CURVES-PT-BPSTAT`` pre-open); NL remains deferred post Sprint
+# M Path 1 HALT-0 and now points to ``CAL-CURVES-NL-DNB-PROBE``
+# (Week 11 DNB native-CB cascade — 4 tenors via TE below
+# ``MIN_OBSERVATIONS_FOR_SVENSSON=6``; see ADR-0009 v2 §5 addendum +
+# ``docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md``).
 _DEFERRAL_CAL_MAP: dict[str, str] = {
-    "PT": "CAL-CURVES-PT-BPSTAT",
-    "NL": "CAL-CURVES-NL-DNB",
+    "NL": "CAL-CURVES-NL-DNB-PROBE",
     "AU": "CAL-CURVES-T1-SPARSE",
     "NZ": "CAL-CURVES-T1-SPARSE",
     "CH": "CAL-CURVES-T1-SPARSE",
@@ -574,10 +596,10 @@ def main(
         False,  # noqa: FBT003 — Typer convention
         "--all-t1",
         help=(
-            "Iterate the Sprint I curve-capable T1 set "
-            "(US/DE/EA/GB/JP/CA/IT/ES/FR — 9 countries). Members without "
-            "curve support skip with a warning; exit 0 if at least "
-            "one succeeds."
+            "Iterate the Sprint M curve-capable T1 set "
+            "(US/DE/EA/GB/JP/CA/IT/ES/FR/PT — 10 countries). Members "
+            "without curve support skip with a warning; exit 0 if at "
+            "least one succeeds."
         ),
     ),
     target_date: str = typer.Option(..., "--date", help="ISO date (e.g. 2024-01-02)."),
