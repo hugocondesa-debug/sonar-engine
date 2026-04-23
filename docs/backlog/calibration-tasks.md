@@ -3114,25 +3114,80 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 3-5h CC (probe + scaffold + ship **or** probe + scaffold + BLOCKED mark).
 - **Related:** ``CAL-CURVES-PT-BPSTAT`` (Sprint M twin — CLOSED via TE Path 1; NL diverges); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template — near-duplicate OpenDatasoft platform risk); ``ADR-0009`` v2.2 (Sprint M addendum — Shape S2 codification + first non-inversion); ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
 
-### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK)
+### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK) — **SUPERSEDED (Sprint T 2026-04-23)**
 
-- **Priority:** MEDIUM — unblocks overlays / cost-of-capital per-country for 6 non-EA T1 countries currently curve-blind.
-- **Trigger:** CAL-138 Sprint empirical probe 2026-04-22 confirmed TE ``/markets/historical`` exposes only 0-2 tenors per country for AU/NZ/CH/SE/NO/DK; country-indicator endpoint only publishes 10Y. ≥6-tenor NSS fit infeasible via TE alone.
-- **Current behavior:** post Week 10 Sprint E (``CAL-CURVES-T1-SPARSE-INCLUSION`` 2026-04-22) ``daily_curves --all-t1`` iterates the six curve-capable countries (``T1_CURVES_COUNTRIES = (US, DE, EA, GB, JP, CA)`` — the shared ``T1_7_COUNTRIES`` 7-tuple is kept intact on the other seven daily pipelines); individual ``--country AU/NZ/CH/SE/NO/DK`` invocations still raise ``InsufficientDataError`` with the CAL-CURVES-T1-SPARSE pointer until the native CB connectors land.
-- **Required work:**
-  1. Native CB yield-curve connectors per country:
-     - AU → RBA F2.1/F16 tables (full AGB spectrum 3M-30Y).
-     - NZ → RBNZ B2 stats (NZGB 2Y-20Y).
-     - CH → SNB zimoba (Confederation bonds 1Y-50Y).
-     - SE → Riksbank Swea (SGB benchmark 2Y-30Y).
-     - NO → Norges Bank DataAPI (NGB 3Y-10Y; limited long-end).
-     - DK → Nationalbanken Statbank (DGB 2Y-30Y).
-  2. Negative-rate-era handling (CH 2014-2022, SE 2015-2019, DK 2015-2022): β0 lower bound widened + ``{country}_YIELD_NEGATIVE_ERA_DATA`` flag per Sprint V/W/Y precedent.
-  3. Pipeline dispatch extension (add native branch per country alongside TE wrapper).
-  4. Live canaries per country + historical negative-era canary for CH/SE/DK.
-- **Impact if unresolved:** Overlays per-country for these 6 T1 countries remain gated; cost-of-capital cascade cannot run ex-US/EA.
-- **Estimate:** 15-20h CC sprint (6 countries × ~2-3h native CB setup + negative-rate era guards).
-- **Related:** CAL-138 (parent, closed); Sprint V/W/X-NO/Y-DK monetary native connectors already shipped (reuse auth + parsing infrastructure).
+- **Priority:** SUPERSEDED — umbrella CAL replaced by 6 per-country CALs (one per sparse T1 country) post Sprint T empirical decomposition.
+- **Supersession:** Sprint T 2026-04-23 re-probed all 6 countries under ADR-0009 v2 discipline (TE Path 1 mandatory + v2.2 S1/S2 classifier). Outcome: 1 S1 PASS (AU, 8 tenors via TE ``GACGB`` family — **CAL-CURVES-AU-PATH-2** closed pre-open) + 5 S2 HALT-0 (NZ/CH/SE/NO/DK, all ≤3 tenors). The 5 HALT-0 countries move to dedicated per-country CALs (**CAL-CURVES-NZ-PATH-2**, **CAL-CURVES-CH-PATH-2**, **CAL-CURVES-SE-PATH-2**, **CAL-CURVES-NO-PATH-2**, **CAL-CURVES-DK-PATH-2** — see below), each scoped to its Path 2 national-CB / aggregator candidate independently.
+- **Related:** ``CAL-CURVES-AU-PATH-2`` (CLOSED Sprint T pre-open); ``CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2`` (OPEN Week 11+ per-country Path 2 probes); ``ADR-0009`` v2.2 (Sprint T addendum — first large-scale S1/S2 classifier application).
+
+### CAL-CURVES-AU-PATH-2 — AU sovereign yield curve via TE Path 1 cascade — **CLOSED (pre-open via TE cascade, Sprint T 2026-04-23)**
+
+- **Priority:** CLOSED — AU ships via TE Path 1 per ADR-0009 v2.2 S1 PASS classification (mirrors PT-BPSTAT Sprint M precedent — CAL opens + closes in same sprint).
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned 8/12 tenors (1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y via ``GACGB`` family; 1M/3M/6M/15Y structural gaps). 8 ≥ ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S1 PASS, first **sparse-T1** S1 inversion in the ADR-0009 v2 ledger.
+- **Empirical probe matrix (Sprint T 2026-04-23):**
+  - PASS: ``GACGB1Y:IND`` (n=616), ``GACGB2Y:IND`` (n=611), ``GACGB3Y:IND`` (n=611), ``GACGB5Y:IND`` (n=614), ``GACGB7Y:IND`` (n=612), ``GACGB10:IND`` (n=608 — bare 10Y quirk, same as IT/GB/JP/FR), ``GACGB20Y:IND`` (n=624), ``GACGB30Y:IND`` (n=623). All latest 2026-04-22.
+  - FAIL: 1M / 3M / 6M / 15Y — structural TE-coverage gaps (confirmed via ``/search/australia%20government%20bond`` exhaustive list).
+- **Resolution:** ``src/sonar/connectors/te.py`` ``TE_YIELD_CURVE_SYMBOLS["AU"]`` + ``TE_10Y_SYMBOLS["AU"] = "GACGB10:IND"`` shipped Sprint T; ``T1_CURVES_COUNTRIES`` extended 10 → 11; Apr 21/22/23 backfilled (rmse_bps 3.08 / 3.18 / 3.63, confidence 0.75 uniform).
+- **Related:** ``CAL-CURVES-PT-BPSTAT`` (Sprint M precedent — same pre-open CAL closure pattern); ``ADR-0009`` v2.2 (Sprint T addendum — Shape S1 validation for first sparse-T1); ``CAL-CURVES-T1-LINKER`` AU portion = permanent ``LINKER_UNAVAILABLE`` (no open-form ACGBi retail coverage).
+
+### CAL-CURVES-NZ-PATH-2 — NZ sovereign yield curve via RBNZ Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #2)**
+
+- **Priority:** LOW-MEDIUM — NZD is a small sovereign market but T1 per ADR-0010; needed for per-country ERP cleanliness.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 3 tenors (``GNZGB1:IND`` n=531 1Y, ``GNZGB2:GOV`` n=587 2Y — note ``:GOV`` suffix quirk analogous to NL's ``GNTH2YR:GOV``, ``GNZGB10:IND`` n=599 10Y). 3 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. **Discovery**: ``GNZGB1:IND`` returned live-daily via per-tenor probe but was **not listed** in ``/search/new-zealand%20government%20bond`` — pattern-library signal that ``/search`` is high-recall but not exhaustive (ADR-0009 v2.3 amendment candidate §9.1).
+- **Current behavior:** ``daily_curves --country NZ`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NZ-PATH-2``; ``--all-t1`` skips NZ.
+- **Candidate Path 2 data paths (re-probe required):**
+  1. **RBNZ statistics portal (rbnz.govt.nz/statistics)** — table B2 (government bond yields) is the primary candidate; tenor spectrum unknown pre-probe. Expected publication is monthly archive but daily aggregation may be available via API.
+  2. **NZDMO (New Zealand Debt Management Office)** — issuer-side tenor-specific benchmark quotes; no known open API.
+- **Estimate:** 2-3h CC probe + scaffold.
+- **Related:** ``CAL-CURVES-NL-DNB-PROBE`` (same Shape S2 pattern, Sprint M precedent); ``ADR-0009`` v2.2 (Sprint T addendum).
+
+### CAL-CURVES-CH-PATH-2 — CH sovereign yield curve via SNB Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #3)**
+
+- **Priority:** LOW-MEDIUM — CHF haven-currency status makes CH curve valuable for cross-asset risk but TE coverage refutes "sovereign-market-size ⇒ TE coverage" prior.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GSWISS2:GOV`` n=584 2Y, ``GSWISS10:IND`` n=583 10Y). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. Hypothesis "CHF haven bid drives TE depth" refuted.
+- **Current behavior:** ``daily_curves --country CH`` raises ``InsufficientDataError`` citing ``CAL-CURVES-CH-PATH-2``; ``--all-t1`` skips CH.
+- **Candidate Path 2 data paths (re-probe required):**
+  1. **SNB data portal (data.snb.ch)** — primary candidate; SNB publishes sight-deposit rate via the already-wired ``SnbConnector`` (Sprint V-CH monetary), so auth + parsing infra is partially reusable. Yield-curve spectrum unknown pre-probe — need to explore the fixed-income data cube.
+  2. **Swiss Federal Treasury (efv.admin.ch)** — issuer side, tenor-specific.
+  3. **BIS sovereign yields** — cross-country fallback, lower cadence.
+- **Negative-rate-era handling:** CH experienced sustained negative yields 2014-2022 (SNB deposit rate trough -0.75%). β0 lower bound widening + ``CH_YIELD_NEGATIVE_ERA_DATA`` flag per Sprint V/W/Y monetary precedent.
+- **Estimate:** 2-3h CC probe + scaffold.
+- **Related:** ``CAL-CURVES-NL-DNB-PROBE`` / ``CAL-CURVES-NZ-PATH-2`` (same Shape S2 pattern); Sprint V-CH ``SnbConnector`` (reusable auth infra).
+
+### CAL-CURVES-SE-PATH-2 — SE sovereign yield curve via Riksbank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #4)**
+
+- **Priority:** LOW-MEDIUM — SEK Nordic market; per-country cost-of-capital cleanliness.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GSGB2YR:GOV`` n=580 2Y, ``GSGB10YR:GOV`` n=589 10Y, both uniformly ``:GOV`` suffix). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0.
+- **Current behavior:** ``daily_curves --country SE`` raises ``InsufficientDataError`` citing ``CAL-CURVES-SE-PATH-2``; ``--all-t1`` skips SE.
+- **Candidate Path 2 data paths (re-probe required):**
+  1. **Riksbank statistics portal (www.riksbank.se/en-gb/statistics/)** — primary; Riksbank publishes SGB benchmark rates daily. Auth / parsing infra partially reusable via Sprint W-SE ``RiksbankConnector``.
+  2. **Swedish National Debt Office (riksgalden.se)** — issuer side.
+- **Negative-rate-era handling:** SE experienced negative rates 2015-2019 (min SE repo -0.50%); β0 widening + flag per Sprint W precedent.
+- **Estimate:** 2-3h CC probe + scaffold.
+- **Related:** ``CAL-CURVES-NO-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint W-SE ``RiksbankConnector`` (reusable infra).
+
+### CAL-CURVES-NO-PATH-2 — NO sovereign yield curve via Norges Bank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #5)**
+
+- **Priority:** LOW — NOK sovereign wealth offset → smaller public debt market; lowest priority of sparse T1 Path 2 cohort.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 3 tenors (``NORYIELD6M:GOV`` n=585 6M, ``NORYIELD52W:GOV`` n=587 1Y-equivalent, ``GNOR10YR:GOV`` n=582 10Y). 3 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. **Quirk**: NO spans two distinct prefix families simultaneously within TE — ``GNOR`` (Bloomberg-style, 10Y only) + ``NORYIELD`` (Norwegian convention, short-end). First T1 country to exhibit dual-prefix family coverage in TE — pattern-library signal (ADR-0009 v2.3 amendment candidate §9.2).
+- **Current behavior:** ``daily_curves --country NO`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NO-PATH-2``; ``--all-t1`` skips NO.
+- **Candidate Path 2 data paths (re-probe required):**
+  1. **Norges Bank statistics (www.norges-bank.no/en/topics/Statistics/)** — primary; Norges Bank publishes NGB yields daily. Auth / parsing infra partially reusable via Sprint X-NO ``NorgesbankConnector``.
+  2. **Oslo Børs fixed income** — issuer-side market depth.
+- **Estimate:** 2-3h CC probe + scaffold.
+- **Related:** ``CAL-CURVES-SE-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint X-NO ``NorgesbankConnector`` (reusable infra).
+
+### CAL-CURVES-DK-PATH-2 — DK sovereign yield curve via Nationalbanken Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #6)**
+
+- **Priority:** LOW-MEDIUM — DKK EUR-peg → DK curve tracks Bund + small premium, but per-country ERP/cost-of-capital pipelines still need it.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GDGB2YR:GOV`` n=592 2Y, ``GDGB10YR:GOV`` n=598 10Y). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0.
+- **Current behavior:** ``daily_curves --country DK`` raises ``InsufficientDataError`` citing ``CAL-CURVES-DK-PATH-2``; ``--all-t1`` skips DK.
+- **Candidate Path 2 data paths (re-probe required):**
+  1. **Danmarks Nationalbanken Statsbank (nationalbanken.statbank.dk)** — primary; Nationalbanken publishes DGB yields daily. Auth / parsing infra largely reusable via Sprint Y-DK ``NationalbankenConnector`` (which already handles CD-rate vs discount-rate divergence during negative-rate era — ver retro §4).
+  2. **Danish Ministry of Finance** — issuer side, auction results.
+- **Negative-rate-era handling:** DK experienced sustained negative yields 2015-2022 (CD rate trough -0.75%, discount rate -0.60% 2021-2022); β0 widening + flag per Sprint Y precedent.
+- **Estimate:** 1-2h CC (lowest cost of the 5 Path 2 CALs given existing ``NationalbankenConnector`` infrastructure).
+- **Related:** ``CAL-CURVES-NO-PATH-2`` / ``CAL-CURVES-SE-PATH-2`` (Nordic cohort); Sprint Y-DK ``NationalbankenConnector`` (reusable infra + negative-rate handling precedent).
 
 ### CAL-CURVES-T1-LINKER — Inflation-indexed yield curves for T1 non-US countries
 
