@@ -26,17 +26,22 @@ Confirm git branch:
 
 Expected: sprint-{sprint_id}. If different, STOP and report.
 
-Confirm brief present:
+Confirm brief present (canonical filename per brief format v3.3
+§Filename convention — Week 10 Lesson #15):
 
-  ls -la docs/planning/week{NN}-sprint-{sprint_id}-*brief.md
+  ls -la docs/planning/week<NN>-<sprint_id>-brief.md
+
+Example (Sprint V): ls -la docs/planning/week10-sprint-v-lessons-11-14-permanent-fixes-brief.md
 
 If missing, STOP. Brief upload verification (Week 10 Lesson #1 fix) should
 have caught this at sprint_setup time; if we reach here without brief,
-something drifted.
+something drifted — typically a filename-mismatch (Lesson #15): the
+uploaded brief does not contain the full sprint_id literal.
 
 === BRIEF ===
 
-Full brief: docs/planning/week{NN}-sprint-{sprint_id}-{title}-brief.md
+Full brief: docs/planning/week<NN>-<sprint_id>-brief.md
+# Canonical form per brief format v3.3 §Filename convention (Lesson #15)
 
 === CONTEXT 1-LINER ===
 
@@ -126,6 +131,8 @@ cleanup.
 
 **Lesson #1 (brief upload)**: Pre-flight verifies brief present. If `sprint_setup.sh` pre-flight check (Lesson #1 fix) failed, this is second net.
 
+**Lesson #15 (brief filename convention)**: Template pre-flight `ls` now uses the canonical `week<NN>-<sprint_id>-brief.md` form (brief format v3.3 §Filename convention). Abbreviated filenames break the glob match — surfacing the mismatch at author time prevents sprint_setup HALT mid-arranque.
+
 **Lesson #4 (tmux cleanup)**: Template closing notes reference `sprint_merge.sh` Step 10 responsibility, reinforcing operator awareness.
 
 **Lesson #2 (pre-commit double-run)**: Template closing notes reference explicitly, reducing operator reliance on memory.
@@ -136,4 +143,4 @@ cleanup.
 
 If additional lessons emerge, amend template with new gate clauses in PRE-FLIGHT section or EXECUTION notes. Template itself is versioned under `docs/templates/` for historical trace.
 
-*Last updated: 2026-04-23 Week 10 retro R1 bundle.*
+*Last updated: 2026-04-23 Week 10 Day 3 late night — Sprint Z (Lesson #15 filename convention).*
