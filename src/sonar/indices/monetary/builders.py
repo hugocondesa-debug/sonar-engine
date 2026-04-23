@@ -52,6 +52,7 @@ from sonar.overlays.exceptions import InsufficientDataError
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from sonar.connectors.bis import BisConnector
     from sonar.connectors.boc import BoCConnector
     from sonar.connectors.boe_database import BoEDatabaseConnector
     from sonar.connectors.boj import BoJConnector
@@ -99,7 +100,9 @@ __all__ = [
     "build_m4_au_inputs",
     "build_m4_ca_inputs",
     "build_m4_ch_inputs",
+    "build_m4_de_inputs",
     "build_m4_dk_inputs",
+    "build_m4_ea_inputs",
     "build_m4_jp_inputs",
     "build_m4_no_inputs",
     "build_m4_nz_inputs",
@@ -3358,6 +3361,130 @@ def _us_policy_rate_prev_month(
 
 
 # ---------------------------------------------------------------------------
+# M4 — Shared helpers (Sprint J — Week 10 Day 2)
+# ---------------------------------------------------------------------------
+#
+# Sprint J pre-flight probe (2026-04-22) established that 7 entities
+# (EA aggregate + DE + FR + IT + ES + NL + PT) have all 5 custom-FCI
+# components viable via the shared-EA proxy pattern (VSTOXX + BAML EA
+# HY OAS) combined with country-specific NEER (BIS) + mortgage (ECB
+# MIR) + 10Y yield (ECB YC for EA; TE fetch_sovereign_yield for EA
+# members where available). ``_assemble_m4_ea_custom_inputs`` builds
+# the :class:`M4FciInputs` dataclass from those five streams with the
+# Sprint J flag conventions surfaced on ``upstream_flags``.
+
+
+def _monthly_values(obs: Sequence[_DatedValue], anchor: date, n_months: int) -> tuple[float, ...]:
+    """Monthly EOM resample of ``obs`` up to ``anchor`` as a tuple."""
+    return tuple(_resample_monthly(obs, anchor, n_months=n_months))
+
+
+async def _assemble_m4_ea_custom_inputs(
+    *,
+    country_code: str,
+    observation_date: date,
+    history_years: int,
+    vol_daily: Sequence[_DatedValue],
+    credit_spread_daily: Sequence[_DatedValue],
+    ten_year_yield_daily: Sequence[_DatedValue],
+    neer_monthly: Sequence[_DatedValue],
+    mortgage_monthly: Sequence[_DatedValue],
+    source_connector: tuple[str, ...],
+) -> M4FciInputs:
+    """Assemble 5-component custom-path M4 FCI inputs.
+
+    ``*_daily`` series are sampled at the anchor (last-on-or-before)
+    for the current-period value and month-end-resampled for the
+    rolling history. ``*_monthly`` streams are already at monthly
+    cadence; the helper anchor-samples + month-resamples uniformly.
+
+    Emits Sprint-J observability flags on ``upstream_flags``:
+
+    - ``{COUNTRY}_M4_VOL_TE_LIVE`` — VSTOXX/VIX via TE markets.
+    - ``{COUNTRY}_M4_CREDIT_SPREAD_FRED_OAS_LIVE`` — BAML OAS via FRED
+      (shared-EA proxy for EA members).
+    - ``{COUNTRY}_M4_NEER_BIS_LIVE`` + ``_MONTHLY_CADENCE``.
+    - ``{COUNTRY}_M4_MORTGAGE_ECB_MIR_LIVE``.
+    - ``{COUNTRY}_M4_FULL_COMPUTE_LIVE`` when all 5 components map to
+      a non-None anchor value; ``_SCAFFOLD_ONLY`` otherwise
+      (compute-side raises via MIN_CUSTOM_COMPONENTS).
+    """
+    vol = _latest_on_or_before(vol_daily, observation_date)
+    spread = _latest_on_or_before(credit_spread_daily, observation_date)
+    yld = _latest_on_or_before(ten_year_yield_daily, observation_date)
+    neer = _latest_on_or_before(neer_monthly, observation_date)
+    mort = _latest_on_or_before(mortgage_monthly, observation_date)
+
+    # Units contract (callers pass through):
+    # - vol_daily: level (index points, e.g. VIX=18.0).
+    # - credit_spread_daily: pp (e.g. 3.20 for 3.20 %).
+    # - ten_year_yield_daily: bps (L0 Observation.yield_bps shape).
+    # - neer_monthly: level (BIS index base 2010=100).
+    # - mortgage_monthly: pp (e.g. 3.30 for 3.30 %).
+    # Convert yield bps → decimal (0.0335 for 3.35 %) and mortgage pp
+    # → decimal at the assembler boundary; vol + NEER + spread stay in
+    # their native units per M4FciInputs field conventions.
+    vol_v = vol.value if vol is not None else None
+    spread_v = spread.value if spread is not None else None
+    yld_v = yld.value / 10_000.0 if yld is not None else None
+    neer_v = neer.value if neer is not None else None
+    mort_v = mort.value / 100.0 if mort is not None else None
+
+    n_months = history_years * 12
+    flags: list[str] = []
+    components_present = 0
+    if vol_v is not None:
+        flags.append(f"{country_code}_M4_VOL_TE_LIVE")
+        components_present += 1
+    if spread_v is not None:
+        flags.append(f"{country_code}_M4_CREDIT_SPREAD_FRED_OAS_LIVE")
+        components_present += 1
+    if yld_v is not None:
+        flags.append(f"{country_code}_M4_10Y_YIELD_LIVE")
+        components_present += 1
+    if neer_v is not None:
+        flags.append(f"{country_code}_M4_NEER_BIS_LIVE")
+        flags.append(f"{country_code}_M4_NEER_MONTHLY_CADENCE")
+        components_present += 1
+    if mort_v is not None:
+        flags.append(f"{country_code}_M4_MORTGAGE_ECB_MIR_LIVE")
+        components_present += 1
+    if components_present >= 5:
+        flags.append(f"{country_code}_M4_FULL_COMPUTE_LIVE")
+    else:
+        flags.append(f"{country_code}_M4_SCAFFOLD_ONLY")
+
+    prior_fci_anchor = observation_date - timedelta(days=365)
+    prior = _latest_on_or_before(vol_daily, prior_fci_anchor)
+    fci_level_12m_ago_proxy = prior.value if prior is not None else None
+
+    return M4FciInputs(
+        country_code=country_code,
+        observation_date=observation_date,
+        credit_spread_bps=spread_v,
+        credit_spread_bps_history=_monthly_values(credit_spread_daily, observation_date, n_months),
+        vol_index=vol_v,
+        vol_index_history=_monthly_values(vol_daily, observation_date, n_months),
+        gov_10y_yield_pct=yld_v,
+        gov_10y_yield_pct_history=tuple(
+            v / 10_000.0
+            for v in _resample_monthly(ten_year_yield_daily, observation_date, n_months=n_months)
+        ),
+        fx_neer_pct=neer_v,
+        fx_neer_pct_history=_monthly_values(neer_monthly, observation_date, n_months),
+        mortgage_rate_pct=mort_v,
+        mortgage_rate_pct_history=tuple(
+            v / 100.0
+            for v in _resample_monthly(mortgage_monthly, observation_date, n_months=n_months)
+        ),
+        fci_level_12m_ago=fci_level_12m_ago_proxy,
+        lookback_years=history_years,
+        source_connector=source_connector,
+        upstream_flags=tuple(flags),
+    )
+
+
+# ---------------------------------------------------------------------------
 # M4 — US
 # ---------------------------------------------------------------------------
 
@@ -3368,7 +3495,13 @@ async def build_m4_us_inputs(
     *,
     history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
 ) -> M4FciInputs:
-    """Assemble M4 US inputs from FRED (direct NFCI path)."""
+    """Assemble M4 US inputs from FRED (direct NFCI path).
+
+    CANONICAL PRESERVATION (Sprint J HALT-1 guard): this builder uses
+    NFCI direct-provider exclusively per spec §4 step 1. Sprint J adds
+    OAS + vol wrappers to the US connector surface, but US M4 remains
+    on the NFCI short-circuit; no custom-path flags leak here.
+    """
     start = observation_date - timedelta(days=history_years * 366)
 
     nfci = _to_dated(await fred.fetch_nfci_us(start, observation_date))
@@ -3390,6 +3523,131 @@ async def build_m4_us_inputs(
         fci_level_12m_ago=fci_level_12m_ago,
         lookback_years=history_years,
         source_connector=("fred",),
+    )
+
+
+# ---------------------------------------------------------------------------
+# M4 — EA aggregate + DE (Sprint J — Week 10 Day 2)
+# ---------------------------------------------------------------------------
+
+
+async def _ea_custom_common_streams(
+    *,
+    fred: FredConnector,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    mir_country: str,
+    neer_country: str,
+    yield_country: str,
+    observation_date: date,
+    history_years: int,
+) -> tuple[
+    list[_DatedValue],  # vol_daily
+    list[_DatedValue],  # credit_spread_daily
+    list[_DatedValue],  # ten_year_yield_daily
+    list[_DatedValue],  # neer_monthly
+    list[_DatedValue],  # mortgage_monthly
+]:
+    """Fetch the 5 Sprint-J M4 component streams shared across EA members."""
+    start = observation_date - timedelta(days=history_years * 366)
+
+    vol = _to_dated(await te.fetch_equity_volatility_markets("EA", start, observation_date))
+    spread = _to_dated(await fred.fetch_ea_hy_oas(start, observation_date))
+    # 10Y yield per country — TE `/markets/historical` 10Y symbol map.
+    # Carried as yield_bps through the pipeline; the M4 assembler
+    # converts bps → decimal at its boundary.
+    yld = _to_dated(
+        await te.fetch_sovereign_yield_historical(yield_country, "10Y", start, observation_date),
+        value_attr="yield_bps",
+    )
+    neer = _to_dated(
+        await bis.fetch_neer(neer_country, start, observation_date),
+        value_attr="value_index",
+    )
+    mort = _to_dated(
+        await ecb_sdw.fetch_mortgage_rate(mir_country, start, observation_date),
+        value_attr="value",
+    )
+    return vol, spread, yld, neer, mort
+
+
+async def build_m4_ea_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 EA aggregate inputs (Sprint J — 5-component custom path).
+
+    Components: VSTOXX (TE) + BAML EA HY OAS (FRED) + Bund-proxy 10Y
+    (TE DE) + BIS NEER (XM) + ECB MIR (U2). EA aggregate bypasses the
+    US NFCI direct-provider; custom path emits
+    ``EA_M4_FULL_COMPUTE_LIVE`` when all 5 components map.
+    """
+    vol, spread, yld, neer, mort = await _ea_custom_common_streams(
+        fred=fred,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        mir_country="EA",
+        neer_country="EA",
+        yield_country="DE",  # Bund as EA 10Y reference per spec M4 §2
+        observation_date=observation_date,
+        history_years=history_years,
+    )
+    return await _assemble_m4_ea_custom_inputs(
+        country_code="EA",
+        observation_date=observation_date,
+        history_years=history_years,
+        vol_daily=vol,
+        credit_spread_daily=spread,
+        ten_year_yield_daily=yld,
+        neer_monthly=neer,
+        mortgage_monthly=mort,
+        source_connector=("te", "fred", "bis", "ecb_sdw"),
+    )
+
+
+async def build_m4_de_inputs(
+    fred: FredConnector,
+    observation_date: date,
+    *,
+    te: TEConnector,
+    bis: BisConnector,
+    ecb_sdw: EcbSdwConnector,
+    history_years: int = M4_DEFAULT_LOOKBACK_YEARS,
+) -> M4FciInputs:
+    """Assemble M4 DE inputs (Sprint J — 5-component custom path).
+
+    Mirrors EA aggregate but with country-specific NEER (BIS DE) +
+    mortgage rate (ECB MIR DE). VSTOXX + BAML EA HY OAS consumed as
+    shared-EA proxies per Sprint J §1 probe outcome.
+    """
+    vol, spread, yld, neer, mort = await _ea_custom_common_streams(
+        fred=fred,
+        te=te,
+        bis=bis,
+        ecb_sdw=ecb_sdw,
+        mir_country="DE",
+        neer_country="DE",
+        yield_country="DE",
+        observation_date=observation_date,
+        history_years=history_years,
+    )
+    return await _assemble_m4_ea_custom_inputs(
+        country_code="DE",
+        observation_date=observation_date,
+        history_years=history_years,
+        vol_daily=vol,
+        credit_spread_daily=spread,
+        ten_year_yield_daily=yld,
+        neer_monthly=neer,
+        mortgage_monthly=mort,
+        source_connector=("te", "fred", "bis", "ecb_sdw"),
     )
 
 
@@ -3422,6 +3680,7 @@ class MonetaryInputsBuilder:
         nationalbanken: NationalbankenConnector | None = None,
         te: TEConnector | None = None,
         oecd_eo: OECDEOConnector | None = None,
+        bis: BisConnector | None = None,
     ) -> None:
         self.fred = fred
         self.cbo = cbo
@@ -3437,6 +3696,7 @@ class MonetaryInputsBuilder:
         self.nationalbanken = nationalbanken
         self.te = te
         self.oecd_eo = oecd_eo
+        self.bis = bis
 
     async def build_m1_inputs(  # noqa: PLR0911 — dispatch table; flat returns are the clearest form
         self, country: str, observation_date: date, **kwargs: object
@@ -3647,6 +3907,26 @@ class MonetaryInputsBuilder:
     ) -> M4FciInputs:
         if country == "US":
             return await build_m4_us_inputs(self.fred, observation_date, **kwargs)  # type: ignore[arg-type]
+        if country in ("EA", "DE"):
+            # Sprint J (Week 10 Day 2) — EA aggregate + per-country EA
+            # member M4 FCI custom-path FULL compute via shared-EA
+            # proxy pattern (VSTOXX + BAML EA HY OAS) plus
+            # country-specific NEER (BIS) + MIR (ECB) + 10Y yield (TE).
+            if self.te is None or self.bis is None:
+                msg = (
+                    f"M4 {country} requires TE + BIS connectors registered on "
+                    f"MonetaryInputsBuilder (Sprint J shared-EA proxy pattern)."
+                )
+                raise NotImplementedError(msg)
+            builder = build_m4_ea_inputs if country == "EA" else build_m4_de_inputs
+            return await builder(
+                self.fred,
+                observation_date,
+                te=self.te,
+                bis=self.bis,
+                ecb_sdw=self.ecb_sdw,
+                **kwargs,  # type: ignore[arg-type]
+            )
         if country == "JP":
             return await build_m4_jp_inputs(
                 self.fred,

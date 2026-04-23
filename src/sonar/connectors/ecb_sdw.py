@@ -111,6 +111,52 @@ ECB_DFR_SERIES_ID = "D.U2.EUR.4F.KR.DFR.LEV"
 ECB_EUROSYSTEM_BS_DATAFLOW = "ILM"
 ECB_EUROSYSTEM_BS_SERIES_ID = "W.U2.C.T000000.Z5.Z01"
 
+# ---------------------------------------------------------------------------
+# MIR dataflow — MFI interest rates (Sprint J, Week 10 Day 2)
+# ---------------------------------------------------------------------------
+#
+# Key format ``M.{CC}.B.A2C.A.R.A.2250.EUR.N`` = monthly MFI lending
+# rate for new business, loans to households for house purchase
+# (narrowly-defined effective rate, EUR-denominated, no amount cap).
+# Sprint J Commit 1 pre-flight probe (2026-04-22) confirmed 7/7
+# coverage for EA aggregate (U2) + DE + FR + IT + ES + NL + PT.
+# GB / JP / CA / AU / NZ / CH / SE / NO / DK are not served by MIR
+# (non-EA jurisdictions) and are tracked under
+# CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION for per-CB native
+# mortgage-rate series.
+ECB_MIR_DATAFLOW = "MIR"
+# SONAR ISO code → ECB MIR REF_AREA code.
+_SONAR_TO_ECB_MIR_REF_AREA: dict[str, str] = {
+    "EA": "U2",
+    "DE": "DE",
+    "FR": "FR",
+    "IT": "IT",
+    "ES": "ES",
+    "NL": "NL",
+    "PT": "PT",
+}
+ECB_MIR_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(_SONAR_TO_ECB_MIR_REF_AREA)
+
+
+def _ecb_mir_series_id(country: str) -> str:
+    """Return the MIR dataflow series ID for ``country`` (SONAR ISO code).
+
+    Raises ValueError for non-supported countries — non-EA T1
+    jurisdictions open CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION.
+    """
+    country_upper = country.upper()
+    ref_area = _SONAR_TO_ECB_MIR_REF_AREA.get(country_upper)
+    if ref_area is None:
+        msg = (
+            f"ECB MIR only supports EA aggregate + 6 EA members at Sprint J "
+            f"scope; got {country!r}. Non-EA T1 jurisdictions open "
+            f"CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION for per-CB native "
+            f"mortgage-rate series."
+        )
+        raise ValueError(msg)
+    return f"M.{ref_area}.B.A2C.A.R.A.2250.EUR.N"
+
+
 # Per-country CAL pointers for EA periphery members whose full yield
 # curves are not served by ECB SDW (Sprint A 2026-04-22 probe finding).
 # These supersede the umbrella CAL-CURVES-EA-PERIPHERY — each country
@@ -229,6 +275,30 @@ class EcbSdwConnector(BaseConnector):
             start,
             end,
         )
+
+    async def fetch_mortgage_rate(
+        self,
+        country: str,
+        start: date,
+        end: date,
+    ) -> list[EcbMonetaryObservation]:
+        """MFI mortgage rate — monthly AAR / NDER, new business (Sprint J).
+
+        Consumes MIR dataflow key
+        ``M.{REF_AREA}.B.A2C.A.R.A.2250.EUR.N`` — lending rate for new
+        business loans to households for house purchase
+        (narrowly-defined effective rate, EUR, no amount cap). Supported
+        countries: EA aggregate (U2) + DE + FR + IT + ES + NL + PT.
+        Non-EA T1 jurisdictions open
+        CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION for per-CB native
+        series.
+
+        Returns ``list[EcbMonetaryObservation]`` in percent (decimal
+        point e.g. 3.30 % at PT Jan 2024); monthly cadence with
+        ``observation_date`` anchored on month-end.
+        """
+        series_id = _ecb_mir_series_id(country)
+        return await self._fetch_monetary_series(ECB_MIR_DATAFLOW, series_id, start, end)
 
     async def fetch_series(self, series_id: str, start: date, end: date) -> list[Observation]:
         cache_key = f"ecb_sdw:{series_id}:{start.isoformat()}:{end.isoformat()}"
@@ -359,11 +429,13 @@ def _parse_monetary_csv(body: str, dataflow: str, series_id: str) -> list[EcbMon
     return out
 
 
-def _parse_time_period(time_period: str) -> date | None:
+def _parse_time_period(time_period: str) -> date | None:  # noqa: PLR0911 — explicit cascade over {daily, weekly, monthly} cadences reads more clearly than a table
     """Convert ECB SDW ``TIME_PERIOD`` into a date.
 
-    Supports ``YYYY-MM-DD`` (daily) and ``YYYY-Www`` (weekly, anchors on
-    the Friday of the ISO week).
+    Supports ``YYYY-MM-DD`` (daily), ``YYYY-Www`` (weekly, anchors on
+    the Friday of the ISO week) and ``YYYY-MM`` (monthly, anchors on
+    the month-end). Monthly support added Sprint J for the MIR
+    dataflow (mortgage interest rates).
     """
     # ISO week format (``YYYY-Www``) has to be handled before fromisoformat —
     # Python 3.11+ parses ``2024-W41`` to the Monday of that week, but ECB
@@ -375,6 +447,17 @@ def _parse_time_period(time_period: str) -> date | None:
             return date.fromisocalendar(year, week, 5)  # Friday
         except ValueError:
             return None
+    # Monthly (``YYYY-MM``) — anchor on the last day of the month.
+    if len(time_period) == 7 and time_period[4] == "-":
+        try:
+            year = int(time_period[:4])
+            month = int(time_period[5:])
+        except ValueError:
+            return None
+        if month == 12:
+            return date(year, 12, 31)
+        next_first = date(year, month + 1, 1)
+        return next_first - timedelta(days=1)
     try:
         return datetime.fromisoformat(time_period).date()
     except ValueError:

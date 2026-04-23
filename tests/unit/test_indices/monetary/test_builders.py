@@ -50,7 +50,9 @@ from sonar.indices.monetary.builders import (
     build_m4_au_inputs,
     build_m4_ca_inputs,
     build_m4_ch_inputs,
+    build_m4_de_inputs,
     build_m4_dk_inputs,
+    build_m4_ea_inputs,
     build_m4_jp_inputs,
     build_m4_no_inputs,
     build_m4_nz_inputs,
@@ -1180,6 +1182,206 @@ class TestBuildM4Us:
         assert inputs.nfci_level == pytest.approx(-0.5)
         assert inputs.fci_level_12m_ago == pytest.approx(-0.5)
         assert len(inputs.nfci_history) >= 12
+
+
+# ---------------------------------------------------------------------------
+# Sprint J — M4 EA aggregate + DE shared-EA-proxy custom-path FULL compute
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _FakeTEMarketsObs:
+    observation_date: date
+    value: float
+
+
+@dataclass(frozen=True)
+class _FakeBisEerObs:
+    observation_date: date
+    value_index: float
+
+
+@dataclass(frozen=True)
+class _FakeEcbMonetaryObs:
+    observation_date: date
+    value: float
+
+
+class _FakeFredConnectorM4(_FakeFredConnector):
+    """FRED stub with Sprint J OAS wrappers (BAML IG / EA HY)."""
+
+    def __init__(self, *, ig_oas_pct: float = 0.85, ea_hy_oas_pct: float = 3.20) -> None:
+        super().__init__()
+        self.ig_oas_pct = ig_oas_pct
+        self.ea_hy_oas_pct = ea_hy_oas_pct
+
+    async def fetch_us_ig_oas(self, start: date, end: date) -> list[_Obs]:
+        return _daily_range(start, end, self.ig_oas_pct)
+
+    async def fetch_ea_hy_oas(self, start: date, end: date) -> list[_Obs]:
+        return _daily_range(start, end, self.ea_hy_oas_pct)
+
+
+class _FakeTEConnectorM4:
+    """Minimal TE stub for Sprint J M4 EA + DE builders.
+
+    Covers `fetch_equity_volatility_markets` (VIX/VSTOXX markets) +
+    `fetch_sovereign_yield_historical` (10Y Bund) with daily cadence.
+    """
+
+    def __init__(self, *, vol_level: float = 18.0, bund_yield_pct: float = 2.10) -> None:
+        self.vol_level = vol_level
+        self.bund_yield_pct = bund_yield_pct
+
+    async def fetch_equity_volatility_markets(
+        self, country: str, start: date, end: date
+    ) -> list[_FakeTEMarketsObs]:
+        _ = country
+        out: list[_FakeTEMarketsObs] = []
+        d = start
+        while d <= end:
+            out.append(_FakeTEMarketsObs(observation_date=d, value=self.vol_level))
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+    async def fetch_sovereign_yield_historical(
+        self, country: str, tenor: str, start: date, end: date
+    ) -> list[Observation]:
+        _ = country, tenor
+        out: list[Observation] = []
+        d = start
+        while d <= end:
+            out.append(
+                Observation(
+                    country_code="DE",
+                    observation_date=d,
+                    tenor_years=10.0,
+                    yield_bps=round(self.bund_yield_pct * 100),
+                    source="TE",
+                    source_series_id="GDBR10:IND",
+                )
+            )
+            d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+
+class _FakeBisConnectorM4:
+    """BIS stub that exposes monthly NEER at a fixed level."""
+
+    def __init__(self, *, neer_index: float = 105.0) -> None:
+        self.neer_index = neer_index
+
+    async def fetch_neer(
+        self, country: str, start_date: date, end_date: date
+    ) -> list[_FakeBisEerObs]:
+        _ = country
+        out: list[_FakeBisEerObs] = []
+        year, month = start_date.year, start_date.month
+        while date(year, month, 1) <= end_date:
+            d = _last_day_of_month(year, month)
+            out.append(_FakeBisEerObs(observation_date=d, value_index=self.neer_index))
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+        return out
+
+
+class _FakeEcbSdwConnectorM4:
+    """ECB SDW stub covering Sprint J MIR wrapper."""
+
+    def __init__(self, *, mortgage_rate_pct: float = 3.50) -> None:
+        self.mortgage_rate_pct = mortgage_rate_pct
+
+    async def fetch_mortgage_rate(
+        self, country: str, start: date, end: date
+    ) -> list[_FakeEcbMonetaryObs]:
+        _ = country
+        out: list[_FakeEcbMonetaryObs] = []
+        year, month = start.year, start.month
+        while date(year, month, 1) <= end:
+            d = _last_day_of_month(year, month)
+            out.append(_FakeEcbMonetaryObs(observation_date=d, value=self.mortgage_rate_pct))
+            month += 1
+            if month > 12:
+                month = 1
+                year += 1
+        return out
+
+
+class TestBuildM4EaSprintJ:
+    @pytest.mark.asyncio
+    async def test_happy_path_ea_full_compute(self) -> None:
+        fred = _FakeFredConnectorM4()
+        te = _FakeTEConnectorM4()
+        bis = _FakeBisConnectorM4()
+        ecb = _FakeEcbSdwConnectorM4()
+        inputs = await build_m4_ea_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            bis=bis,  # type: ignore[arg-type]
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "EA"
+        # VSTOXX proxy.
+        assert inputs.vol_index == pytest.approx(18.0)
+        # BAML EA HY OAS 3.20 pp.
+        assert inputs.credit_spread_bps == pytest.approx(3.20)
+        # Bund 10Y as EA reference, yield_bps 210 -> 2.10 %.
+        assert inputs.gov_10y_yield_pct == pytest.approx(0.021, abs=1e-6)
+        assert inputs.fx_neer_pct == pytest.approx(105.0)
+        assert inputs.mortgage_rate_pct == pytest.approx(0.035, abs=1e-6)
+        # Flags emitted per Sprint J convention.
+        assert "EA_M4_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+        assert "EA_M4_VOL_TE_LIVE" in inputs.upstream_flags
+        assert "EA_M4_CREDIT_SPREAD_FRED_OAS_LIVE" in inputs.upstream_flags
+        assert "EA_M4_NEER_BIS_LIVE" in inputs.upstream_flags
+        assert "EA_M4_NEER_MONTHLY_CADENCE" in inputs.upstream_flags
+        assert "EA_M4_MORTGAGE_ECB_MIR_LIVE" in inputs.upstream_flags
+        # Source connector tuple alphabetical intent check.
+        assert set(inputs.source_connector) == {"te", "fred", "bis", "ecb_sdw"}
+
+
+class TestBuildM4DeSprintJ:
+    @pytest.mark.asyncio
+    async def test_happy_path_de_full_compute(self) -> None:
+        fred = _FakeFredConnectorM4()
+        te = _FakeTEConnectorM4()
+        bis = _FakeBisConnectorM4(neer_index=102.5)
+        ecb = _FakeEcbSdwConnectorM4(mortgage_rate_pct=3.80)
+        inputs = await build_m4_de_inputs(
+            fred,  # type: ignore[arg-type]
+            date(2024, 12, 31),
+            te=te,  # type: ignore[arg-type]
+            bis=bis,  # type: ignore[arg-type]
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            history_years=2,
+        )
+        assert inputs.country_code == "DE"
+        assert inputs.fx_neer_pct == pytest.approx(102.5)
+        assert inputs.mortgage_rate_pct == pytest.approx(0.038, abs=1e-6)
+        assert "DE_M4_FULL_COMPUTE_LIVE" in inputs.upstream_flags
+
+
+class TestSprintJUsBaselineGuard:
+    """HALT-1 absolute regression guard — US M4 canonical preserved."""
+
+    @pytest.mark.asyncio
+    async def test_us_m4_canonical_preserved(self) -> None:
+        fred = _FakeFredConnector()
+        inputs = await build_m4_us_inputs(fred, date(2024, 12, 31), history_years=2)  # type: ignore[arg-type]
+        # NFCI direct-provider path: nfci_level set, no custom-path flags.
+        assert inputs.nfci_level is not None
+        assert inputs.source_connector == ("fred",)
+        # No Sprint J custom-path flags leaking into US canonical.
+        leak = [
+            f
+            for f in inputs.upstream_flags
+            if f.startswith(("US_M4_VOL", "US_M4_CREDIT", "US_M4_FULL_COMPUTE"))
+        ]
+        assert leak == [], leak
 
 
 # ---------------------------------------------------------------------------
