@@ -12,27 +12,43 @@ Covers the post-Sprint-H (IT + ES TE cascade 2026-04-22) surface of
 - Tuple invariants: :data:`T1_CURVES_COUNTRIES` matches
   :data:`CURVE_SUPPORTED_COUNTRIES` and is disjoint from the deferred
   CAL-pointer map.
+- ADR-0011 idempotency: :func:`_curve_already_persisted` returns True
+  when a matching ``(country_code, date, methodology_version)`` row
+  exists and False otherwise (Sprint T0 2026-04-23).
 
-Pure unit — no network, no DB. Each connector is replaced with an
-``AsyncMock`` returning a 10-tenor nominal + empty linker dict, which
-is the dispatch-layer contract the pipeline relies on before NSS fit.
+Pure unit — no network; the idempotency test uses an in-memory SQLite
+DB so the canonical UNIQUE constraint surface is exercised.
 """
 
 from __future__ import annotations
 
+import json as _json
 from datetime import date
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+import sonar.db.session  # noqa: F401 — registers SQLite pragma listeners
 from sonar.connectors.base import Observation
+from sonar.db.models import Base, NSSYieldCurveSpot
 from sonar.overlays.exceptions import InsufficientDataError
+from sonar.overlays.nss import METHODOLOGY_VERSION as NSS_METHODOLOGY_VERSION
 from sonar.pipelines.daily_curves import (
     _DEFERRAL_CAL_MAP,
     CURVE_SUPPORTED_COUNTRIES,
     T1_CURVES_COUNTRIES,
+    _curve_already_persisted,
+    _CurveRunOutcomes,
     _fetch_nominals_linkers,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from sqlalchemy.orm import Session
 
 OBSERVATION_DATE = date(2024, 12, 30)
 
@@ -228,3 +244,97 @@ async def test_dispatch_routes_ea_to_ecb_sdw() -> None:
         te=None,
     )
     assert source == "ecb_sdw"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0011 idempotency — pre-INSERT existence check (Sprint T0 2026-04-23)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def db_session_in_memory() -> Iterator[Session]:
+    """In-memory SQLite session with the full ORM schema applied.
+
+    Enforces the production UNIQUE constraint
+    ``uq_ycs_country_date_method`` so the idempotency pre-check can be
+    validated under the canonical schema (ADR-0011 Principle 1).
+    """
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _insert_spot_row(session: Session, country: str, observation_date: date) -> None:
+    row = NSSYieldCurveSpot(
+        country_code=country,
+        date=observation_date,
+        methodology_version=NSS_METHODOLOGY_VERSION,
+        fit_id=f"fit-{country}-{observation_date.isoformat()}",
+        beta_0=0.04,
+        beta_1=-0.01,
+        beta_2=0.005,
+        beta_3=0.0,
+        lambda_1=1.5,
+        lambda_2=3.0,
+        fitted_yields_json=_json.dumps({"10Y": 0.04}),
+        observations_used=10,
+        rmse_bps=3.0,
+        xval_deviation_bps=None,
+        confidence=0.95,
+        flags=None,
+        source_connector="unit_test",
+    )
+    session.add(row)
+    session.commit()
+
+
+def test_curve_already_persisted_false_on_empty_db(db_session_in_memory: Session) -> None:
+    """Empty DB → no existing triplet → returns False.
+
+    Expected happy path before any run has persisted anything.
+    """
+    assert not _curve_already_persisted(db_session_in_memory, "US", OBSERVATION_DATE)
+
+
+def test_curve_already_persisted_true_after_insert(db_session_in_memory: Session) -> None:
+    """After an INSERT for the triplet → returns True → orchestrator skip.
+
+    Matches ADR-0011 Principle 1: idempotent re-runs hit the pre-check,
+    skip the fetch + fit cost, log ``daily_curves.skip_existing`` and
+    continue. No UNIQUE violation, no exit 3.
+    """
+    _insert_spot_row(db_session_in_memory, "US", OBSERVATION_DATE)
+    assert _curve_already_persisted(db_session_in_memory, "US", OBSERVATION_DATE)
+
+
+def test_curve_already_persisted_discriminates_country(db_session_in_memory: Session) -> None:
+    """UNIQUE is ``(country, date, method)`` — US row does not mask a
+    missing DE row on the same date.
+    """
+    _insert_spot_row(db_session_in_memory, "US", OBSERVATION_DATE)
+    assert _curve_already_persisted(db_session_in_memory, "US", OBSERVATION_DATE)
+    assert not _curve_already_persisted(db_session_in_memory, "DE", OBSERVATION_DATE)
+
+
+def test_curve_already_persisted_discriminates_date(db_session_in_memory: Session) -> None:
+    """Different observation_date for the same country → not masked."""
+    _insert_spot_row(db_session_in_memory, "US", OBSERVATION_DATE)
+    other = date(2024, 12, 31)
+    assert not _curve_already_persisted(db_session_in_memory, "US", other)
+
+
+def test_curve_run_outcomes_default_is_empty() -> None:
+    """Default-constructed outcomes bucket starts empty across all four
+    slots. Summary-emit Principle 4 depends on this invariant.
+    """
+    outcomes = _CurveRunOutcomes()
+    assert outcomes.persisted == []
+    assert outcomes.skipped_existing == []
+    assert outcomes.skipped_insufficient == []
+    assert outcomes.failed == []

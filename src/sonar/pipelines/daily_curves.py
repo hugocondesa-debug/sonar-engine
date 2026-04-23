@@ -90,20 +90,36 @@ CLI entrypoints:
     python -m sonar.pipelines.daily_curves --country US --date 2024-01-02
     python -m sonar.pipelines.daily_curves --all-t1 --date 2024-01-02
 
-Exit codes:
+Exit codes (ADR-0011 aligned, Sprint T0 2026-04-23):
 
-* ``0`` — clean run, at least one country succeeded (``--all-t1``) or the
-  single country succeeded (``--country``).
-* ``1`` — ``InsufficientDataError`` (single country, or all T1 skipped).
-* ``2`` — ``ConvergenceError`` from optimizer (single country only).
-* ``3`` — ``DuplicatePersistError`` (triplet already in DB).
-* ``4`` — IO / network / unexpected exception.
+* ``0`` — happy path: at least one country persisted OR all requested
+  countries were skipped-existing (idempotent no-op re-run). Also 0
+  when a mix of persisted + skipped-existing + expected-insufficient
+  countries completes without any uncaught exception.
+* ``1`` — ``InsufficientDataError`` in strict-single mode
+  (``--country X``); or ``--all-t1`` where **every** country failed
+  or was skipped without a single persist or skip-existing.
+* ``2`` — ``ConvergenceError`` from optimizer. Reserved constant, not
+  emitted under ADR-0011 (caught by per-country isolation in
+  ``--all-t1``; surfaces as exit 4 in strict-single mode).
+* ``4`` — IO / network / unexpected exception at the orchestrator
+  boundary (per-country exceptions are caught + logged + continued).
+
+Week 10 Sprint T0 (2026-04-23) removed exit code 3 (DuplicatePersistError)
+from the happy-path contract per ADR-0011 Principle 1: duplicates are
+skip + continue at the orchestrator via a pre-INSERT existence check
+on ``(country_code, date, methodology_version)``. A race-condition
+``DuplicatePersistError`` at the persist layer (extremely rare under
+single-process systemd scheduling) is still caught + logged as info
++ continued; the exit code 3 literal is retained as defence-in-depth
+but unreachable under normal operation.
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -117,10 +133,12 @@ from sonar.connectors.bundesbank import BundesbankConnector
 from sonar.connectors.ecb_sdw import EcbSdwConnector
 from sonar.connectors.fred import FredConnector
 from sonar.connectors.te import TE_YIELD_CURVE_SYMBOLS, TEConnector
+from sonar.db.models import NSSYieldCurveSpot
 from sonar.db.persistence import DuplicatePersistError, persist_nss_fit_result
 from sonar.db.session import SessionLocal
-from sonar.overlays.exceptions import ConvergenceError, InsufficientDataError
+from sonar.overlays.exceptions import InsufficientDataError
 from sonar.overlays.nss import (
+    METHODOLOGY_VERSION as NSS_METHODOLOGY_VERSION,
     MIN_OBSERVATIONS,
     NSSInput,
     _label_to_years,
@@ -142,8 +160,51 @@ log = structlog.get_logger()
 EXIT_OK = 0
 EXIT_INSUFFICIENT_DATA = 1
 EXIT_CONVERGENCE = 2
-EXIT_DUPLICATE = 3
+EXIT_DUPLICATE = 3  # retained for defence-in-depth; unreachable under ADR-0011
 EXIT_IO = 4
+
+
+@dataclass(slots=True)
+class _CurveRunOutcomes:
+    """Bucketed per-country outcomes across a single --all-t1 orchestration.
+
+    ADR-0011 Principle 4 (summary emit): end-of-run log consolidates
+    these buckets so a single ``daily_curves.summary`` log line tells
+    the operator what happened country-by-country without grep-ing the
+    run trace.
+    """
+
+    persisted: list[str] = field(default_factory=list)
+    skipped_existing: list[str] = field(default_factory=list)
+    skipped_insufficient: list[tuple[str, str]] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _curve_already_persisted(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+    methodology_version: str = NSS_METHODOLOGY_VERSION,
+) -> bool:
+    """Return ``True`` if a ``yield_curves_spot`` row already exists.
+
+    ADR-0011 Principle 1 (idempotency per row) pre-INSERT check. Avoids
+    re-fetch + re-fit network cost when Run N already persisted the
+    ``(country_code, date, methodology_version)`` triplet. The UNIQUE
+    constraint ``uq_ycs_country_date_method`` remains as defence in
+    depth at the persist layer.
+    """
+    existing = (
+        session.query(NSSYieldCurveSpot.id)
+        .filter(
+            NSSYieldCurveSpot.country_code == country_code,
+            NSSYieldCurveSpot.date == observation_date,
+            NSSYieldCurveSpot.methodology_version == methodology_version,
+        )
+        .first()
+    )
+    return existing is not None
+
 
 # Curve-pipeline-specific T1 scope — diverges from the canonical
 # ``T1_7_COUNTRIES`` convention (US + 6 EA members) shared by
@@ -366,12 +427,14 @@ async def _orchestrate_countries(
     countries: list[str],
     observation_date: date,
     cache_dir: Path,
-) -> tuple[list[str], list[tuple[str, str]]]:
+) -> _CurveRunOutcomes:
     """Run each country through :func:`run_country`, collecting outcomes.
 
-    Returns ``(successes, skipped)`` where ``skipped`` is a list of
-    ``(country, reason)`` pairs. ``ConvergenceError`` /
-    ``DuplicatePersistError`` bubble up — the caller wraps them.
+    Per ADR-0011 Principles 1-2: pre-INSERT existence check for
+    idempotent skip, per-country try/except so one country's failure
+    does not sink the pipeline. Returns a :class:`_CurveRunOutcomes`
+    with four disjoint buckets (persisted, skipped_existing,
+    skipped_insufficient, failed).
     """
     placeholder = "your_fred_api_key_here"  # pragma: allowlist secret
     have_fred = bool(settings.fred_api_key) and settings.fred_api_key != placeholder
@@ -391,10 +454,20 @@ async def _orchestrate_countries(
     )
 
     session = SessionLocal()
-    successes: list[str] = []
-    skipped: list[tuple[str, str]] = []
+    outcomes = _CurveRunOutcomes()
     try:
         for c in countries:
+            country_upper = c.upper()
+            if _curve_already_persisted(session, country_upper, observation_date):
+                log.info(
+                    "daily_curves.skip_existing",
+                    country=country_upper,
+                    date=observation_date.isoformat(),
+                    methodology_version=NSS_METHODOLOGY_VERSION,
+                    reason="idempotent_pre_check",
+                )
+                outcomes.skipped_existing.append(country_upper)
+                continue
             try:
                 await run_country(
                     c,
@@ -405,15 +478,39 @@ async def _orchestrate_countries(
                     ecb_sdw=ecb_sdw,
                     te=te,
                 )
-                successes.append(c.upper())
+                outcomes.persisted.append(country_upper)
             except InsufficientDataError as exc:
                 log.warning(
                     "daily_curves.skipped",
-                    country=c.upper(),
+                    country=country_upper,
                     reason="insufficient_data",
                     detail=str(exc),
                 )
-                skipped.append((c.upper(), str(exc)))
+                outcomes.skipped_insufficient.append((country_upper, str(exc)))
+            except DuplicatePersistError as exc:
+                # Defence-in-depth: the pre-check above should have caught
+                # this. A race-condition hit here (extremely rare under
+                # single-process systemd scheduling) is logged as info and
+                # counted as skipped_existing, not as an error.
+                log.info(
+                    "daily_curves.duplicate_race",
+                    country=country_upper,
+                    date=observation_date.isoformat(),
+                    detail=str(exc),
+                )
+                outcomes.skipped_existing.append(country_upper)
+            except Exception as exc:  # ADR-0011 Principle 2
+                # Per-country isolation: log + continue. One country's
+                # RetryError / HTTPError / unexpected exception must not
+                # sink the pipeline (Apr 23 natural-fire root cause).
+                log.error(
+                    "daily_curves.country_failed",
+                    country=country_upper,
+                    date=observation_date.isoformat(),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                outcomes.failed.append((country_upper, f"{type(exc).__name__}: {exc}"))
     finally:
         if fred is not None:
             await fred.aclose()
@@ -422,7 +519,7 @@ async def _orchestrate_countries(
         if te is not None:
             await te.aclose()
         session.close()
-    return successes, skipped
+    return outcomes
 
 
 def _run_sync(
@@ -433,32 +530,38 @@ def _run_sync(
     strict_single: bool,
 ) -> int:
     async def _orchestrate() -> int:
-        try:
-            successes, skipped = await _orchestrate_countries(
-                countries, observation_date, cache_dir
-            )
-        except InsufficientDataError as exc:
-            log.error("daily_curves.insufficient_data", error=str(exc))
-            return EXIT_INSUFFICIENT_DATA
-        except ConvergenceError as exc:
-            log.error("daily_curves.convergence_failed", error=str(exc))
-            return EXIT_CONVERGENCE
-        except DuplicatePersistError as exc:
-            log.error("daily_curves.duplicate", error=str(exc))
-            return EXIT_DUPLICATE
+        outcomes = await _orchestrate_countries(countries, observation_date, cache_dir)
 
         log.info(
             "daily_curves.summary",
-            n_success=len(successes),
-            n_skipped=len(skipped),
-            successes=successes,
-            skipped=[c for c, _ in skipped],
+            date=observation_date.isoformat(),
+            n_persisted=len(outcomes.persisted),
+            n_skipped_existing=len(outcomes.skipped_existing),
+            n_skipped_insufficient=len(outcomes.skipped_insufficient),
+            n_failed=len(outcomes.failed),
+            countries_persisted=outcomes.persisted,
+            countries_skipped_existing=outcomes.skipped_existing,
+            countries_skipped_insufficient=[c for c, _ in outcomes.skipped_insufficient],
+            countries_failed=[c for c, _ in outcomes.failed],
         )
-        if strict_single and skipped:
-            # --country <X> asked for exactly this country; if it skipped we
-            # surface EXIT_INSUFFICIENT_DATA so the operator sees failure.
-            return EXIT_INSUFFICIENT_DATA
-        if not successes:
+
+        ok_count = len(outcomes.persisted) + len(outcomes.skipped_existing)
+        if strict_single:
+            # --country <X>: this is a single-country request. Report
+            # failure (exit 1) if the country failed or was insufficient
+            # data; report OK if it persisted or was already persisted.
+            if outcomes.failed:
+                return EXIT_IO
+            if outcomes.skipped_insufficient:
+                return EXIT_INSUFFICIENT_DATA
+            if ok_count == 0:
+                return EXIT_INSUFFICIENT_DATA
+            return EXIT_OK
+        # --all-t1: exit 0 whenever at least one unit is persisted or
+        # already persisted (idempotent no-op re-run). Only exit 1 when
+        # every country is either insufficient or failed with no single
+        # success. Per ADR-0011 Principle 3.
+        if ok_count == 0:
             return EXIT_INSUFFICIENT_DATA
         return EXIT_OK
 
