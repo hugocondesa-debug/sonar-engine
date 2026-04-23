@@ -699,6 +699,7 @@ def _live_inputs_builder_factory(
         te=te,
         multpl=multpl,
         damodaran=damodaran,
+        fred=fred,
     )
     resolver = _us_risk_free_resolver_factory(fred)
     builder = LiveInputsBuilder(suite, risk_free_resolver=resolver)

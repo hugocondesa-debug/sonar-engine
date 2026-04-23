@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 
     from sonar.connectors.damodaran import DamodaranConnector
     from sonar.connectors.fmp import FMPConnector
+    from sonar.connectors.fred import FredConnector
     from sonar.connectors.multpl import MultplConnector
     from sonar.connectors.shiller import ShillerConnector
     from sonar.connectors.te import TEConnector
@@ -519,6 +520,10 @@ class LiveConnectorSuite:
     te: TEConnector
     multpl: MultplConnector | None = None
     damodaran: DamodaranConnector | None = None
+    # Sprint Q CAL-EXPINF-LIVE-ASSEMBLER-WIRING — FRED powers the US
+    # expected-inflation leg (BEI via T*YIE + survey via MICH/SPF).
+    # Non-US countries stay None (no live BEI/survey source today).
+    fred: FredConnector | None = None
 
 
 class LiveInputsBuilder:
@@ -616,13 +621,35 @@ class LiveInputsBuilder:
         if rating_kwargs is not None:
             rating_kwargs.pop("_preconsolidation_flags", None)
 
+        # Sprint Q CAL-EXPINF-LIVE-ASSEMBLER-WIRING — close the Sprint 7F
+        # gap. US-only today; non-US codes return None and keep M3 in
+        # DEGRADED with ``M3_EXPINF_MISSING`` until per-country BEI/survey
+        # connectors land (see audit §6.1).
+        from sonar.indices.monetary.exp_inflation_loader import (  # noqa: PLC0415
+            load_live_exp_inflation_kwargs,
+        )
+
+        expinf_kwargs = None
+        try:
+            expinf_kwargs = await load_live_exp_inflation_kwargs(
+                country_code,
+                observation_date,
+                fred=self._connectors.fred,
+            )
+        except _ConnectorErrors as exc:
+            log.warning(
+                "live_assemblers.expinf_error",
+                country=country_code,
+                error=str(exc),
+            )
+
         return OverlayBundle(
             country_code=country_code,
             observation_date=observation_date,
             erp=erp,
             crp=crp_kwargs,
             rating=rating_kwargs,
-            expected_inflation=None,  # Phase-2 scope; not wired in Sprint 7F.
+            expected_inflation=expinf_kwargs,
         )
 
 
