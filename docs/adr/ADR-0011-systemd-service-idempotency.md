@@ -136,6 +136,74 @@ Consequências:
   forwards de multiple countries), o dependente resolve-se at-read-time
   — não assume completude do produtor.
 
+### Princípio 6 — Async lifecycle discipline
+
+**Pipelines que usam connectors async têm de ter exactly um
+`asyncio.run()` à entrada do processo.** Zero `asyncio.run()`
+per-country, per-task, ou per-connector aclose. Connectors async
+são registados num `contextlib.AsyncExitStack` (ou equivalente
+`async with`) para garantir que o loop que os criou é o mesmo que
+executa o `aclose()` no unwind.
+
+Pattern canónico:
+
+```python
+import asyncio
+import contextlib
+
+def main(...):
+    # arg parsing, validação sync
+    ...
+    outcomes = asyncio.run(_run_async_pipeline(...))  # single site, process entry
+    log.info("pipeline.summary", ...)
+    sys.exit(EXIT_OK if <happy predicate> else EXIT_NO_INPUTS)
+
+
+async def _run_async_pipeline(...):
+    async with contextlib.AsyncExitStack() as stack:
+        connectors = _build_connectors(...)
+        for conn in connectors:
+            stack.push_async_callback(conn.aclose)
+        # dispatcher loop awaits inputs per country no mesmo loop
+        for country in targets:
+            await run_one(country, ..., connectors=...)
+```
+
+Rationale: `httpx.AsyncClient` (e qualquer transport async com
+transport-layer stateful — `aiohttp.ClientSession`, `asyncpg.Pool`,
+etc.) **binds to the event loop on first I/O**. Criar/destruir loops
+mata o transport bound ao loop anterior: o próximo `await` crasha
+com `RuntimeError: Event loop is closed` ou similar. Anti-pattern
+típico é `asyncio.run()` dentro de um wrapper síncrono chamado em
+loop — cada chamada cria um loop novo, o cliente persiste sockets
+do loop anterior, e a partir da segunda iteração tudo crasha.
+
+O `AsyncExitStack.push_async_callback(conn.aclose)` garante que o
+`aclose()` executa **dentro do loop que criou o client**, no reverse
+order de registration, no unwind do `async with` — exactamente onde
+os sockets ainda são válidos. Isto elimina o try/except
+`connector_aclose_error` defensivo (antes era defence in depth
+contra o anti-pattern; depois não há anti-pattern, não há erro).
+
+Evidence de prod (Sprint T0.1 Apr 23 2026):
+
+```
+country=US  monetary_pipeline.duplicate_skipped       ← loop L1 OK
+country=DE  monetary_pipeline.duplicate_skipped       ← loop L2 OK
+country=PT  country_failed error='Event loop is closed' ← L1 transport dead
+country=IT  country_failed error='Event loop is closed'
+country=ES  country_failed error='Event loop is closed'
+country=FR  country_failed error='Event loop is closed'
+country=NL  country_failed error='Event loop is closed'
+connector_aclose_error connector=FredConnector error='Event loop is closed'
+summary: n_failed=5 → exit 1
+```
+
+Sprint T0.1 shipped o fix em `daily_monetary_indices.py` e este
+princípio é retro-inserido como obrigação canónica para todo
+pipeline async novo. Regression guard: `test_pipeline_no_asyncio_run_per_country`
+conta `asyncio.run(` no source do módulo e falha se > 1 site existir.
+
 ---
 
 ## Alternativas consideradas
