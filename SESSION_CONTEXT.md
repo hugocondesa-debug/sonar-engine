@@ -229,9 +229,26 @@ fixes shipped as R2 bundle mirroring R1 pattern.
   print; 3-scenario handler (absent / 0-byte / real file);
   sandbox-tested before ship.
 
+### Sprint Z shipped (Week 10 Day 3 late night — Lesson #15 amendment)
+
+One additional lesson emerged during Sprint V arranque itself and was
+deferred to Sprint Z for clean scoping; permanent fix shipped Day 3
+late night paralelo com Sprint T.
+
+- **Lesson #15** — Brief filename convention enforcement
+  (`docs/planning/brief-format-v3.md` v3.2 → v3.3 +
+  `docs/templates/cc-arranque-prompt.md` +
+  `scripts/ops/sprint_setup.sh`). Brief filename MUST follow
+  `week<NN>-<sprint_id>-brief.md` with sprint_id exact literal (no
+  abbreviation). Author-side first gate via brief format v3.3
+  convention; tooling-side second gate via `sprint_setup.sh` glob +
+  enhanced HALT diagnostic. Sprint V arranque surfaced the gap when
+  the uploaded filename dropped `-permanent-fixes`, breaking the
+  Lesson #1 fix glob match.
+
 ### Total lessons Week 10
 
-11 lessons discovered across Day 1-3. 10 shipped permanent fix (8
+12 lessons discovered across Day 1-3. 11 shipped permanent fix (9
 code/ops + 2 documentation/governance). 1 investigation-only
 (#13 watcher) pending operator decision.
 
@@ -241,7 +258,10 @@ code/ops + 2 documentation/governance). 1 investigation-only
   + `brief-format-v3.md` v3.1 → v3.2 + auto-commit watcher
   investigation + `sprint_setup.sh` DB auto-link + ADR-0011
   Principle 7.
+- Lesson #15: Sprint Z Day 3 late night — `brief-format-v3.md`
+  v3.2 → v3.3 + `cc-arranque-prompt.md` filename-aware +
+  `sprint_setup.sh` HALT diagnostic enhancement.
 
 ---
 
-*Last mirror refresh: 2026-04-23 Week 10 Day 3 late R2 retro bundle.*
+*Last mirror refresh: 2026-04-23 Week 10 Day 3 late night — Sprint Z (Lesson #15).*
