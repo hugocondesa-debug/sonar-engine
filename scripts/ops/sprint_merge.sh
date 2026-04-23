@@ -18,7 +18,9 @@
 #   7. Verify fast-forward possible (main is ancestor of origin/<branch>)
 #   8. Merge --ff-only origin/<branch>
 #   9. Push main
-#  10. Cleanup: remove worktree (if linked) + delete local + remote branch
+#  10. Cleanup: remove worktree (if linked) + delete local + remote
+#      branch + kill tmux session (Week 10 Lesson #4 fix — robust
+#      under tmux 20-char session name truncation)
 #
 # HALT on any failure: exits non-zero with an actionable message. No
 # destructive operation ever runs before the preceding verification.
@@ -165,6 +167,39 @@ if git push origin --delete "$BRANCH" >/dev/null 2>&1; then
     log "  ✓ Remote branch deleted: origin/$BRANCH"
 else
     log "  - Remote branch already gone"
+fi
+
+# ---------------------------------------------------------------------------
+# tmux session cleanup (Week 10 Lesson #4 fix)
+#
+# Prior behaviour left tmux session alive after worktree removal — session
+# pointed to a non-existent path and accumulated across sprints (Day 3
+# morning found 2 orphans from Day 2). Kill any session whose name
+# matches the sprint prefix, robust under tmux's 20-char truncation.
+#
+# Prefix derivation: "sprint-" (7 chars) + first 13 chars of the part of
+# BRANCH after "sprint-". Matches the session name that sprint_setup.sh
+# creates via `echo "$BRANCH" | tr -c 'a-zA-Z0-9' '-' | cut -c1-20`.
+# ---------------------------------------------------------------------------
+SPRINT_ID="${BRANCH#sprint-}"
+SESSION_PREFIX="sprint-${SPRINT_ID:0:13}"
+
+if ! command -v tmux >/dev/null 2>&1; then
+    log "  - tmux not installed; no session cleanup to attempt"
+else
+    MATCHING_SESSIONS="$(tmux ls 2>/dev/null | awk -F: '{print $1}' | grep "^${SESSION_PREFIX}" || true)"
+    if [ -z "$MATCHING_SESSIONS" ]; then
+        log "  - No tmux session to clean for $SESSION_PREFIX"
+    else
+        while IFS= read -r session; do
+            [ -z "$session" ] && continue
+            if tmux kill-session -t "$session" 2>/dev/null; then
+                log "  ✓ tmux session killed: $session"
+            else
+                log "  - tmux kill-session no-op for: $session"
+            fi
+        done <<< "$MATCHING_SESSIONS"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
