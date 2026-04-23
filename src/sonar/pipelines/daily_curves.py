@@ -596,10 +596,10 @@ def main(
         False,  # noqa: FBT003 — Typer convention
         "--all-t1",
         help=(
-            "Iterate the Sprint I curve-capable T1 set "
-            "(US/DE/EA/GB/JP/CA/IT/ES/FR — 9 countries). Members without "
-            "curve support skip with a warning; exit 0 if at least "
-            "one succeeds."
+            "Iterate the Sprint M curve-capable T1 set "
+            "(US/DE/EA/GB/JP/CA/IT/ES/FR/PT — 10 countries). Members "
+            "without curve support skip with a warning; exit 0 if at "
+            "least one succeeds."
         ),
     ),
     target_date: str = typer.Option(..., "--date", help="ISO date (e.g. 2024-01-02)."),
