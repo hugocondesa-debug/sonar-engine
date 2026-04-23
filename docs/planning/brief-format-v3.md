@@ -1,10 +1,13 @@
-# Brief Format v3 (active from 2026-04-22)
+# Brief Format v3.1 (active from 2026-04-23 Week 10 Day 3)
 
 Builds on [`brief-format-v2.md`](./brief-format-v2.md). Same minimalist
 spirit; adds three mandatory sections after Week 9 / Day 0 Week 10
-merge workflow lessons (7 incidents in 5 days). Supersedes v2 for new
-sprints. Existing v2 briefs in `docs/planning/` are historical and
-ship as-is — **v3 is forward-only; no retrofit required**.
+merge workflow lessons (7 incidents in 5 days). v3.1 amends v3 with
+five Week 10 lesson codifications (see §What changed in v3.1).
+Supersedes v2 for new sprints. Existing v2 briefs in `docs/planning/`
+are historical and ship as-is — **v3 is forward-only; no retrofit
+required**. v3 → v3.1 is additive (new required fields) but backward
+compatible — v3 briefs stay valid; retrofit only if edited.
 
 ## Purpose
 
@@ -29,24 +32,49 @@ reassemble it mentally at sprint close.
    anomaly; CC delegation for mechanical rebase is the recommended
    path (15-25 min wall-clock typical).
 
-## Structure (12 sections)
+## What changed in v3.1
+
+Additive amendments codifying Week 10 lessons (#2 pre-commit double-run,
+#3 TE Path 1 probe convention, #7 systemd acceptance gap). Backward
+compatible — new required fields but old briefs stay valid.
+
+1. **REVISED §2 Spec reference** — adds pre-flight probe matrix (ADR-0009 v2
+   mandatory for country-data sprints). If sprint fetches country-specific
+   data from a new source, brief MUST enumerate probe paths in priority
+   order (TE Path 1 → national CB/stat office Path 2 → aggregators Path 3).
+2. **REVISED §5 HALT triggers** (renumbered Acceptance) — invocation context
+   requirements: if deliverable affects systemd-invoked code, acceptance
+   MUST include systemctl is-active + journalctl verification clauses.
+   Local CLI exit 0 is not sufficient (Week 10 Sprint T0 gap).
+3. **REVISED §8 Pre-push gate** — explicit pre-commit double-run convention
+   (first run auto-fixes; second run is idempotent pass).
+4. **REVISED Header metadata** — adds ADR-0010 tier scope line, ADR-0009 v2
+   TE Path 1 probe line, systemd services affected line. Third line drives
+   §Acceptance applicability.
+5. **NEW §13 Dependencies & CAL interactions** — structured dependency
+   graph: parent sprint, CALs closed/opened, sprints blocked/unblocked.
+   Forces explicit maintenance of cross-sprint dependencies.
+
+## Structure (13 sections)
 
 ```
 1.  Scope (in/out)
-2.  Spec reference + pre-flight
+2.  Spec reference + pre-flight (+ probe matrix in v3.1)
 3.  Concurrency (paralelo protocol OR solo statement)
 4.  Commits (numbered with msg templates)
 5.  HALT triggers (atomic)
-6.  Acceptance (global sprint-end checklist)
+6.  Acceptance (global sprint-end checklist + systemd clause in v3.1)
 7.  Report-back artifact
-8.  Pre-push gate (mandatory)
+8.  Pre-push gate (mandatory, double-run in v3.1)
 9.  Notes on implementation
-10. Pre-merge checklist     (NEW)
-11. Merge execution         (NEW)
-12. Post-merge verification (NEW)
+10. Pre-merge checklist              (v3)
+11. Merge execution                  (v3)
+12. Post-merge verification          (v3)
+13. Dependencies & CAL interactions  (v3.1 NEW)
 ```
 
-Sections 1-9 keep v2 semantics. Sections 10-12 are new and mandatory.
+Sections 1-9 keep v2 semantics (with v3.1 amendments noted). Sections
+10-12 added in v3. Section 13 added in v3.1, all mandatory.
 
 ## Skeleton
 
@@ -59,6 +87,9 @@ Sections 1-9 keep v2 semantics. Sections 10-12 are new and mandatory.
 **Commits**: [N]
 **Base**: branch `[branch-name]` (worktree `/home/macro/projects/sonar-wt-<suffix>`)
 **Concurrency**: [paralelo with sprint-X OR solo]
+**ADR-0010 tier scope**: [T1 ONLY | T2 | N/A (refactor)]
+**ADR-0009 v2 TE Path 1 probe**: [mandatory | N/A (no country-data fetch)]
+**Systemd services affected**: [list-of-service-names | none]
 
 ---
 
@@ -78,6 +109,25 @@ Out:
 **Pre-flight** (first commit body):
 1. [read references]
 2. [document findings]
+
+### Pre-flight probe matrix (ADR-0009 v2 — mandatory for country-data sprints)
+
+If this sprint fetches country-specific data from a new source, the brief
+MUST enumerate probe paths in priority order. Failure to enumerate =
+author oversight, not scope flexibility.
+
+| Path | Source tier | Rationale |
+|---|---|---|
+| 1 | Trading Economics (TE) | Broad coverage, uniform schema, canonical fallback |
+| 2 | National CB / stat office API (BPstat, DNB, BdF, Banca d'Italia, ...) | Authoritative but inconsistent schemas |
+| 3 | Aggregators (ECB SDW, Eurostat, OECD, BIS) | Uniform but lagged or limited granularity |
+
+**Rule**: CC tries Path 1 first. If ≥6 daily tenors / sufficient data
+granularity confirmed via TE, cascade directly. If Path 1 HALT-0
+(insufficient data), Path 2. Same for Path 3 fallback.
+
+For sprints that do NOT fetch country-data (refactor, test-only, docs),
+mark this sub-section explicitly **N/A (no country-data fetch)**.
 
 ## 3. Concurrency
 
@@ -109,6 +159,50 @@ Out:
 
 ## 6. Acceptance
 
+### Invocation context requirements (v3.1 — Week 10 Lesson #7)
+
+If the deliverable affects code that runs via a systemd service (e.g.,
+`sonar-daily-curves`, `sonar-daily-monetary-indices`,
+`sonar-daily-cost-of-capital`, or future services), acceptance MUST
+include systemd invocation verification.
+
+Local CLI exit 0 is **not sufficient** — the systemd wrapper
+(`bash -lc 'uv run ...'`) alters shell environment, CWD context, and
+async event loop initialization. Week 10 Sprint T0 shipped with local
+CLI passing but systemd failed (`Event loop is closed`); gap closed
+only in Sprint T0.1.
+
+Required clauses:
+
+1. **Service starts clean**:
+   ```
+   sudo systemctl start <service>.service
+   sleep <N>
+   systemctl is-active <service>.service
+   # Expected: active OR inactive (exit 0), NEVER failed
+   ```
+2. **Journal clean of known-bad patterns**:
+   ```
+   sudo journalctl -u <service>.service --since "<start_time>" --no-pager \
+     | grep -iE "<known_bad_patterns>" | head -10
+   # Expected: empty (zero matches)
+   ```
+3. **Summary legitimacy (pipeline-emitted)**:
+   ```
+   sudo journalctl -u <service>.service --since "<start_time>" --no-pager \
+     | grep "<pipeline>.summary"
+   # Expected: summary line with n_persisted or n_skipped_existing > 0,
+   #           n_failed = 0
+   ```
+4. **Timer re-enable** (if timer was disabled during sprint for safety):
+   ```
+   sudo systemctl start <service>.timer
+   systemctl is-active <service>.timer  # Expected: active
+   ```
+
+For sprints NOT affecting systemd-invoked code, mark this sub-section
+explicitly **N/A (no systemd services affected)**.
+
 ### Global sprint-end
 - [ ] [testable check]
 
@@ -119,11 +213,19 @@ tmux echo structure]
 
 ## 8. Pre-push gate (mandatory)
 
+**Pre-commit double-run convention** (v3.1 — Week 10 Lesson #2): before
+each `git commit`, run the gate **twice**. First run auto-fixes
+whitespace / EOL / import ordering (exits non-zero after mutation).
+Second run is the idempotent pass (exits zero). Week 10 observed 6
+occurrences of commit rejection from single-run; double-run is the
+canonical pattern.
+
 ```
-uv run pre-commit run --all-files
+uv run pre-commit run --all-files   # first run — may mutate + exit non-zero
+uv run pre-commit run --all-files   # second run — idempotent pass
 ```
 
-No --no-verify. Hooks must pass green twice before commit sequence
+No --no-verify. Hooks must pass green twice before the commit sequence
 begins (Day 4 Week 9 lesson — silent cache invalidation).
 
 ## 9. Notes on implementation
@@ -187,6 +289,33 @@ confirms the final state:
 
 Any leftover state here is the signal for the follow-up retrospective
 §Lessons — do not paper over.
+
+## 13. Dependencies & CAL interactions (v3.1 NEW — mandatory)
+
+Forces dependency graph maintenance explicit. Reduces Week N+1 plan
+ambiguity. Fields may be empty — but must be present with `N/A` or
+`(none)` markers, not omitted.
+
+### Parent sprint
+`<Sprint ID OR N/A>`
+
+### CAL items closed by this sprint
+- `<CAL-ID-1>`: `<brief reason>`
+- `<CAL-ID-N>`: …
+- (or `none`)
+
+### CAL items opened by this sprint (emergent from execution)
+Fill retrospectively during retro — flag new CALs discovered mid-sprint.
+- `<CAL-ID-new-1>`: `<brief reason>`
+- (or `none — fill during retro if any emerge`)
+
+### Sprints blocked by this sprint
+- `<Sprint ID>`: `<why blocked>`
+- (or `none`)
+
+### Sprints unblocked by this sprint
+- `<Sprint ID>`: `<what unlocked>`
+- (or `none`)
 ````
 
 ## Deprecated: v2
@@ -194,7 +323,8 @@ Any leftover state here is the signal for the follow-up retrospective
 `brief-format-v2.md` carries a DEPRECATED header pointing here. The
 file is preserved for historical reference; briefs already written in
 v2 (Week 4 - Week 9, Day 0 Week 10) complete their lifecycle on v2
-without retrofit. New sprints Week 10 Day 1+ use v3.
+without retrofit. Sprints Week 10 Day 1-2 use v3. New sprints Week 10
+Day 4+ use v3.1.
 
 ## References
 
