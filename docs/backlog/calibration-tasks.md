@@ -3087,29 +3087,32 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 1h CC probe + 2h CC ship if Path 1 succeeds; 0h action if TE gap persists (rollup into Phase 2.5 licensed-feed scope).
 - **Related:** ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE`` (nominal closures Sprint H; this CAL covers the linker complement); ``CAL-CURVES-T1-LINKER`` (parent for GB / JP / CA linker coverage; IT + ES split off into this CAL to keep scope tractable); ``CAL-CURVES-FR-TE-PROBE`` (adjacent Sprint H open item — French OAT€i would be a natural third country for any linker probe sweep).
 
-### CAL-CURVES-PT-BPSTAT — PT sovereign yield curve via Banco de Portugal BPstat
+### CAL-CURVES-PT-BPSTAT — PT sovereign yield curve via Banco de Portugal BPstat — **CLOSED (via TE cascade, Sprint M 2026-04-23)**
 
-- **Priority:** MEDIUM (LOW-MEDIUM relative to FR/IT) — PT is Hugo's home market (operator interest) but overlay-cascade priority is lower because PT ERP rides on EA-aggregate cleanly for cost-of-capital baselines.
-- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 mandates CB-API state probe. BPstat ships a public REST API (``bpstat.bportugal.pt/data/v1``) that is simpler than the BdF SDMX surface but equally subject to migration risk; re-probe before committing.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22; Sprint D pilot 2026-04-22 inverted national-CB pattern assumptions.
-- **Current behavior:** ``daily_curves --country PT`` raises ``InsufficientDataError`` citing ``CAL-CURVES-PT-BPSTAT``.
-- **Data path (candidate, re-probe required):** Banco de Portugal BPstat (``https://bpstat.bportugal.pt/``) — OT benchmark yields 1Y-30Y. IGCP (Agência de Gestão da Tesouraria) publishes the benchmark curve with more tenor granularity than BPstat for the long end but has no open API (scrape required). No PT linker in open form — expect ``LINKER_UNAVAILABLE`` fallback.
-- **Required work:** standard template if probe succeeds (BPstat REST API returns JSON, simpler parser than French-locale CSV); Sprint D scaffold pattern if probe fails.
-- **Impact if unresolved:** PT overlays on EA-aggregate proxy; linker path locked to DERIVED BEI fallback (no OT-indexed universe to hook).
-- **Estimate:** 4-5h CC (bumped per ADR-0009).
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template); ``ADR-0009`` (pattern); ``CAL-CURVES-T1-LINKER`` PT portion = permanent ``LINKER_UNAVAILABLE``.
+- **Priority:** — (closed).
+- **Outcome:** CLOSED pre-open. Sprint M 2026-04-23 per-tenor TE Path 1 probe (ADR-0009 v2 canonical) on the ``GSPT`` family returned 10 daily tenors ≥ 586 observations each (3M / 6M / 1Y / 2Y / 3Y / 5Y / 7Y / 10Y / 20Y / 30Y; 1M + 15Y are TE-coverage structural gaps confirmed via ``/search/portugal%20government%20bond`` cross-validation). Live canary 2026-04-21/22/23 returned ``rmse_bps ∈ [7.24, 7.53]`` with confidence=1.0 across all 3 days. PT therefore ships via TE Path 1 cascade mirroring the IT/ES Sprint H + FR Sprint I pattern — no BPstat native-CB integration was required. The ADR-0009 v2 rule "probe TE Path 1 first; escalate to Path 2/3 only on empirical Path 1 failure" held cleanly for its 4th consecutive successor sprint. PT mixed-suffix quirk (YR on 2Y + 10Y, bare Y on 1Y / 3Y / 5Y / 7Y / 20Y / 30Y, M on sub-year) catalogued in ``te.py`` block docstring for future reference.
+- **Current behavior:** ``daily_curves --country PT`` and ``--all-t1`` persist a 10-tenor Svensson fit via TE. Overlay cascade gains functional PT branch starting 2026-04-24 post-merge.
+- **Direct-CB future path (non-blocking):** A native BPstat connector remains a future upgrade path (tracks IGCP long-end granularity beyond TE's 30Y ceiling + potential OTRV indexed coverage) but is not scheduled — TE Path 1 is sufficient for Phase 1 daily-pipeline needs. If pursued, pattern precedent is now ``BancaDItalia`` / ``BancoEspana`` scaffold (placeholder preserved post-Sprint-H) rather than BdF's blocked OpenDatasoft trajectory.
+- **Closure commits:** Sprint M (`dce9287` probe doc, `612cf7f` te.py, `94d68ec` daily_curves, `a8e9987` tests, `2909ce6` downstream drift-guards, `<retro>` ADR-0009 addendum + retro).
+- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-IT-BDI`` + ``CAL-CURVES-ES-BDE`` (Sprint H twin closures — same TE cascade pattern); ``CAL-CURVES-FR-TE-PROBE`` (Sprint I analog); ``CAL-CURVES-NL-DNB-PROBE`` (Sprint M twin — **OPEN** as first Path 1 non-inversion); ``ADR-0009`` v2.2 (Sprint M addendum — Shape S1 codification); ``CAL-CURVES-T1-LINKER`` PT portion = permanent ``LINKER_UNAVAILABLE`` (no OTRV coverage in open form).
 
-### CAL-CURVES-NL-DNB — NL sovereign yield curve via De Nederlandsche Bank Statistics
+### CAL-CURVES-NL-DNB-PROBE — NL sovereign yield curve re-probe via De Nederlandsche Bank native cascade — **OPEN (Week 11 Path 2; first ADR-0009 v2 non-inversion)**
 
-- **Priority:** LOW-MEDIUM — NL trades close to DE (AAA cluster) so country-specific curve gain vs DE-Bund proxy is smaller; still needed for per-country ERP cleanliness.
-- **Pre-flight discipline (post Sprint D 2026-04-22):** ADR-0009 mandates CB-API state probe. DNB migrated its public statistics portal to OpenDatasoft mid-2024 (same platform BdF migrated to — Sprint D pilot found OpenDatasoft's BdF catalog surfaces only monthly archive data); NL is therefore the **highest-risk** of the four successor sprints. Probe the OpenDatasoft catalog depth before any scaffolding.
-- **Trigger:** Week 10 Sprint A pre-flight probe 2026-04-22; Sprint D pilot 2026-04-22 (BdF-OpenDatasoft precedent makes NL-DNB a near-duplicate risk profile).
-- **Current behavior:** ``daily_curves --country NL`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NL-DNB``.
-- **Data path (candidate, re-probe required — OpenDatasoft risk):** DNB Statistics portal (``https://www.dnb.nl/en/statistics/``) — DSL (Dutch State Loan) daily yields; tenor spectrum thinner than Bundesbank (2Y-30Y benchmarks; expect 3M/6M/1Y gaps — likely NS-reduced fit per CA precedent). No DSL indexed linker (confirm via probe; expect ``LINKER_UNAVAILABLE``).
-- **Required work:** standard template if probe succeeds; Sprint D scaffold pattern if probe fails (high probability given the OpenDatasoft-migration precedent).
-- **Impact if unresolved:** NL overlays stay on EA-aggregate proxy (lowest-cost gap of the five since NL≈DE).
-- **Estimate:** 4-5h CC (bumped per ADR-0009); could be the last of the five to ship given the tight cost-benefit **and** the elevated probability of HALT-0 firing on the CB-API probe.
-- **Related:** ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template — near-duplicate platform risk); ``ADR-0009`` (pattern); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
+- **Priority:** LOW-MEDIUM — NL trades close to DE (AAA cluster) so country-specific curve gain vs DE-Bund proxy is smaller; still needed for per-country ERP cleanliness. First **non-inversion** observed in the ADR-0009 v2 ledger (see Sprint M retro §5.1 for the load-bearing empirical significance).
+- **Supersedes:** ``CAL-CURVES-NL-DNB`` (previously framed around BPstat-style direct-CB probe; Sprint M's TE Path 1 failure reshapes it into an empirically-motivated Path 2 probe). Renamed from `-DNB` to `-DNB-PROBE` to signal the Path 2 cascade entry.
+- **Trigger:** Sprint M 2026-04-23 per-tenor TE Path 1 probe returned only 4/12 tenors (3M / 6M / 2Y / 10Y) against the ``GNTH`` family. 4 < ``MIN_OBSERVATIONS_FOR_SVENSSON = 6`` → HALT-0. First TE Path 1 HALT observed across 5 successor sprints (IT / ES / FR / PT all PASS); NL is the first Shape S2 country (point-estimates only, not Svensson-rich) in the ADR-0009 pattern library v2.2.
+- **Empirical probe matrix (Sprint M 2026-04-23):**
+  - PASS: ``GNTH3M:IND`` (n=597), ``GNTH6M:IND`` (n=595), ``GNTH2YR:GOV`` (n=598 — note the unique ``:GOV`` suffix quirk, only one in the entire TE T1 registry), ``GNTH10YR:IND`` (n=600).
+  - FAIL (all variants empty): 1M / 1Y / 3Y / 5Y / 7Y / 15Y / 20Y / 30Y. Verified via both per-tenor ``/markets/historical`` sweep and ``/search/netherlands%20government%20bond`` cross-validation — structural TE-coverage gaps, not probe-naming misses.
+- **Current behavior:** ``daily_curves --country NL`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NL-DNB-PROBE``; ``--all-t1`` skips NL.
+- **Candidate Path 2 data paths (re-probe required — expect DNB sub-case split):**
+  1. **DNB Statistics portal Statline (statline.dnb.nl)** — SDMX / OpenDatasoft cube; expected to publish DSL (Dutch State Loan) daily yields; tenor spectrum unknown pre-probe. Precedent risk: BdF (Sprint D) migrated to OpenDatasoft and surfaces only monthly archive data — same platform risk applies to DNB as Sprint D's addendum predicted.
+  2. **DSTA (Dutch State Treasury Agency, dsta.nl)** — sovereign issuer with tenor-specific benchmark quotes. No open API; web-scrape fallback if Statline fails or proves monthly-only.
+  3. **ECB SDW IRS dataflow** — already probed at Sprint A; returns only 10Y for NL (single tenor). Not a solution but documented as floor.
+- **Required work:** ADR-0009 v2 Path 2 brief + scaffold + empirical probe. If Statline ships daily 6+ tenors: standard cascade ship mirroring Bundesbank (AAA native precedent). If Statline monthly-only: scaffold + defer to Phase 2.5 (mirror ``CAL-CURVES-FR-BDF`` BLOCKED pattern). If DSTA scrape-path opens (HTML / XLSX / CSV): bespoke connector + daily cadence.
+- **Impact if unresolved:** NL overlays stay on EA-aggregate proxy (lowest-cost gap of the five EA periphery members since NL ≈ DE in spread terms — rarely +50 bps over Bund even in 2011/2020 stress).
+- **Estimate:** 3-5h CC (probe + scaffold + ship **or** probe + scaffold + BLOCKED mark).
+- **Related:** ``CAL-CURVES-PT-BPSTAT`` (Sprint M twin — CLOSED via TE Path 1; NL diverges); ``CAL-CURVES-FR-BDF`` (BLOCKED pilot template — near-duplicate OpenDatasoft platform risk); ``ADR-0009`` v2.2 (Sprint M addendum — Shape S2 codification + first non-inversion); ``CAL-CURVES-EA-PERIPHERY`` (superseded grandparent); ``CAL-CURVES-T1-LINKER`` NL portion = permanent ``LINKER_UNAVAILABLE``.
 
 ### CAL-CURVES-T1-SPARSE — Non-EA T1 full yield curves (AU/NZ/CH/SE/NO/DK)
 

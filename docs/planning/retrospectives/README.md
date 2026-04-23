@@ -11,6 +11,7 @@ Sorted newest-first within each phase.
 
 | File | Phase / Week | Summary | Date |
 |---|---|---|---|
+| [`week10-sprint-m-report.md`](./week10-sprint-m-report.md) | Phase 1 — Week 10 Sprint M PT+NL curves probe (Day 3 late) | ADR-0009 v2 Path 1 per-tenor sweep for PT + NL. **Partial PASS**: PT 10 tenors ship (closes CAL-CURVES-PT-BPSTAT pre-open; cohorts with IT/ES/FR Shape S1); **NL 4 tenors HALT-0** — first Path 1 non-inversion in v2 ledger, opens CAL-CURVES-NL-DNB-PROBE Week 11 (Shape S2 codified). ADR-0009 addendum v2.2 + pattern library formalised. T1 curves coverage 9 → 10. NL `:GOV` suffix quirk + PT mixed-suffix quirk catalogued. 7 commits. | 2026-04-23 |
 | [`week10-sprint-t0-report.md`](./week10-sprint-t0-report.md) | Phase 1 — Week 10 Sprint T0 Prod Healing (Day 3 manhã) | ADR-0011 canónico + schema reference doc + retrofit idempotency / per-country isolation aos 3 serviços daily (curves + monetary + cost-of-capital) que falharam natural-fire Apr 23 overnight. Pattern: partial-persist + systemd retry + non-idempotent UNIQUE violation. 6 commits + backfill Apr 22 + 23 (9/9 T1 countries latest=2026-04-23). Surfaces residual CAL-MONETARY-SINGLE-EVENT-LOOP (refactor async shared loop Phase 2+). | 2026-04-23 |
 
 ## Phase 1 — Week 9 — Completionist M2 T1 Arc
