@@ -59,6 +59,7 @@ from sonar.db.persistence import (
 )
 from sonar.db.session import SessionLocal
 from sonar.indices.monetary.builders import MonetaryInputsBuilder
+from sonar.indices.monetary.m3_country_policies import classify_m3_compute_mode
 from sonar.indices.monetary.m3_market_expectations import (
     compute_m3_market_expectations_anchor,
 )
@@ -81,6 +82,7 @@ log = structlog.get_logger()
 __all__ = [
     "MONETARY_SUPPORTED_COUNTRIES",
     "T1_7_COUNTRIES",
+    "T1_M3_COUNTRIES",
     "InputsBuilder",
     "MonetaryPipelineOutcome",
     "build_live_monetary_inputs",
@@ -93,6 +95,27 @@ __all__ = [
 # directly via module path.
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+
+# Sprint O (Week 10) — M3-specific T1 dispatch cohort. Superset of
+# :data:`T1_7_COUNTRIES` minus NL + PT (NL blocked on Sprint M curves,
+# PT kept on the pre-Sprint-O canonical path) plus EA aggregate + the
+# non-EA T1 members GB / JP / CA reached by Sprint I / L / S cascades.
+# Iteration order is deterministic (tuple, not frozenset) so journal
+# output stays stable across runs — handy for the Lesson #7 systemd
+# verify grep contract. Mirror content of :data:`M3_T1_COUNTRIES` from
+# ``sonar.indices.monetary.m3_country_policies``; the tuple gives us
+# ordering the set cannot.
+T1_M3_COUNTRIES: tuple[str, ...] = (
+    "US",
+    "DE",
+    "EA",
+    "GB",
+    "JP",
+    "CA",
+    "IT",
+    "ES",
+    "FR",
+)
 
 # Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I),
 # JP via BoJ → FRED cascade (sprint 8-L), CA via BoC Valet → FRED
@@ -242,6 +265,26 @@ def _classify_m2_compute_mode(flags: tuple[str, ...]) -> str:
         if flag.endswith("_M2_PARTIAL_COMPUTE"):
             return "PARTIAL"
     return "LEGACY"
+
+
+def _classify_m3_compute_mode(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+) -> tuple[str, tuple[str, ...]]:
+    """Return ``(mode, flags)`` for M3 at ``(country, date)`` — Sprint O classifier.
+
+    Thin re-export of
+    :func:`sonar.indices.monetary.m3_country_policies.classify_m3_compute_mode`
+    hosted here so the Sprint O acceptance § ``from sonar.pipelines.
+    daily_monetary_indices import _classify_m3_compute_mode`` contract
+    matches the Sprint F / J pattern where the ``_classify_m{2,4}_
+    compute_mode`` helpers live in this module. The underlying function
+    queries the DB session directly (M3 mode is an upstream-data
+    property, not an emit-side flag tuple) — see the country-policies
+    module docstring for the full mode semantics.
+    """
+    return classify_m3_compute_mode(session, country_code, observation_date)
 
 
 def _classify_m4_compute_mode(flags: tuple[str, ...]) -> str:
@@ -479,6 +522,20 @@ async def run_one(
     m3_result: IndexResult | None = None
     if db_backed_builder is not None:
         country_upper = country_code.upper()
+        # Sprint O — emit m3_compute_mode for every country invocation,
+        # mirror the Sprint F / J M2 / M4 observability contract. The
+        # classifier reads the DB snapshot directly (forwards + EXPINF
+        # availability) so journals carry FULL / DEGRADED / NOT_IMPLEMENTED
+        # uniformly regardless of whether the build_m3_inputs path
+        # below returns an inputs bundle.
+        m3_mode, m3_mode_flags = _classify_m3_compute_mode(session, country_code, observation_date)
+        log.info(
+            "monetary_pipeline.m3_compute_mode",
+            country=country_upper,
+            observation_date=observation_date.isoformat(),
+            mode=m3_mode,
+            flags=m3_mode_flags,
+        )
         if country_upper not in _CURVES_SHIPPED_COUNTRIES:
             # ADR-0011 Principle 1 / 3: skip m3 attempt when curves
             # upstream is not shipped for this country (PT / NL / AU /
@@ -667,6 +724,16 @@ def main(
         "--all-t1",
         help="Iterate over all 7 T1 countries (US/DE/PT/IT/ES/FR/NL).",
     ),
+    m3_t1_cohort: bool = typer.Option(
+        False,  # noqa: FBT003
+        "--m3-t1-cohort",
+        help=(
+            "Iterate over the 9-country M3 T1 cohort (US/DE/EA/GB/JP/CA/IT/ES/FR) "
+            "— Sprint O. Mutually exclusive with --all-t1 and --country. Drives "
+            "the monetary_pipeline.m3_compute_mode observability channel without "
+            "changing --all-t1 semantics (T1_7 legacy preserved for M1/M2/M4)."
+        ),
+    ),
     backend: str = typer.Option(
         "live",
         "--backend",
@@ -712,9 +779,20 @@ def main(
         typer.echo(f"Invalid --date={target_date!r}; expected ISO YYYY-MM-DD", err=True)
         sys.exit(EXIT_IO)
 
-    targets: list[str] = list(T1_7_COUNTRIES) if all_t1 else [country]
+    if sum([bool(country), all_t1, m3_t1_cohort]) > 1:
+        typer.echo(
+            "Pass at most one of --country, --all-t1, --m3-t1-cohort",
+            err=True,
+        )
+        sys.exit(EXIT_IO)
+    if m3_t1_cohort:
+        targets: list[str] = list(T1_M3_COUNTRIES)
+    elif all_t1:
+        targets = list(T1_7_COUNTRIES)
+    else:
+        targets = [country]
     if not targets or targets == [""]:
-        typer.echo("Must pass --country or --all-t1", err=True)
+        typer.echo("Must pass --country, --all-t1, or --m3-t1-cohort", err=True)
         sys.exit(EXIT_IO)
     for t in targets:
         _warn_if_deprecated_alias(t)
