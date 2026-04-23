@@ -44,6 +44,7 @@ Este tipo de mudança vive em commits Conventional Commits ([`../ROADMAP.md`](..
 | 0003 | [DB path SQLite → Postgres](ADR-0003-db-path-sqlite-postgres.md) | Accepted | 2026-04-18 | SQLite MVP Phase 0-1; Postgres condicional Phase 2+ (4 gates explícitos). |
 | 0004 | [AI collaboration model](ADR-0004-ai-collaboration-model.md) | Accepted | 2026-04-18 | Claude chat (decisões) + Claude Code (execução VPS) + humano always last mile. |
 | 0005 | [Country tiers classification](ADR-0005-country-tiers-classification.md) | Accepted | 2026-04-18 | 4-tier T1-T4 classification conforme `country_tiers.yaml`; Phase 1 scheduling + fail-mode integration. |
+| 0011 | [Systemd service idempotency + partial-persist recovery](ADR-0011-systemd-service-idempotency.md) | Accepted | 2026-04-23 | 5 princípios canónicos para pipelines scheduled: per-row idempotency, per-unit isolation, exit-code sanitization, summary emit, partial-persist recovery. |
 
 ## Workflow
 
