@@ -44,6 +44,7 @@ for EA-per-country deferred builders is expected, not fatal.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from dataclasses import dataclass, field
 from datetime import date
@@ -194,9 +195,15 @@ _EA_PER_COUNTRY_DEFERRED: frozenset[str] = frozenset({"DE", "FR", "IT", "ES", "N
 
 
 class InputsBuilder(Protocol):
-    """Build :class:`MonetaryIndicesInputs` for a ``(country, date)``."""
+    """Build :class:`MonetaryIndicesInputs` for a ``(country, date)``.
 
-    def __call__(
+    Async by contract — lives inside the single-event-loop pipeline
+    scope per ADR-0011 Principle 6. The default path returns an empty
+    bundle (``await``-friendly), the live path awaits connector I/O
+    via :func:`build_live_monetary_inputs`.
+    """
+
+    async def __call__(
         self,
         session: Session,
         country_code: str,
@@ -204,7 +211,7 @@ class InputsBuilder(Protocol):
     ) -> MonetaryIndicesInputs: ...
 
 
-def default_inputs_builder(
+async def default_inputs_builder(
     session: Session,  # noqa: ARG001 — Protocol compatibility
     country_code: str,
     observation_date: date,
@@ -363,7 +370,7 @@ class _MonetaryRunOutcomes:
     failed: list[tuple[str, str]] = field(default_factory=list)
 
 
-def _dispatch_country_loop(
+async def _dispatch_country_loop(
     *,
     session: Session,
     targets: list[str],
@@ -376,12 +383,16 @@ def _dispatch_country_loop(
     ADR-0011 Principle 2 — per-country isolation. A single country's
     exception is logged + bucketed into ``failed`` and the loop
     continues so downstream countries still get a shot.
+
+    ADR-0011 Principle 6 — async lifecycle discipline. This runs
+    inside the single pipeline event loop; the inputs builder is
+    awaited in-loop (no per-country ``asyncio.run`` churn).
     """
     outcomes = _MonetaryRunOutcomes()
     for c in targets:
         country_upper = c.upper()
         try:
-            outcome = run_one(
+            outcome = await run_one(
                 session,
                 c,
                 observation_date,
@@ -438,7 +449,7 @@ def _dispatch_country_loop(
     return outcomes
 
 
-def run_one(
+async def run_one(
     session: Session,
     country_code: str,
     observation_date: date,
@@ -454,9 +465,15 @@ def run_one(
     computed M3 IndexResult through ``persist_many_monetary_results``'s
     ``m3=`` kwarg (CAL-108). Missing rows keep ``m3=None`` so the
     orchestrator reports a clean skip.
+
+    Async by contract (ADR-0011 Principle 6) — the live input builder
+    path awaits connector I/O, and the dispatcher awaits this under a
+    single ``asyncio.run`` at the process entry. Compute + persist
+    stay synchronous; only the inputs-build path crosses the event
+    loop boundary.
     """
     builder = inputs_builder or default_inputs_builder
-    inputs = builder(session, country_code, observation_date)
+    inputs = await builder(session, country_code, observation_date)
     results = compute_all_monetary_indices(inputs)
 
     m3_result: IndexResult | None = None
@@ -617,20 +634,26 @@ def _live_inputs_builder_factory(
     builder: MonetaryInputsBuilder,
     history_years: int,
 ) -> InputsBuilder:
-    """Wrap the async live builder into the synchronous InputsBuilder Protocol."""
+    """Adapt the async live builder to the async ``InputsBuilder`` Protocol.
 
-    def _builder(
+    ADR-0011 Principle 6 — zero per-country ``asyncio.run``. The
+    returned callable is an async function that awaits
+    :func:`build_live_monetary_inputs` directly; the outer pipeline
+    ``asyncio.run`` at process entry keeps every connector call inside
+    the same event loop so ``httpx.AsyncClient`` instances survive
+    across countries.
+    """
+
+    async def _builder(
         session: Session,  # noqa: ARG001 — Protocol compatibility
         country_code: str,
         observation_date: date,
     ) -> MonetaryIndicesInputs:
-        return asyncio.run(
-            build_live_monetary_inputs(
-                country_code,
-                observation_date,
-                builder=builder,
-                history_years=history_years,
-            )
+        return await build_live_monetary_inputs(
+            country_code,
+            observation_date,
+            builder=builder,
+            history_years=history_years,
         )
 
     return _builder
@@ -699,57 +722,21 @@ def main(
         typer.echo(f"Unknown --backend={backend!r}; expected 'default' or 'live'", err=True)
         sys.exit(EXIT_IO)
 
-    builder: InputsBuilder = default_inputs_builder
-    connectors_to_close: list[object] = []
-    if backend == "live":
-        if not fred_api_key:
-            typer.echo("FRED_API_KEY required for --backend=live", err=True)
-            sys.exit(EXIT_IO)
-        monetary_builder, connectors_to_close = _build_live_connectors(
-            fred_api_key=fred_api_key, te_api_key=te_api_key, cache_dir=cache_dir
-        )
-        builder = _live_inputs_builder_factory(
-            builder=monetary_builder, history_years=history_years
-        )
+    if backend == "live" and not fred_api_key:
+        typer.echo("FRED_API_KEY required for --backend=live", err=True)
+        sys.exit(EXIT_IO)
 
-    session = SessionLocal()
-    # Always spin up the DB-backed reader so M3 fills when daily_curves
-    # + daily_overlays have persisted the NSS forwards + EXPINF row for
-    # the country/date (CAL-108). Additive over live M1/M2/M4.
-    from sonar.indices.monetary.db_backed_builder import (  # noqa: PLC0415
-        MonetaryDbBackedInputsBuilder as _MonetaryDbBackedInputsBuilder,
-    )
-
-    db_backed = _MonetaryDbBackedInputsBuilder(session)
-    try:
-        outcomes = _dispatch_country_loop(
-            session=session,
+    outcomes = asyncio.run(
+        _run_async_pipeline(
+            obs_date=obs_date,
             targets=targets,
-            observation_date=obs_date,
-            inputs_builder=builder,
-            db_backed_builder=db_backed,
+            backend=backend,
+            fred_api_key=fred_api_key,
+            te_api_key=te_api_key,
+            cache_dir=cache_dir,
+            history_years=history_years,
         )
-    finally:
-        session.close()
-        # ADR-0011 Principle 2 extended to cleanup: per-connector
-        # aclose() may crash under asyncio event-loop churn (httpx
-        # clients cache the loop they first used under the live
-        # backend, so the subsequent asyncio.run here raises
-        # ``RuntimeError: Event loop is closed``). Catch + log so a
-        # cleanup error does not mask the orchestrator exit code.
-        for conn in connectors_to_close:
-            close = getattr(conn, "aclose", None)
-            if close is None:
-                continue
-            try:
-                asyncio.run(close())
-            except Exception as exc:
-                log.warning(
-                    "monetary_pipeline.connector_aclose_error",
-                    connector=type(conn).__name__,
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                )
+    )
 
     log.info(
         "monetary_pipeline.summary",
@@ -767,10 +754,72 @@ def main(
     # ADR-0011 Principle 3: exit 0 whenever the pipeline ran to completion
     # without an uncaught structural exception. Partial coverage
     # (some persisted, others expected-no_inputs) is OK. Exit 1 only
-    # when *every* country failed with an uncaught exception.
-    if outcomes.failed and not outcomes.persisted and not outcomes.no_inputs:
+    # when *every* country failed with an uncaught exception — i.e.
+    # zero persisted, zero no_inputs, zero duplicate, and ≥1 failed.
+    if (
+        outcomes.failed
+        and not outcomes.persisted
+        and not outcomes.no_inputs
+        and not outcomes.duplicate
+    ):
         sys.exit(EXIT_NO_INPUTS)
     sys.exit(EXIT_OK)
+
+
+async def _run_async_pipeline(
+    *,
+    obs_date: date,
+    targets: list[str],
+    backend: str,
+    fred_api_key: str,
+    te_api_key: str,
+    cache_dir: str,
+    history_years: int,
+) -> _MonetaryRunOutcomes:
+    """Run the full pipeline inside a single event loop.
+
+    ADR-0011 Principle 6 — async lifecycle discipline. Connectors are
+    instantiated once, registered with :class:`contextlib.AsyncExitStack`
+    so their ``aclose()`` runs inside the same loop that created their
+    ``httpx.AsyncClient`` transports, and torn down deterministically
+    on exit. No per-country ``asyncio.run`` call exists in this
+    module — exactly one site lives in :func:`main`, at process entry.
+    """
+    async with contextlib.AsyncExitStack() as stack:
+        builder: InputsBuilder = default_inputs_builder
+        if backend == "live":
+            monetary_builder, connectors_to_close = _build_live_connectors(
+                fred_api_key=fred_api_key,
+                te_api_key=te_api_key,
+                cache_dir=cache_dir,
+            )
+            for conn in connectors_to_close:
+                close = getattr(conn, "aclose", None)
+                if close is None:
+                    continue
+                stack.push_async_callback(close)
+            builder = _live_inputs_builder_factory(
+                builder=monetary_builder, history_years=history_years
+            )
+
+        session = SessionLocal()
+        stack.callback(session.close)
+        # Always spin up the DB-backed reader so M3 fills when
+        # daily_curves + daily_overlays have persisted the NSS forwards
+        # + EXPINF row for the country/date (CAL-108). Additive over
+        # live M1/M2/M4.
+        from sonar.indices.monetary.db_backed_builder import (  # noqa: PLC0415
+            MonetaryDbBackedInputsBuilder as _MonetaryDbBackedInputsBuilder,
+        )
+
+        db_backed = _MonetaryDbBackedInputsBuilder(session)
+        return await _dispatch_country_loop(
+            session=session,
+            targets=targets,
+            observation_date=obs_date,
+            inputs_builder=builder,
+            db_backed_builder=db_backed,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover
