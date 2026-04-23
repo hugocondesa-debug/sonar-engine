@@ -1,13 +1,15 @@
-# Brief Format v3.1 (active from 2026-04-23 Week 10 Day 3)
+# Brief Format v3.2 (active from 2026-04-23 Week 10 Day 3 late)
 
 Builds on [`brief-format-v2.md`](./brief-format-v2.md). Same minimalist
 spirit; adds three mandatory sections after Week 9 / Day 0 Week 10
 merge workflow lessons (7 incidents in 5 days). v3.1 amends v3 with
-five Week 10 lesson codifications (see §What changed in v3.1).
+five Week 10 lesson codifications (see §What changed in v3.1). v3.2
+refines §6 systemd clause into Tier A (CC pre-merge) + Tier B
+(operator post-merge) after Week 10 Lesson #12 (see §What changed in v3.2).
 Supersedes v2 for new sprints. Existing v2 briefs in `docs/planning/`
 are historical and ship as-is — **v3 is forward-only; no retrofit
-required**. v3 → v3.1 is additive (new required fields) but backward
-compatible — v3 briefs stay valid; retrofit only if edited.
+required**. v3 → v3.1 → v3.2 is additive — v3 / v3.1 briefs stay
+valid; retrofit only if edited.
 
 ## Purpose
 
@@ -54,6 +56,23 @@ compatible — new required fields but old briefs stay valid.
 5. **NEW §13 Dependencies & CAL interactions** — structured dependency
    graph: parent sprint, CALs closed/opened, sprints blocked/unblocked.
    Forces explicit maintenance of cross-sprint dependencies.
+
+## What changed in v3.2
+
+Additive refinement of the v3.1 §6 systemd clause after Week 10 Sprint M
+surfaced Lesson #12 — CC operates inside a worktree + has no sudo, so
+`systemctl start` is structurally undeliverable pre-merge. v3.1's
+"acceptance MUST include systemd verification" was therefore operationally
+ambiguous (written as blocker, structurally deferred).
+
+1. **REVISED §6 Invocation context requirements** — split into **Tier A
+   (CC pre-merge)** + **Tier B (operator post-merge)**. Tier A covers
+   local CLI + `bash -lc` wrapper smoke + tests + worktree-local grep
+   for known-bad patterns — all structurally achievable inside a
+   worktree. Tier B covers `sudo systemctl start` + journalctl +
+   `systemctl is-active` + timer re-enable — operator-executed post-merge
+   within 24h. Brief §6 acceptance reports Tier A as shippable criteria;
+   retro §7 acknowledges Tier B as operator follow-up.
 
 ## Structure (13 sections)
 
@@ -159,20 +178,58 @@ mark this sub-section explicitly **N/A (no country-data fetch)**.
 
 ## 6. Acceptance
 
-### Invocation context requirements (v3.1 — Week 10 Lesson #7)
+### Invocation context requirements (v3.2 — Week 10 Lessons #7 + #12)
 
 If the deliverable affects code that runs via a systemd service (e.g.,
 `sonar-daily-curves`, `sonar-daily-monetary-indices`,
-`sonar-daily-cost-of-capital`, or future services), acceptance MUST
-include systemd invocation verification.
+`sonar-daily-cost-of-capital`, or future services), acceptance splits
+into TWO tiers. CC operates inside a worktree + has no sudo, so
+`systemctl start` is structurally undeliverable pre-merge (Week 10
+Lesson #12). Tier A captures everything CC can verify inside the
+worktree; Tier B captures the sudo-requiring verifications operator
+executes post-merge within 24h.
 
 Local CLI exit 0 is **not sufficient** — the systemd wrapper
 (`bash -lc 'uv run ...'`) alters shell environment, CWD context, and
 async event loop initialization. Week 10 Sprint T0 shipped with local
 CLI passing but systemd failed (`Event loop is closed`); gap closed
-only in Sprint T0.1.
+only in Sprint T0.1. Tier A adds a bash-wrapper smoke surrogate that
+simulates that environment without sudo.
 
-Required clauses:
+#### Tier A — Pre-merge acceptance (CC scope)
+
+CC must verify the following BEFORE claiming shipped. All four are
+worktree-achievable without sudo. Brief §6 acceptance checkboxes
+report Tier A results.
+
+1. **Local CLI exit 0**:
+   ```
+   uv run python -m <module> <args>
+   # Expected: exit 0 with the expected summary line + persist count
+   ```
+2. **Bash wrapper smoke (systemd surrogate)**:
+   ```
+   bash -lc 'cd /home/macro/projects/sonar-engine && uv run python -m <module> <args>'
+   # Simulates sonar-daily-*.service's ExecStart wrapper: fresh shell,
+   # login-profile PATH, CWD inheritance, async event-loop initialization.
+   # Expected: exit 0; zero "Event loop is closed" / "connector_aclose_error"
+   # in stderr.
+   ```
+3. **Unit + regression tests pass**:
+   ```
+   uv run pytest tests/unit/test_pipelines/ -k "<scope>"
+   # Expected: green — drift guards + per-country dispatcher contracts.
+   ```
+4. **Worktree-local log grep (journal surrogate)**:
+   ```
+   uv run python -m <module> <args> 2>&1 | tee /tmp/sprint-<id>-stderr.log
+   grep -iE "Event loop is closed|connector_aclose_error|Traceback" /tmp/sprint-<id>-stderr.log
+   # Expected: zero matches.
+   ```
+
+#### Tier B — Post-merge acceptance (operator scope)
+
+Operator executes after `sprint_merge.sh` reports success, within 24h:
 
 1. **Service starts clean**:
    ```
@@ -200,8 +257,15 @@ Required clauses:
    systemctl is-active <service>.timer  # Expected: active
    ```
 
+**Ship / retro contract** — brief §6 reports Tier A verifications as
+shippable criteria (CC exit). Retro §7 records Tier A as completed +
+Tier B as operator follow-up (name + expected window). Operator
+confirms Tier B within 24h of merge; if a Tier B failure emerges, it
+opens a new sprint (not a retroactive HALT on the merged sprint).
+
 For sprints NOT affecting systemd-invoked code, mark this sub-section
-explicitly **N/A (no systemd services affected)**.
+explicitly **N/A (no systemd services affected)**. Tier A/B both
+become N/A.
 
 ### Global sprint-end
 - [ ] [testable check]
@@ -323,8 +387,9 @@ Fill retrospectively during retro — flag new CALs discovered mid-sprint.
 `brief-format-v2.md` carries a DEPRECATED header pointing here. The
 file is preserved for historical reference; briefs already written in
 v2 (Week 4 - Week 9, Day 0 Week 10) complete their lifecycle on v2
-without retrofit. Sprints Week 10 Day 1-2 use v3. New sprints Week 10
-Day 4+ use v3.1.
+without retrofit. Sprints Week 10 Day 1-2 use v3. Sprints Week 10
+Day 3 (R1 bundle + Sprint M + Sprint O) use v3.1. Sprints Week 10 Day 3
+late onward (Sprint V + Sprint T) use v3.2.
 
 ## References
 
