@@ -2666,27 +2666,136 @@ as sub-bullets below when it differs materially from peer countries.
   `CAL-CH-M3`, `CAL-SE-M3`, `CAL-NO-M3`, `CAL-DK-M3`
   (8 items → 1).
 
-### CAL-M4-T1-FCI-EXPANSION — M4 FCI 5-component bundles for T1 countries (Phase 2.5)
+### CAL-M4-T1-FCI-EXPANSION — M4 FCI 5-component bundles for T1 countries ✅ CLOSED
 
-- **Priority:** LOW-MEDIUM — Phase 2.5 scope (T2-uniform FCI after
-  Phase 2 M1/M2/M3 completion).
-- **Scope:** FCI 5-component bundle per country:
-  1. Real 10Y yield → NSS real yields by country (US TIPS; EA BEI-
-     based; GB ILG; others — synthetic via breakeven if no linker).
-  2. VIX-equivalent per country — national equity-vol index (VSTOXX
-     for EA/GB; VIX for US; Nikkei VIX for JP; no clean equivalent
-     CA/AU/NZ/CH/SE/NO/DK — use pooled proxy with `F4_COVERAGE_SPARSE`
-     flag).
-  3. Credit spread per country (IBoxx corporate vs sovereign, or
-     country-specific equivalent).
-  4. NEER (Nominal Effective Exchange Rate) per country (BIS NEER or
-     native CB NEER).
-  5. Financial-conditions proxy (equity-bond correlation or similar).
-- **Unblocks:** M4 composite cross-country FCI (Phase 2.5 gate).
+- **Status:** CLOSED 2026-04-23 via Week 10 Sprint J (branch
+  `sprint-m4-fci-t1-expansion`). Retrospective at
+  `docs/planning/retrospectives/week10-sprint-m4-fci-t1-report.md`;
+  pre-flight probe matrix at
+  `docs/planning/week10-sprint-j-m4-fci-t1-preflight-findings.md`.
+- **Shipped scope** (6 implementation commits + pre-flight):
+  - Commit 1 (`f693c02`) — Sprint J brief v3 + pre-flight probe
+    matrix (48 probes across 16 T1 + EA aggregate × 3 legacy
+    components). HALT-0 cleared; HALT-14 surfaced (SCAFFOLD > 6).
+  - Commit 2 (`33e8dee`) — TE equity-volatility markets wrappers
+    (`VIX:IND` + `VSTOXX:IND`) + FRED OAS wrappers (`BAMLC0A0CM` US
+    IG + `BAMLHE00EHYIOAS` EA HY).
+  - Commit 3 (`6a2d51d`) — `BisConnector.fetch_neer` on
+    `M.N.B.{CTY}` (BIS WS_EER broad-basket, monthly). 17/17 coverage.
+  - Commit 4 (`6c0e414`) — `ecb_sdw.fetch_mortgage_rate` (MIR
+    `M.{CC}.B.A2C.A.R.A.2250.EUR.N`) + monthly `TIME_PERIOD` parse +
+    `_assemble_m4_ea_custom_inputs` helper + `build_m4_ea_inputs` +
+    `build_m4_de_inputs` + US canonical regression guard
+    (`TestSprintJUsBaselineGuard`, HALT-1 absolute).
+  - Commit 5 (`162ea2b`) — `build_m4_{fr,it,es,nl,pt}_inputs`
+    EA-member FULL-compute wrappers + `build_m4_gb_inputs` scaffold +
+    `_M4_EA_PROXY_BUILDERS` dispatch dict.
+  - Commit 6 (`e09d8b4`) — pipeline `_classify_m4_compute_mode` +
+    `monetary_pipeline.m4_compute_mode` observability log +
+    `MONETARY_SUPPORTED_COUNTRIES` DE/FR/IT/ES/NL/PT +
+    `_build_live_connectors` BIS plumbing.
+- **Coverage post-merge:** **8/17 entities FULL compute** (US
+  canonical + 7 new: EA + DE + FR + IT + ES + NL + PT via shared-EA
+  proxy pattern) + **9/17 SCAFFOLD** (GB new + 8 preserved: AU / CA /
+  CH / DK / JP / NO / NZ / SE). 17/17 dispatcher-wired. US canonical
+  preserved absolutely (HALT-1, unit regression guard PASS).
+- **Components shipped:**
+  1. BIS NEER on `M.N.B.{CTY}` — monthly, 17/17 coverage. Daily
+     cadence deferred to `CAL-M4-NEER-FREQUENCY-DAILY` below.
+  2. VSTOXX via TE markets — EA aggregate + 6 EA members via
+     shared-EA-proxy convention. Per-country tier-3 vol symbols
+     (`V2TX`, `VFTSE`, `NKYVOLX`, etc.) empty at our TE key;
+     deferred to `CAL-M4-VOL-T2-TIER3-EXPANSION` below.
+  3. BAML EA HY OAS (`BAMLHE00EHYIOAS`) via FRED — shared-EA credit
+     spread for EA + 6 EA members. Per-country OAS deferred to
+     `CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY` below.
+  4. ECB MIR mortgage rate on `M.{CC}.B.A2C.A.R.A.2250.EUR.N` —
+     7 EA entities. Non-EA T1 per-CB native mortgage series
+     deferred to `CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION` below.
+  5. 10Y sovereign yield via TE `fetch_sovereign_yield_historical`
+     (Sprint I-patch surface) or NSS overlay — all 17 entities
+     covered through pre-existing curves work.
 - **Replaces:** `CAL-121`, `CAL-131`, `CAL-AU-M4-FCI`,
   `CAL-NZ-M4-FCI`, `CAL-CH-M4-FCI`, `CAL-SE-M4-FCI`, `CAL-NO-M4-FCI`,
-  `CAL-DK-M4-FCI` (8 items → 1). Does NOT replace
-  `CAL-DK-M4-EUR-PEG-FCI` (DK EUR-peg hybrid preserved separately).
+  `CAL-DK-M4-FCI` (8 items → 1, all closed by this sprint). Does NOT
+  replace `CAL-DK-M4-EUR-PEG-FCI` (DK EUR-peg hybrid preserved
+  separately).
+- **Opens:** 4 follow-on CAL items to close the remaining 9
+  SCAFFOLD entities' per-component gaps — see below.
+
+### CAL-M4-VOL-T2-TIER3-EXPANSION — National equity-vol index for 9 non-EA-proxy T1 countries (Phase 2)
+
+- **Priority:** HIGH-MEDIUM — single-component gap blocks 9/17 M4
+  entities from reaching FULL. Opens post-Sprint-J.
+- **Scope:** national equity-vol index for GB / JP / CA / AU / NZ /
+  CH / SE / NO / DK (9 countries). Sprint J pre-flight established
+  TE tier-3 symbols `V2TX` / `VFTSE` / `NKYVOLX` / national
+  equivalents return `200 []` at our API key.
+- **Candidate sources (empirical-probe required):**
+  - Upgrade TE API tier (single action; unblocks all 9 if tier-3
+    covers the missing symbols).
+  - Yahoo Finance `^VIXC` (CA) / `^AXVI` (AU) / `^VFTSE` (GB) /
+    `^NKYVOLX` (JP) — requires a Yahoo Finance connector extension.
+  - stooq.com historical + computed implied-vol surface per country.
+- **Unblocks:** moves 9 entities closer to FULL (from 2/5 → 3/5);
+  combined with the 2 CALs below, moves them to FULL (5/5).
+- **Opened by:** Sprint J Commit 7 (`CAL-M4-T1-FCI-EXPANSION` closure).
+
+### CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY — Per-country IG/HY OAS beyond BAML (Phase 2.5)
+
+- **Priority:** MEDIUM — second-component gap blocking the same 9
+  non-EA-proxy entities as `CAL-M4-VOL-T2-TIER3-EXPANSION`.
+- **Scope:** per-country IG or HY OAS (credit-spread vs sovereign)
+  for GB / JP / CA / AU / NZ / CH / SE / NO / DK. Sprint J pre-flight
+  confirmed FRED exposes only `BAMLC0A0CM` (US IG) + `BAMLHE00EHYIOAS`
+  (EA HY); per-country BAML series not published.
+- **Candidate sources:**
+  - ICE Data direct (paywalled — SLA / commercial decision needed).
+  - IHS iBoxx feeds (paywalled).
+  - National-CB bond-yield composites: RBA F3 corporate yield, BoE
+    IUDR-family, BoJ JGB spreads, BoC bond curves. Most are IG-
+    equivalent not HY; may still meet the spec §4 intent.
+  - Synthetic credit-spread: per-country sovereign curve (NSS
+    overlay) + corporate-yield proxy once TE / BBG provisions.
+- **Unblocks:** 9 entities to 4/5 components (combined with
+  `CAL-M4-VOL-T2-TIER3-EXPANSION`).
+- **Opened by:** Sprint J Commit 7.
+
+### CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION — Per-CB native mortgage rate for 9 non-EA T1 countries (Phase 2)
+
+- **Priority:** MEDIUM — third-component gap for the 9 non-EA-proxy
+  entities. ECB MIR already covers the 7 EA entities.
+- **Scope:** per-CB native mortgage-rate series for GB / JP / CA /
+  AU / NZ / CH / SE / NO / DK. Each CB publishes a canonical
+  household mortgage rate on its native connector surface:
+  - BoE IUMTLMV — gated behind Akamai (see Sprint I-patch learnings;
+    browser-gate or rotating-UA bypass required).
+  - BoJ prime rate (published monthly on BoJ website).
+  - BoC V39079-family (Valet API; reachable public endpoint).
+  - RBA G3 housing-loan rates (daily CSV).
+  - RBNZ B19 (host perimeter currently 403 — see `CAL-NZ-RBNZ-TABLES`).
+  - SNB monthly bulletin mortgage rates.
+  - Riksbank MFI interest rates.
+  - Norges Bank interest statistics (bank-reporting rates).
+  - Nationalbanken MFI interest rates.
+- **Unblocks:** 9 entities to **5/5 FULL** when combined with
+  `CAL-M4-VOL-T2-TIER3-EXPANSION` + `CAL-M4-CREDIT-SPREAD-T2-PER-COUNTRY`.
+- **Opened by:** Sprint J Commit 7.
+
+### CAL-M4-NEER-FREQUENCY-DAILY — Daily NEER via bilateral-FX composite (Phase 2.5)
+
+- **Priority:** LOW — does not block FULL compute (monthly NEER with
+  most-recent-available anchor is spec-compliant). Every Sprint J
+  FULL-compute emits `{CC}_M4_NEER_MONTHLY_CADENCE` as observability.
+- **Scope:** reconstruct daily NEER per country via bilateral-FX
+  composite — sum of weighted spot rates against the BIS EER basket
+  weights (narrow or broad). Requires (a) BIS EER weight matrix
+  connector (CAL-TBD), (b) daily bilateral-FX connector (FRED + TE
+  already cover the major pairs; extend as needed), (c) composite
+  assembler with monthly-weight / daily-spot assembly.
+- **Unblocks:** daily-cadence FCI compute (Phase 2.5 dashboards /
+  backtest). Not a Phase 2 blocker.
+- **Opened by:** Sprint J Commit 7.
 
 ### CAL-BS-GDP-T1-EXPANSION — Central-bank balance-sheet / GDP ratio for T1 countries (Phase 2.5)
 
