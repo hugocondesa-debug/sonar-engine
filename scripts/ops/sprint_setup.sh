@@ -115,9 +115,17 @@ if [ -z "$BRIEF_PATH" ]; then
     if [ ${#BRIEF_MATCHES[@]} -eq 0 ]; then
         cat >&2 <<EOF
 [HALT] No brief found matching docs/planning/week*-sprint-${SPRINT_ID_FOR_BRIEF}-*brief.md
-[HALT] Expected shape: docs/planning/week10-sprint-${SPRINT_ID_FOR_BRIEF}-<slug>-brief.md
-[HALT] Steps:
-[HALT]   1. Upload brief via scp into docs/planning/
+[HALT]
+[HALT] Canonical filename convention (brief format v3.3, Week 10 Lesson #15):
+[HALT]     week<NN>-<sprint_id>-brief.md
+[HALT]
+[HALT] Common mistake: brief filename uses an abbreviated sprint_id.
+[HALT] Example: sprint_id=sprint-v-lessons-11-14-permanent-fixes
+[HALT]   VALID:   week10-sprint-v-lessons-11-14-permanent-fixes-brief.md
+[HALT]   INVALID: week10-sprint-v-lessons-11-14-brief.md
+[HALT]
+[HALT] Resolution:
+[HALT]   1. Rename existing brief (or upload) with canonical name
 [HALT]   2. Commit to main + push
 [HALT]   3. Re-run: $0 $BRANCH
 [HALT]
