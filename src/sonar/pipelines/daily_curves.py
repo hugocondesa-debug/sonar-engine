@@ -18,14 +18,15 @@ daily pipelines.
   (BBSIS daily zero-coupon 9 tenors 1Y-30Y; linker stub)
 - **EA**  → :class:`~sonar.connectors.ecb_sdw.EcbSdwConnector`
   (YC dataflow EA-AAA Svensson 11 tenors 3M-30Y; linker stub)
-- **GB / JP / CA / IT / ES / FR / PT** → :class:`~sonar.connectors.te.TEConnector`
+- **GB / JP / CA / IT / ES / FR / PT / AU** → :class:`~sonar.connectors.te.TEConnector`
   (``/markets/historical`` Bloomberg symbols — GB 12 / JP 9 / CA 6
   tenors per CAL-138 empirical probe; IT 12 / ES 9 tenors per Sprint H
   pre-flight 2026-04-22; FR 10 tenors per Sprint I pre-flight
-  2026-04-22; PT 10 tenors per Sprint M pre-flight 2026-04-23; linker
-  stub)
+  2026-04-22; PT 10 tenors per Sprint M pre-flight 2026-04-23; AU 8
+  tenors per Sprint T pre-flight 2026-04-23 — ``GACGB`` family, first
+  sparse-T1 S1 PASS under ADR-0009 v2.2; linker stub)
 
-Other T1 countries (AU/NZ/CH/SE/NO/DK + NL) have insufficient tenor
+Other T1 countries (NZ/CH/SE/NO/DK + NL) have insufficient tenor
 coverage on currently-wired connectors. The Week 10 Sprint A
 pre-flight probe (2026-04-22) confirmed that ECB SDW cannot serve
 per-country EA periphery curves — the ``YC`` dataflow is EA-aggregate
@@ -42,6 +43,16 @@ raises
 in ``--all-t1`` mode the country is skipped and the orchestrator
 continues; in ``--country <X>`` mode the exit code is
 ``EXIT_INSUFFICIENT_DATA`` (1).
+
+Week 10 Sprint T (2026-04-23) closed ``CAL-CURVES-AU-PATH-2``
+pre-open via ADR-0009 v2.2 TE cascade: per-tenor sweep across the
+``GACGB`` ACGB family returned 8 daily tenors (1Y-30Y minus 1M/3M/6M
++ 15Y structural gaps), all ≥ 608 observations and latest 2026-04-22
+— first **sparse-T1 S1 PASS** under the v2.2 classifier. The 5 other
+sparse-T1 countries probed (NZ/CH/SE/NO/DK) all landed **S2 HALT-0**
+with ≤3 TE tenors; per-country ``CAL-CURVES-{X}-PATH-2`` opens for
+Week 11+ national-CB cascade work. See Sprint T probe doc at
+``docs/backlog/probe-results/sprint-t-sparse-t1-sweep-probe.md``.
 
 Week 10 Sprint D pilot (2026-04-22) executed the FR national-CB
 integration attempt and confirmed all four brief §9 fallback paths
@@ -225,16 +236,18 @@ def _curve_already_persisted(
 # - **US** via FRED (full DGS/DFII — nominal + linker)
 # - **DE** via Bundesbank (BBSIS zero-coupon 1Y-30Y)
 # - **EA** via ECB SDW (YC EA-AAA Svensson 3M-30Y aggregate)
-# - **GB / JP / CA / IT / ES / FR / PT** via TE ``/markets/historical``
+# - **GB / JP / CA / IT / ES / FR / PT / AU** via TE ``/markets/historical``
 #   Bloomberg symbols (CAL-138: GB 12 / JP 9 / CA 6 tenors; Sprint H:
-#   IT 12 / ES 9 tenors; Sprint I: FR 10 tenors; Sprint M: PT 10 tenors)
+#   IT 12 / ES 9 tenors; Sprint I: FR 10 tenors; Sprint M: PT 10
+#   tenors; Sprint T: AU 8 tenors — ``GACGB`` family, first sparse-T1
+#   S1 PASS under ADR-0009 v2.2)
 #
-# NL + AU/NZ/CH/SE/NO/DK are deferred per per-country CAL items
+# NL + NZ/CH/SE/NO/DK are deferred per per-country CAL items
 # (``CAL-CURVES-NL-DNB-PROBE`` for NL post Sprint M Path 1 HALT-0;
-# ``CAL-CURVES-T1-SPARSE`` for the rest); passing them via
-# ``--country <X>`` still raises ``InsufficientDataError`` with a CAL
-# pointer — the sparse inclusion change only concerns what
-# ``--all-t1`` iterates.
+# ``CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2`` post Sprint T S2 HALT-0);
+# passing them via ``--country <X>`` still raises
+# ``InsufficientDataError`` with a CAL pointer — the sparse inclusion
+# change only concerns what ``--all-t1`` iterates.
 T1_CURVES_COUNTRIES: tuple[str, ...] = (
     "US",
     "DE",
@@ -246,13 +259,14 @@ T1_CURVES_COUNTRIES: tuple[str, ...] = (
     "ES",
     "FR",
     "PT",
+    "AU",
 )
 
-# Countries wired to a curve-fit path at Sprint M close. A country
+# Countries wired to a curve-fit path at Sprint T close. A country
 # outside this set passed to ``--country`` raises InsufficientDataError
 # with a pointer to the tracking CAL item.
 CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"}
 )
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
@@ -270,12 +284,11 @@ CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
 # ``docs/backlog/probe-results/sprint-m-pt-nl-te-probe.md``).
 _DEFERRAL_CAL_MAP: dict[str, str] = {
     "NL": "CAL-CURVES-NL-DNB-PROBE",
-    "AU": "CAL-CURVES-T1-SPARSE",
-    "NZ": "CAL-CURVES-T1-SPARSE",
-    "CH": "CAL-CURVES-T1-SPARSE",
-    "SE": "CAL-CURVES-T1-SPARSE",
-    "NO": "CAL-CURVES-T1-SPARSE",
-    "DK": "CAL-CURVES-T1-SPARSE",
+    "NZ": "CAL-CURVES-NZ-PATH-2",
+    "CH": "CAL-CURVES-CH-PATH-2",
+    "SE": "CAL-CURVES-SE-PATH-2",
+    "NO": "CAL-CURVES-NO-PATH-2",
+    "DK": "CAL-CURVES-DK-PATH-2",
 }
 
 
