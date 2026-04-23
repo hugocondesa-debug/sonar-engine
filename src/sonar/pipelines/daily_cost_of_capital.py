@@ -157,7 +157,7 @@ EXIT_IO = 4
 # in ``tests/unit/test_pipelines/test_daily_cost_of_capital.py``
 # enforces equality with ``daily_curves.CURVE_SUPPORTED_COUNTRIES``.
 _CURVES_SHIPPED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"}
 )
 
 

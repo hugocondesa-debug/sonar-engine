@@ -109,9 +109,11 @@ def test_t1_curves_countries_ordering_stable() -> None:
 
     Sprint H (IT + ES TE cascade, 2026-04-22) appended IT + ES; Sprint I
     (FR TE cascade, 2026-04-22) appended FR; Sprint M (PT TE cascade,
-    2026-04-23) appends PT. The first nine entries remain bit-stable
-    with the Sprint I ordering for journal/tool compatibility. NL stays
-    deferred (Path 1 HALT-0 — CAL-CURVES-NL-DNB-PROBE).
+    2026-04-23) appends PT; Sprint T (AU TE cascade, 2026-04-23) appends
+    AU (first sparse-T1 S1 PASS under ADR-0009 v2.2). The first ten
+    entries remain bit-stable with the Sprint M ordering for
+    journal/tool compatibility. NL + NZ/CH/SE/NO/DK stay deferred (Path 1
+    HALT-0 — per-country ``CAL-CURVES-{X}-PATH-2``).
     """
     assert T1_CURVES_COUNTRIES == (
         "US",
@@ -124,6 +126,7 @@ def test_t1_curves_countries_ordering_stable() -> None:
         "ES",
         "FR",
         "PT",
+        "AU",
     )
 
 
@@ -132,13 +135,14 @@ def test_t1_curves_countries_ordering_stable() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR", "PT"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"])
 async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
     """GB/JP/CA dispatch lands on ``TEConnector`` (CAL-138 empirical
     probe 2026-04-22); IT + ES join the TE branch post Sprint H
     (2026-04-22) via the same per-country ``TE_YIELD_CURVE_SYMBOLS``
     dispatch; FR joins post Sprint I (2026-04-22); PT joins post
-    Sprint M (2026-04-23).
+    Sprint M (2026-04-23); AU joins post Sprint T (2026-04-23) as
+    first sparse-T1 S1 PASS.
     """
     te = AsyncMock()
     te.fetch_yield_curve_nominal.return_value = _stub_nominals(country, source_series_prefix="TE")
@@ -164,7 +168,7 @@ async def test_dispatch_routes_non_ea_t1_to_te(country: str) -> None:
     assert linkers == {}
 
 
-@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR", "PT"])
+@pytest.mark.parametrize("country", ["GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"])
 async def test_dispatch_raises_when_te_missing_for_non_ea_t1(country: str) -> None:
     """Missing TE connector for a TE-served country surfaces as
     ``InsufficientDataError`` with the country code cited — not a
