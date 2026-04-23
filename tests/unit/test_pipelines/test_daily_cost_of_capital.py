@@ -397,3 +397,35 @@ class TestComposeKEWithDamodaranLiveFlag:
         assert "ERP_MATURE_LIVE_DAMODARAN" in result.flags
         # Confidence stays at CRP baseline — only ERP_STUB deducts.
         assert result.confidence == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# Sprint T0 ADR-0011 — idempotency + per-country isolation structures
+# ---------------------------------------------------------------------------
+
+
+def test_curves_shipped_countries_matches_daily_curves() -> None:
+    """cost_of_capital's shipped-cohort set must match daily_curves'
+    actual ship list. Drift → spurious warn-vs-info classification.
+    """
+    from sonar.pipelines.daily_cost_of_capital import (  # noqa: PLC0415
+        _CURVES_SHIPPED_COUNTRIES,
+    )
+    from sonar.pipelines.daily_curves import CURVE_SUPPORTED_COUNTRIES  # noqa: PLC0415
+
+    assert _CURVES_SHIPPED_COUNTRIES == CURVE_SUPPORTED_COUNTRIES
+
+
+def test_cost_of_capital_run_outcomes_default_empty() -> None:
+    """Sprint T0 _CostOfCapitalRunOutcomes default-constructs with four
+    empty buckets — invariant relied on by the summary-emit Principle 4.
+    """
+    from sonar.pipelines.daily_cost_of_capital import (  # noqa: PLC0415
+        _CostOfCapitalRunOutcomes,
+    )
+
+    outcomes = _CostOfCapitalRunOutcomes()
+    assert outcomes.persisted == []
+    assert outcomes.duplicate == []
+    assert outcomes.insufficient == []
+    assert outcomes.failed == []

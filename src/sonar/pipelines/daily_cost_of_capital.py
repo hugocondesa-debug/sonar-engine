@@ -35,12 +35,18 @@ Upstream: run ``daily_erp_us`` (or equivalent) first to populate
 ``erp_canonical`` for the target date so this pipeline can read live
 ERP instead of the stub.
 
-Exit codes:
+Exit codes (ADR-0011 aligned, Sprint T0 2026-04-23):
 
-- ``0`` clean run (all requested countries persisted)
-- ``1`` InsufficientDataError (typically CRP no-method)
-- ``3`` DuplicatePersistError
-- ``4`` IO / unexpected
+- ``0`` — happy path: pipeline ran to completion. Mixes of persisted
+  + duplicate-skipped + insufficient-data-skipped countries are OK.
+- ``1`` — *every* country failed insufficient_data (no single persist
+  or duplicate-skip). Strict-single mode maps insufficient_data to 1.
+- ``4`` — IO / unexpected exception at orchestrator boundary.
+
+Sprint T0 removed exit code 3 (DuplicatePersistError) from the
+happy-path contract per ADR-0011 Principle 1: duplicates are skip +
+continue; `insufficient_data` per country no longer kills the
+pipeline in --all-t1 mode.
 """
 
 from __future__ import annotations
@@ -49,7 +55,7 @@ import asyncio
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -138,8 +144,18 @@ COUNTRY_TO_ERP_MARKET_INDEX: dict[str, str] = dict.fromkeys(T1_7_COUNTRIES, "SPX
 
 EXIT_OK = 0
 EXIT_INSUFFICIENT_DATA = 1
-EXIT_DUPLICATE = 3
+EXIT_DUPLICATE = 3  # retained for back-compat; unreachable under ADR-0011
 EXIT_IO = 4
+
+# T1 countries with shipped NSS curves (Sprint T0 2026-04-23 /
+# post-Sprint-I). insufficient_data for these countries is a genuine
+# upstream signal (curves were expected from the prior daily_curves
+# run); for countries outside this set, insufficient_data is the
+# expected state. Split drives warn vs info-level logging so journals
+# communicate severity proportional to coverage expectations.
+_CURVES_SHIPPED_COUNTRIES: frozenset[str] = frozenset(
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +499,85 @@ def run_one(
     return k_e
 
 
+@dataclass(slots=True)
+class _CostOfCapitalRunOutcomes:
+    """Bucketed per-country outcomes across a --all-t1 orchestration.
+
+    ADR-0011 Principle 4 — four disjoint buckets: persisted (row
+    landed), duplicate (idempotent no-op re-run), insufficient
+    (upstream NSS spot or CRP missing), failed (uncaught exception).
+    """
+
+    persisted: list[str] = field(default_factory=list)
+    duplicate: list[str] = field(default_factory=list)
+    insufficient: list[tuple[str, str]] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _dispatch_country_loop(
+    *,
+    session: Session,
+    targets: list[str],
+    observation_date: date,
+    mature_fallback: _MatureFallback,
+) -> _CostOfCapitalRunOutcomes:
+    """Run each target country; collect outcomes across four buckets.
+
+    ADR-0011 Principles 1-2: pre-existing rows skip silently via the
+    ``DuplicatePersistError`` catch (info level, not error); each
+    country's exception is isolated so one failure does not sink the
+    pipeline. ``InsufficientDataError`` branches on whether the
+    country is in :data:`_CURVES_SHIPPED_COUNTRIES` — a T1-shipped
+    country missing NSS spot is a warning (upstream daily_curves
+    regressed); a non-shipped country missing it is info (expected).
+    """
+    outcomes = _CostOfCapitalRunOutcomes()
+    for raw in targets:
+        # ADR-0007: normalise legacy ISO aliases (e.g. "UK" → "GB")
+        # at CLI entry so currency / benchmark resolution + persisted
+        # row all carry canonical codes. Structlog deprecation
+        # warning fires once per invocation; removal Week 10 Day 1.
+        c = _normalize_country_code(raw)
+        country_upper = c.upper()
+        benchmark = BENCHMARK_COUNTRIES_BY_CURRENCY[COUNTRY_TO_CURRENCY.get(c, "EUR")]
+        try:
+            run_one(session, c, observation_date, benchmark, mature_fallback=mature_fallback)
+            outcomes.persisted.append(country_upper)
+        except InsufficientDataError as exc:
+            if country_upper in _CURVES_SHIPPED_COUNTRIES:
+                log.warning(
+                    "cost_of_capital.insufficient_data",
+                    country=country_upper,
+                    error=str(exc),
+                    severity="upstream_shipped_regressed",
+                )
+            else:
+                log.info(
+                    "cost_of_capital.insufficient_data",
+                    country=country_upper,
+                    error=str(exc),
+                    severity="expected_upstream_absent",
+                )
+            outcomes.insufficient.append((country_upper, str(exc)))
+        except DuplicatePersistError as exc:
+            # ADR-0011 Principle 1: duplicate = skip + continue.
+            log.info(
+                "cost_of_capital.duplicate_skipped",
+                country=country_upper,
+                error=str(exc),
+            )
+            outcomes.duplicate.append(country_upper)
+        except Exception as exc:  # ADR-0011 Principle 2 — per-country isolation
+            log.error(
+                "cost_of_capital.country_failed",
+                country=country_upper,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            outcomes.failed.append((country_upper, f"{type(exc).__name__}: {exc}"))
+    return outcomes
+
+
 def main(
     country: str = typer.Option("", "--country", help="ISO 3166-1 alpha-2 (omit with --all-t1)."),
     target_date: str = typer.Option(..., "--date", help="ISO date (e.g. 2024-01-02)."),
@@ -519,26 +614,46 @@ def main(
     mature_fallback = resolve_mature_erp_fallback(obs_date, disabled=disable_damodaran_live)
 
     session = SessionLocal()
-    exit_code = EXIT_OK
+    strict_single = not all_t1
     try:
-        for raw in targets:
-            # ADR-0007: normalise legacy ISO aliases (e.g. "UK" → "GB") at
-            # CLI entry so currency / benchmark resolution + persisted row
-            # all carry canonical codes. Structlog deprecation warning fires
-            # once per invocation; removal Week 10 Day 1.
-            c = _normalize_country_code(raw)
-            benchmark = BENCHMARK_COUNTRIES_BY_CURRENCY[COUNTRY_TO_CURRENCY.get(c, "EUR")]
-            try:
-                run_one(session, c, obs_date, benchmark, mature_fallback=mature_fallback)
-            except InsufficientDataError as exc:
-                log.error("cost_of_capital.insufficient_data", country=c, error=str(exc))
-                exit_code = EXIT_INSUFFICIENT_DATA
-            except DuplicatePersistError as exc:
-                log.error("cost_of_capital.duplicate", country=c, error=str(exc))
-                exit_code = EXIT_DUPLICATE
+        outcomes = _dispatch_country_loop(
+            session=session,
+            targets=targets,
+            observation_date=obs_date,
+            mature_fallback=mature_fallback,
+        )
     finally:
         session.close()
-    sys.exit(exit_code)
+
+    log.info(
+        "cost_of_capital.summary",
+        date=obs_date.isoformat(),
+        n_persisted=len(outcomes.persisted),
+        n_duplicate=len(outcomes.duplicate),
+        n_insufficient=len(outcomes.insufficient),
+        n_failed=len(outcomes.failed),
+        countries_persisted=outcomes.persisted,
+        countries_duplicate=outcomes.duplicate,
+        countries_insufficient=[c for c, _ in outcomes.insufficient],
+        countries_failed=[c for c, _ in outcomes.failed],
+    )
+
+    ok_count = len(outcomes.persisted) + len(outcomes.duplicate)
+    if strict_single:
+        # --country <X>: surface insufficient_data + failed as
+        # non-zero. Persist / duplicate → exit 0.
+        if outcomes.failed:
+            sys.exit(EXIT_IO)
+        if outcomes.insufficient:
+            sys.exit(EXIT_INSUFFICIENT_DATA)
+        if ok_count == 0:
+            sys.exit(EXIT_INSUFFICIENT_DATA)
+        sys.exit(EXIT_OK)
+    # --all-t1: exit 0 if any country persisted or duplicate-skipped.
+    # Exit 1 only if *every* country failed insufficient_data / error.
+    if ok_count == 0:
+        sys.exit(EXIT_INSUFFICIENT_DATA)
+    sys.exit(EXIT_OK)
 
 
 if __name__ == "__main__":
