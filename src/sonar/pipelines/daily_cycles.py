@@ -16,9 +16,23 @@ L4 rows in the same session. This pipeline layers:
 CLI::
 
     python -m sonar.pipelines.daily_cycles --country US --date 2024-12-31
+    python -m sonar.pipelines.daily_cycles --country EA --date 2024-12-31
     python -m sonar.pipelines.daily_cycles --all-t1 --date 2024-12-31
     python -m sonar.pipelines.daily_cycles --country US --date 2024-12-31 \
         --backend live --fred-api-key ${FRED_API_KEY}
+
+Cohort constants:
+
+- :data:`T1_7_COUNTRIES` — legacy 7-sovereign T1 cohort used by the
+  ``--all-t1`` iteration. Covers the full CCCS / FCS / ECS cycle stack
+  (MSC rides the same loop but additionally supports EA via a separate
+  MSC-only cohort — see below).
+- :data:`MSC_CROSS_COUNTRY_COHORT` — Sprint P (Week 11 Day 1) — explicit
+  cross-country cohort for the L4 Monetary Stance Composite. Documents
+  that MSC is the **first** L4 cycle shipped cross-country (US + EA).
+  Not wired into a CLI flag; callers invoke EA via ``--country EA`` (or
+  systemd dispatch) until Week 12+ ``CAL-COHORT-CONSTANT-CLEANUP``
+  unifies all cycle cohorts under Sprint Q.0.5's T1_COUNTRIES tuple.
 
 Exit codes mirror :mod:`daily_economic_indices`:
 
@@ -56,6 +70,7 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = [
+    "MSC_CROSS_COUNTRY_COHORT",
     "T1_7_COUNTRIES",
     "CyclesPipelineOutcome",
     "StagflationInputsResolver",
@@ -66,6 +81,16 @@ __all__ = [
 ]
 
 T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+
+# Sprint P (Week 11 Day 1) — L4 MSC first cross-country cohort. EA added
+# atop US once M1 (ECB DFR), M2 (Taylor gap EA, Sprint L), M3 (market
+# expectations via ECB_SPF, Sprint Q.1.x), and M4 (FCI EA-custom, Sprint
+# J) all landed. Exposed as a separate constant (not fused into
+# :data:`T1_7_COUNTRIES`) because the all-cycles CCCS / FCS / ECS
+# cohorts stay 7-sovereign until Week 12+ CAL-COHORT-CONSTANT-CLEANUP
+# unifies under Sprint Q.0.5's 12-country T1_COUNTRIES. Callers dispatch
+# EA MSC via explicit ``--country EA`` or systemd; no new CLI flag.
+MSC_CROSS_COUNTRY_COHORT: tuple[str, ...] = ("US", "EA")
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1

@@ -23,6 +23,7 @@ from sonar.pipelines.daily_cycles import (
     EXIT_IO,
     EXIT_NO_INPUTS,
     EXIT_OK,
+    MSC_CROSS_COUNTRY_COHORT,
     T1_7_COUNTRIES,
     CyclesPipelineOutcome,
     _classify_and_persist_l5,
@@ -90,6 +91,17 @@ def _seed_all_four_cycles(session: Session, country: str = "US") -> None:
 
 def test_t1_set_matches_spec() -> None:
     assert T1_7_COUNTRIES == ("US", "DE", "PT", "IT", "ES", "FR", "NL")
+
+
+def test_msc_cross_country_cohort_matches_spec_sprint_p() -> None:
+    """Sprint P (Week 11 Day 1) — MSC first cross-country cohort is
+    (``US``, ``EA``). Guards against silent scope creep (P.1+ adds per-
+    member MSC but must update this tuple explicitly).
+    """
+    assert MSC_CROSS_COUNTRY_COHORT == ("US", "EA")
+    # Disjoint from T1_7_COUNTRIES by design — EA is NOT in the 7-sovereign
+    # all-cycles cohort; US IS. The intersection is ``{"US"}``.
+    assert set(MSC_CROSS_COUNTRY_COHORT) & set(T1_7_COUNTRIES) == {"US"}
 
 
 def test_exit_codes() -> None:
