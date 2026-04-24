@@ -124,6 +124,50 @@ ECB_EUROSYSTEM_BS_SERIES_ID = "W.U2.C.T000000.Z5.Z01"
 # (non-EA jurisdictions) and are tracked under
 # CAL-M4-MORTGAGE-RATE-T1-NATIVE-EXPANSION for per-CB native
 # mortgage-rate series.
+# ---------------------------------------------------------------------------
+# SPF dataflow — Survey of Professional Forecasters (Sprint Q.1, Week 11)
+# ---------------------------------------------------------------------------
+#
+# Per the Sprint Q.1 pre-flight probe
+# (``docs/backlog/probe-results/sprint-q-1-ecb-spf-probe.md``, 2026-04-24):
+#
+# * Dataflow ``SPF`` is live (HTTP 200) and backed by DSD
+#   ``ECB:ECB_FCT1(1.0)`` (7 dimensions: FREQ, REF_AREA, FCT_TOPIC,
+#   FCT_BREAKDOWN, FCT_HORIZON, SURVEY_FREQ, FCT_SOURCE).
+# * ``REF_AREA`` is **U2 only** — no per-country SPF series. The EA
+#   aggregate is proxied to EA members (DE/FR/IT/ES/PT/NL) under the
+#   ``SPF_AREA_PROXY`` flag; per-country upgrades are tracked under
+#   ``CAL-EXPINF-PER-COUNTRY-LINKERS-FOLLOWUP``.
+# * Horizon convention: ``FCT_HORIZON`` encodes a calendar target year
+#   (e.g. ``2027``) or the literal ``LT`` (long-term ≈ 5y ahead). The
+#   canonical tenor is derived from ``(target_year - survey_year)``:
+#   1 → ``1Y``, 2 → ``2Y``, ``LT`` → ``LTE`` (anchor proxy).
+# * ``FCT_SOURCE=AVG`` returns data; ``MDN`` returned HTTP 404 at probe
+#   time and is deferred to ``CAL-ECB-SPF-MDN-VARIANT``.
+ECB_SPF_DATAFLOW: str = "SPF"
+ECB_SPF_REF_AREA: str = "U2"
+ECB_SPF_TOPIC_HICP: str = "HICP"
+ECB_SPF_BREAKDOWN_POINT: str = "POINT"
+ECB_SPF_SURVEY_FREQ: str = "Q"
+ECB_SPF_SOURCE_AVG: str = "AVG"
+# Wildcard on FCT_HORIZON — one CSV call returns every horizon per
+# survey quarter in the requested window. Position-5 wildcard (``...``)
+# preserves the 7-dimension key shape.
+ECB_SPF_WILDCARD_KEY: str = (
+    f"{ECB_SPF_SURVEY_FREQ}.{ECB_SPF_REF_AREA}.{ECB_SPF_TOPIC_HICP}"
+    f".{ECB_SPF_BREAKDOWN_POINT}...{ECB_SPF_SOURCE_AVG}"
+)
+ECB_SPF_SURVEY_NAME: str = "ECB_SPF_HICP"
+
+# EA aggregate + periphery cohort receiving the SPF proxy. ``NL`` is
+# included for forward compatibility with Sprint P (MSC EA); the
+# 6-country M3 FULL cascade target set is a subset (EA + DE + FR + IT +
+# ES + PT per Sprint Q.1 brief §1).
+ECB_SPF_COHORT: frozenset[str] = frozenset(
+    {"EA", "DE", "FR", "IT", "ES", "PT", "NL"},
+)
+
+
 ECB_MIR_DATAFLOW = "MIR"
 # SONAR ISO code → ECB MIR REF_AREA code.
 _SONAR_TO_ECB_MIR_REF_AREA: dict[str, str] = {
@@ -188,6 +232,35 @@ class EcbMonetaryObservation:
     dataflow: str
     source_series_id: str
     source: str = "ECB_SDW"
+
+
+@dataclass(frozen=True, slots=True)
+class ExpInflationSurveyObservation:
+    """SPF (Survey of Professional Forecasters) point-forecast observation.
+
+    Shape:
+
+    * ``survey_date``: first day of the survey quarter (from ECB
+      ``TIME_PERIOD``, e.g. ``2026-Q1`` → ``date(2026, 1, 1)``).
+    * ``horizon_year``: the target calendar year for the forecast, or
+      ``"LT"`` for the long-term (≈ 5y ahead) horizon.
+    * ``tenor``: canonical SONAR tenor derived from
+      ``(horizon_year - survey_date.year)``. Values: ``"0Y"``, ``"1Y"``,
+      ``"2Y"``, ``"3Y"``, ``"LTE"`` (long-term). ``None`` for horizons
+      outside the derivation rule (kept raw for the writer to persist +
+      downstream filters).
+    * ``value_pct``: point forecast expressed in percent (e.g. ``2.017``
+      = 2.017 %; decimal conversion left to the caller per
+      ``conventions/units.md``).
+    * ``source``: constant ``"ecb_sdw_spf_area"`` — REF_AREA is U2-only
+      on the SPF dataflow, so every observation is an EA aggregate.
+    """
+
+    survey_date: date
+    horizon_year: str
+    tenor: str | None
+    value_pct: float
+    source: str = "ecb_sdw_spf_area"
 
 
 # Tenor years lookup (subset of FRED_SERIES_TENORS for ECB-published tenors).
@@ -275,6 +348,66 @@ class EcbSdwConnector(BaseConnector):
             start,
             end,
         )
+
+    async def fetch_survey_expected_inflation(
+        self,
+        country: str,
+        start: date,
+        end: date,
+    ) -> list[ExpInflationSurveyObservation]:
+        """Fetch SPF HICP point forecasts (euro-area aggregate).
+
+        Per Sprint Q.1 probe
+        (``docs/backlog/probe-results/sprint-q-1-ecb-spf-probe.md``):
+        ECB SDW publishes a single EA-aggregate SPF series (REF_AREA=U2).
+        This method proxies that aggregate to any member of
+        :data:`ECB_SPF_COHORT`; callers downstream tag non-EA emits with
+        the ``SPF_AREA_PROXY`` flag for analyst transparency.
+
+        One CSV request (wildcarded on FCT_HORIZON) retrieves every
+        target-year column for every survey quarter in the
+        ``[start, end]`` window. Observations are returned as-fetched
+        (unfiltered by tenor) so the writer + loader layers can choose
+        their own subsets.
+
+        Parameters
+        ----------
+        country:
+            Canonical SONAR ISO alpha-2 code. Must belong to
+            :data:`ECB_SPF_COHORT`; otherwise ``ValueError`` with a CAL
+            pointer for the per-country path.
+        start, end:
+            Survey-quarter window. Passed through to SDW as
+            ``startPeriod`` / ``endPeriod`` (supports ``YYYY-MM-DD``,
+            which SDW rounds to the enclosing quarter).
+        """
+        country_upper = country.upper()
+        if country_upper not in ECB_SPF_COHORT:
+            msg = (
+                f"ECB SDW SPF only covers the euro-area aggregate (REF_AREA=U2) "
+                f"proxied to EA members {sorted(ECB_SPF_COHORT)}; got {country!r}. "
+                f"Non-EA jurisdictions require per-country survey connectors "
+                f"(CAL-EXPINF-GB-BOE-ILG-SPF / CAL-EXPINF-SURVEY-JP-CA)."
+            )
+            raise ValueError(msg)
+
+        cache_key = f"ecb_sdw_spf:{ECB_SPF_WILDCARD_KEY}:{start.isoformat()}:{end.isoformat()}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug("ecb_sdw.spf.cache_hit", country=country_upper)
+            return cast("list[ExpInflationSurveyObservation]", cached)
+
+        body = await self._fetch_raw(ECB_SPF_WILDCARD_KEY, start, end, dataflow=ECB_SPF_DATAFLOW)
+        observations = list(_parse_spf_csv(body))
+        self.cache.set(cache_key, observations, ttl=DEFAULT_TTL_SECONDS)
+        log.info(
+            "ecb_sdw.spf.fetched",
+            country=country_upper,
+            n=len(observations),
+            start=start.isoformat(),
+            end=end.isoformat(),
+        )
+        return observations
 
     async def fetch_mortgage_rate(
         self,
@@ -462,6 +595,71 @@ def _parse_time_period(time_period: str) -> date | None:  # noqa: PLR0911 — ex
         return datetime.fromisoformat(time_period).date()
     except ValueError:
         return None
+
+
+def _spf_quarter_to_date(time_period: str) -> date | None:
+    """Parse ``YYYY-Qn`` into the first day of the quarter."""
+    if len(time_period) != 7 or time_period[4:6] != "-Q":
+        return None
+    try:
+        year = int(time_period[:4])
+        quarter = int(time_period[6])
+    except ValueError:
+        return None
+    if not 1 <= quarter <= 4:
+        return None
+    month = (quarter - 1) * 3 + 1
+    return date(year, month, 1)
+
+
+def _spf_derive_tenor(survey_year: int, horizon: str) -> str | None:
+    """Derive canonical tenor from ``(survey_year, horizon)``.
+
+    ``LT`` → ``"LTE"`` (long-term equivalent ≈ 5y ahead). Integer horizons
+    within 0-3 years ahead map to ``"0Y"`` / ``"1Y"`` / ``"2Y"`` / ``"3Y"``.
+    Everything else (≥ 4 years ahead, or target year in the past) returns
+    ``None`` — SPF keeps legacy series in the response that aren't useful
+    to M3.
+    """
+    if horizon == "LT":
+        return "LTE"
+    try:
+        target_year = int(horizon)
+    except ValueError:
+        return None
+    delta = target_year - survey_year
+    if 0 <= delta <= 3:
+        return f"{delta}Y"
+    return None
+
+
+def _parse_spf_csv(body: str) -> list[ExpInflationSurveyObservation]:
+    """Parse SPF csvdata response into typed observations."""
+    reader = csv.DictReader(io.StringIO(body))
+    out: list[ExpInflationSurveyObservation] = []
+    for row in reader:
+        time_period = (row.get("TIME_PERIOD") or "").strip()
+        raw_value = (row.get("OBS_VALUE") or "").strip()
+        horizon = (row.get("FCT_HORIZON") or "").strip()
+        if not time_period or not raw_value or raw_value in {"NA", "."}:
+            continue
+        try:
+            value = float(raw_value)
+        except ValueError:
+            continue
+        survey_date = _spf_quarter_to_date(time_period)
+        if survey_date is None:
+            continue
+        tenor = _spf_derive_tenor(survey_date.year, horizon)
+        out.append(
+            ExpInflationSurveyObservation(
+                survey_date=survey_date,
+                horizon_year=horizon,
+                tenor=tenor,
+                value_pct=value,
+            )
+        )
+    return out
 
 
 def _parse_csv(body: str, series_id: str, tenor: float) -> list[Observation]:
