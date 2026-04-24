@@ -2809,15 +2809,65 @@ as sub-bullets below when it differs materially from peer countries.
   Bonos€i implementations.
 - **Dependency:** CAL-EXPINF-EA-ECB-SPF (survey leg shared).
 
-### CAL-EXPINF-SURVEY-JP-CA — JP Tankan + CA BoC Survey of Expectations (Phase 2)
+### CAL-EXPINF-SURVEY-JP-CA — JP Tankan + CA BoC CES survey legs ✅ CLOSED (Sprint Q.3, Week 11 Day 1)
 
-- **Priority:** LOW — long-run DEGRADED expected per
-  `M3_T1_DEGRADED_EXPECTED`; ship converts `M3_EXPINF_MISSING` to
-  `{JP,CA}_M3_BEI_*_EXPECTED` structural-DEGRADED flag semantics.
-- **Scope:** `BoJConnector` extension with Tankan CPI expectations +
-  `BoCConnector` extension with BoC Survey of Expectations inflation
-  forecasts. Loader adds JP + CA branches composing `ExpInfSurvey`.
-- **Dependency:** none.
+- **Shipped:** 2026-04-24 afternoon (Week 11 Day 1,
+  `sprint-q-3-cal-expinf-survey-jp-ca`).
+- **M3 impact:** 7 FULL → **9 FULL** / 0 DEGRADED / 3 NOT_IMPLEMENTED
+  (PT / NL / AU — outside M3_T1_COUNTRIES). T1 coverage ~71% → ~75%.
+- **Deliverables:**
+  - `src/sonar/connectors/boj_tankan.py` — `BoJTankanConnector`
+    (ZIP → `GA_E1.xlsx` → TABLE7 parser, 5-year bucket fallback).
+  - `src/sonar/connectors/boc.py` — `fetch_ces_inflation_expectations`
+    + `CESInflationExpectation` (stable Valet `CES_C1_{SHORT,MID,LONG}_TERM`
+    aggregate series).
+  - `src/sonar/connectors/boj_tankan_backfill.py` /
+    `boc_ces_backfill.py` — CLI backfills invoking the Sprint Q.1
+    `persist_survey_row` writer unchanged.
+  - **Zero** classifier, builder, or writer changes — Lesson #20 #6
+    audit completed **before** connector code found all three cascade
+    sites (`build_m3_inputs_from_db` / `_load_histories` /
+    `classify_m3_compute_mode`) filter by `country_code` alone.
+- **DB state post-backfill:**
+  - JP: 21 rows, 2021-03-01 → 2026-03-01 (quarterly), survey_name `BOJ_TANKAN`.
+  - CA: 46 rows, 2014-10-01 → 2026-01-01 (quarterly), survey_name `BOC_CES`.
+  - M3 flags: `TANKAN_LT_AS_ANCHOR` + `JP_M3_BEI_LINKER_THIN_EXPECTED`
+    (JP); `CES_LT_AS_ANCHOR` + `CA_M3_BEI_RRB_LIMITED_EXPECTED` (CA).
+- **Source deviation from brief:** BoC **CES** (Canadian Survey of
+  Consumer Expectations) replaces brief's suggested **BOS** (Business
+  Outlook Survey). BOS publishes per-quarter snapshot series with no
+  stable long-run ID; CES has clean `CES_C1_*_TERM` aggregate series.
+  Documented in probe §2.3.
+- **Follow-up CALs opened:**
+  - `CAL-EXPINF-JP-SCRAPE-PRE2020` — 2014-Q1 through 2020-Q4 Tankan
+    data is PDF-only in the older `/gaiyo/2016/` bucket; scrape sprint
+    Week 12+ if back-history analytically valuable.
+  - `CAL-EXPINF-CA-BOS-AUGMENT` — business-side divergence signal vs
+    consumer-side (BOS C12_S{1..3} per release), if value emerges.
+- **Retrospective:** `docs/planning/retrospectives/week11-sprint-q-3-cal-expinf-survey-jp-ca-report.md`.
+
+### CAL-EXPINF-JP-SCRAPE-PRE2020 — pre-2021 Tankan PDF scrape (Week 12+)
+
+- **Priority:** LOW — 21 quarterly observations 2021-2026 already
+  blanket the M3 survey path via forward-fill; pre-2020 data is
+  analytical back-history only.
+- **Scope:** scrape `/en/statistics/tk/gaiyo/2016/tka{YY}{MM}.pdf`
+  (2016-2020) + `/en/statistics/tk/bukka/{year}/tkc{YY}{MM}.pdf`
+  (2014-2015 standalone bukka), feed into the existing `BOJ_TANKAN`
+  survey row writer. ~25 additional quarterly rows across 2014-Q1 →
+  2020-Q4.
+- **Dependency:** CAL-EXPINF-SURVEY-JP-CA (closed Sprint Q.3).
+
+### CAL-EXPINF-CA-BOS-AUGMENT — BoC Business Outlook Survey cross-check (Week 12+)
+
+- **Priority:** LOW — BOS is business-side; CES (already live) is
+  consumer-side. Dual-survey panel gives divergence signal (businesses
+  vs consumers on inflation) useful for L5 sentiment regime probes.
+- **Scope:** per-release scraping of `BOS_{YYYY}Q{Q}_C12_S{1..3}`
+  Valet series (BLP 1Y/2Y/5Y) + emission of
+  `BOS_VS_CES_DIVERGENCE_BPS` sub-indicator. No M3 behaviour change —
+  CES remains the canonical consumer-anchor leg.
+- **Dependency:** CAL-EXPINF-SURVEY-JP-CA (closed Sprint Q.3).
 
 ### CAL-EXPINF-PER-COUNTRY-LINKERS-FOLLOWUP — per-country BEI replacing SPF_AREA_PROXY (Week 12+)
 
