@@ -29,10 +29,12 @@ Cohort constants:
   MSC-only cohort — see below).
 - :data:`MSC_CROSS_COUNTRY_COHORT` — Sprint P (Week 11 Day 1) — explicit
   cross-country cohort for the L4 Monetary Stance Composite. Documents
-  that MSC is the **first** L4 cycle shipped cross-country (US + EA).
-  Not wired into a CLI flag; callers invoke EA via ``--country EA`` (or
-  systemd dispatch) until Week 12+ ``CAL-COHORT-CONSTANT-CLEANUP``
-  unifies all cycle cohorts under Sprint Q.0.5's T1_COUNTRIES tuple.
+  that MSC is the **first** L4 cycle shipped cross-country (US + EA +
+  GB — GB added Sprint P.1 atop Sprint Q.2's M3 FULL via BoE BEI).
+  Not wired into a CLI flag; callers invoke EA / GB via ``--country
+  EA`` / ``--country GB`` (or systemd dispatch) until Week 12+
+  ``CAL-COHORT-CONSTANT-CLEANUP`` unifies all cycle cohorts under
+  Sprint Q.0.5's T1_COUNTRIES tuple.
 
 Exit codes mirror :mod:`daily_economic_indices`:
 
@@ -85,12 +87,17 @@ T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
 # Sprint P (Week 11 Day 1) — L4 MSC first cross-country cohort. EA added
 # atop US once M1 (ECB DFR), M2 (Taylor gap EA, Sprint L), M3 (market
 # expectations via ECB_SPF, Sprint Q.1.x), and M4 (FCI EA-custom, Sprint
-# J) all landed. Exposed as a separate constant (not fused into
-# :data:`T1_7_COUNTRIES`) because the all-cycles CCCS / FCS / ECS
-# cohorts stay 7-sovereign until Week 12+ CAL-COHORT-CONSTANT-CLEANUP
-# unifies under Sprint Q.0.5's 12-country T1_COUNTRIES. Callers dispatch
-# EA MSC via explicit ``--country EA`` or systemd; no new CLI flag.
-MSC_CROSS_COUNTRY_COHORT: tuple[str, ...] = ("US", "EA")
+# J) all landed. Sprint P.1 (Week 11 Day 1) extends to GB — M1 + M2
+# FULL (pre-Sprint M), M3 FULL via BoE BEI (Sprint Q.2, flags
+# ``M3_EXPINF_FROM_BEI`` + ``BEI_FITTED_IMPLIED``), M4 scaffold-only
+# (``GB_M4_SCAFFOLD_ONLY`` per Sprint J C5 — 2/5 custom-FCI components,
+# raises so MSC reweights on 3/5 inputs + emits ``M4_MISSING``).
+# Exposed as a separate constant (not fused into :data:`T1_7_COUNTRIES`)
+# because the all-cycles CCCS / FCS / ECS cohorts stay 7-sovereign until
+# Week 12+ CAL-COHORT-CONSTANT-CLEANUP unifies under Sprint Q.0.5's
+# 12-country T1_COUNTRIES. Callers dispatch EA / GB MSC via explicit
+# ``--country EA`` / ``--country GB`` or systemd; no new CLI flag.
+MSC_CROSS_COUNTRY_COHORT: tuple[str, ...] = ("US", "EA", "GB")
 
 EXIT_OK = 0
 EXIT_NO_INPUTS = 1
