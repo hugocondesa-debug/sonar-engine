@@ -66,8 +66,10 @@ log = structlog.get_logger()
 
 __all__ = [
     "BOE_INFLATION_ARCHIVE_URL",
+    "BOE_NOMINAL_ARCHIVE_URL",
     "BOE_YIELD_CURVES_BASE_URL",
     "BoeBeiSpotObservation",
+    "BoeNominalSpotObservation",
     "BoeYieldCurvesConnector",
 ]
 
@@ -79,16 +81,19 @@ BOE_YIELD_CURVES_BASE_URL: str = (
 # Canonical implied-inflation zip (daily cadence).
 BOE_INFLATION_ARCHIVE_URL: str = f"{BOE_YIELD_CURVES_BASE_URL}/glcinflationddata.zip"
 
+# Canonical nominal-gilt zip (daily cadence) — Sprint P.2 2026-04-24.
+BOE_NOMINAL_ARCHIVE_URL: str = f"{BOE_YIELD_CURVES_BASE_URL}/glcnominalddata.zip"
+
 # Spot-curve sheet name (Excel; case-sensitive match against the
 # BoE-published workbook).
 _SPOT_CURVE_SHEET: str = "4. spot curve"
 
-# Tenor (years) → 0-based column index in the spot-curve sheet.
-# Column A (0) is the observation date; column B (1) is maturity 2.5Y;
-# thereafter columns step at 0.5Y up to 40Y. Verified against the
-# ``2025 to present.xlsx`` workbook, header row 4. We keep only the
-# tenors the SONAR M3/EXPINF stack consumes (5Y, 10Y, 15Y, 20Y, 30Y) —
-# the workbook carries more but they add nothing downstream.
+# Tenor (years) → 0-based column index in the **inflation** spot-curve
+# sheet. Column A (0) is the observation date; column B (1) is maturity
+# 2.5Y; thereafter columns step at 0.5Y up to 40Y. Verified against the
+# ``2025 to present.xlsx`` inflation workbook, header row 4. We keep
+# only the tenors the SONAR M3/EXPINF stack consumes (5Y, 10Y, 15Y,
+# 20Y, 30Y) — the workbook carries more but they add nothing downstream.
 SPOT_CURVE_TENOR_COLUMNS: dict[float, int] = {
     5.0: 6,
     10.0: 16,
@@ -97,7 +102,56 @@ SPOT_CURVE_TENOR_COLUMNS: dict[float, int] = {
     30.0: 56,
 }
 
+# Tenor → column for the **nominal** spot-curve sheet. The nominal
+# workbook starts at 0.5Y (column B), so ``col = 2 * years``. Verified
+# 2026-04-24 against ``GLC Nominal daily data_2025 to present.xlsx``
+# row 4.
+NOMINAL_SPOT_CURVE_TENOR_COLUMNS: dict[float, int] = {
+    2.0: 4,
+    3.0: 6,
+    5.0: 10,
+    7.0: 14,
+    10.0: 20,
+    15.0: 30,
+    20.0: 40,
+    30.0: 60,
+}
+
 _DEFAULT_TENORS: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 30.0)
+
+# Default nominal tenor set — 8 standard-label tenors crossing the 5-10Y
+# bridge the M3 ``nominal_5y5y_bps`` derivation depends on. 8 obs ≥
+# ``MIN_OBSERVATIONS = 6`` so the NSS fitter accepts the curve; 8 < 9 =
+# ``MIN_OBSERVATIONS_FOR_SVENSSON`` so the fit reduces to 4-param NS
+# (flag ``NSS_REDUCED``), acceptable for backfill quality uplift.
+_DEFAULT_NOMINAL_TENORS: tuple[float, ...] = (2.0, 3.0, 5.0, 7.0, 10.0, 15.0, 20.0, 30.0)
+
+
+# Archive-file date bands. ``end`` is ``None`` for the rolling
+# "XXXX to present" file — matched against the upper bound of the
+# requested range. Ordered chronologically.
+_INFLATION_ARCHIVE_FILE_BANDS: tuple[tuple[str, date, date | None], ...] = (
+    ("GLC Inflation daily data_1985 to 1989.xlsx", date(1985, 1, 1), date(1989, 12, 31)),
+    ("GLC Inflation daily data_1990 to 1994.xlsx", date(1990, 1, 1), date(1994, 12, 31)),
+    ("GLC Inflation daily data_1995 to 1999.xlsx", date(1995, 1, 1), date(1999, 12, 31)),
+    ("GLC Inflation daily data_2000 to 2004.xlsx", date(2000, 1, 1), date(2004, 12, 31)),
+    ("GLC Inflation daily data_2005 to 2015.xlsx", date(2005, 1, 1), date(2015, 12, 31)),
+    ("GLC Inflation daily data_2016 to 2024.xlsx", date(2016, 1, 1), date(2024, 12, 31)),
+    ("GLC Inflation daily data_2025 to present.xlsx", date(2025, 1, 1), None),
+)
+
+# Nominal archive bands (Sprint P.2 2026-04-24). BoE publishes a
+# 1979-1984 file on the nominal side that inflation does not carry.
+_NOMINAL_ARCHIVE_FILE_BANDS: tuple[tuple[str, date, date | None], ...] = (
+    ("GLC Nominal daily data_1979 to 1984.xlsx", date(1979, 1, 1), date(1984, 12, 31)),
+    ("GLC Nominal daily data_1985 to 1989.xlsx", date(1985, 1, 1), date(1989, 12, 31)),
+    ("GLC Nominal daily data_1990 to 1994.xlsx", date(1990, 1, 1), date(1994, 12, 31)),
+    ("GLC Nominal daily data_1995 to 1999.xlsx", date(1995, 1, 1), date(1999, 12, 31)),
+    ("GLC Nominal daily data_2000 to 2004.xlsx", date(2000, 1, 1), date(2004, 12, 31)),
+    ("GLC Nominal daily data_2005 to 2015.xlsx", date(2005, 1, 1), date(2015, 12, 31)),
+    ("GLC Nominal daily data_2016 to 2024.xlsx", date(2016, 1, 1), date(2024, 12, 31)),
+    ("GLC Nominal daily data_2025 to present.xlsx", date(2025, 1, 1), None),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,18 +171,19 @@ class BoeBeiSpotObservation:
     source: str = "BOE_GLC_INFLATION"
 
 
-# Archive-file date bands. ``end`` is ``None`` for the rolling
-# "XXXX to present" file — matched against the upper bound of the
-# requested range. Ordered chronologically.
-_ARCHIVE_FILE_BANDS: tuple[tuple[str, date, date | None], ...] = (
-    ("GLC Inflation daily data_1985 to 1989.xlsx", date(1985, 1, 1), date(1989, 12, 31)),
-    ("GLC Inflation daily data_1990 to 1994.xlsx", date(1990, 1, 1), date(1994, 12, 31)),
-    ("GLC Inflation daily data_1995 to 1999.xlsx", date(1995, 1, 1), date(1999, 12, 31)),
-    ("GLC Inflation daily data_2000 to 2004.xlsx", date(2000, 1, 1), date(2004, 12, 31)),
-    ("GLC Inflation daily data_2005 to 2015.xlsx", date(2005, 1, 1), date(2015, 12, 31)),
-    ("GLC Inflation daily data_2016 to 2024.xlsx", date(2016, 1, 1), date(2024, 12, 31)),
-    ("GLC Inflation daily data_2025 to present.xlsx", date(2025, 1, 1), None),
-)
+@dataclass(frozen=True, slots=True)
+class BoeNominalSpotObservation:
+    """One daily nominal gilt spot-curve observation (Sprint P.2).
+
+    Same decimal convention as :class:`BoeBeiSpotObservation`; carried
+    as a distinct type so downstream writers can keep BEI and nominal
+    persistence paths statically disjoint.
+    """
+
+    country_code: str
+    observation_date: date
+    tenors: dict[str, float]
+    source: str = "BOE_GLC_NOMINAL"
 
 
 class BoeYieldCurvesConnector:
@@ -169,14 +224,19 @@ class BoeYieldCurvesConnector:
         wait=wait_exponential_jitter(initial=2, max=30),
         retry=retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException)),
     )
-    async def _fetch_archive_bytes(self) -> bytes:
-        """GET the zip archive (cached, 24h TTL)."""
-        cache_key = f"{self.CACHE_NAMESPACE}:archive:glcinflationddata.zip"
+    async def _fetch_archive_bytes(self, url: str) -> bytes:
+        """GET the zip archive at ``url`` (cached, 24h TTL).
+
+        Cache key is scoped by the archive's filename so inflation and
+        nominal archives do not collide.
+        """
+        archive_filename = url.rsplit("/", 1)[-1]
+        cache_key = f"{self.CACHE_NAMESPACE}:archive:{archive_filename}"
         cached = self.cache.get(cache_key)
         if cached is not None:
-            log.debug("boe_yc.cache_hit", archive="glcinflationddata.zip")
+            log.debug("boe_yc.cache_hit", archive=archive_filename)
             return cast("bytes", cached)
-        resp = await self.client.get(BOE_INFLATION_ARCHIVE_URL)
+        resp = await self.client.get(url)
         resp.raise_for_status()
         body = resp.content
         if not body or not body.startswith(b"PK"):
@@ -186,7 +246,7 @@ class BoeYieldCurvesConnector:
             )
             raise DataUnavailableError(msg)
         self.cache.set(cache_key, body, ttl=DEFAULT_TTL_SECONDS)
-        log.info("boe_yc.archive_fetched", bytes=len(body))
+        log.info("boe_yc.archive_fetched", archive=archive_filename, bytes=len(body))
         return body
 
     async def fetch_inflation_spot_curve(
@@ -205,8 +265,8 @@ class BoeYieldCurvesConnector:
         if date_start > date_end:
             msg = f"date_start {date_start} is after date_end {date_end}"
             raise ValueError(msg)
-        archive_bytes = await self._fetch_archive_bytes()
-        sub_files = _select_archive_files(date_start, date_end)
+        archive_bytes = await self._fetch_archive_bytes(BOE_INFLATION_ARCHIVE_URL)
+        sub_files = _select_archive_files(date_start, date_end, _INFLATION_ARCHIVE_FILE_BANDS)
         if not sub_files:
             msg = (
                 "No BoE inflation sub-archive covers the requested "
@@ -235,6 +295,8 @@ class BoeYieldCurvesConnector:
                         date_start=date_start,
                         date_end=date_end,
                         tenors=tenors,
+                        obs_factory=_bei_obs_factory,
+                        fallback_columns=SPOT_CURVE_TENOR_COLUMNS,
                     )
                 )
         if not collected:
@@ -243,6 +305,70 @@ class BoeYieldCurvesConnector:
         collected.sort(key=lambda o: o.observation_date)
         log.info(
             "boe_yc.parsed",
+            variant="inflation",
+            count=len(collected),
+            date_start=date_start.isoformat(),
+            date_end=date_end.isoformat(),
+            tenors=[f"{t:g}Y" for t in tenors],
+        )
+        return collected
+
+    async def fetch_nominal_spot_curve(
+        self,
+        date_start: date,
+        date_end: date,
+        *,
+        tenors: tuple[float, ...] = _DEFAULT_NOMINAL_TENORS,
+    ) -> list[BoeNominalSpotObservation]:
+        """Return daily nominal-gilt spot-curve observations for ``[start, end]``.
+
+        Sprint P.2 2026-04-24. Sibling of :meth:`fetch_inflation_spot_curve`
+        against the ``glcnominalddata.zip`` archive. Used by the GB
+        forwards backfill (``scripts/ops/backfill_gb_forwards.py``) to
+        populate ``yield_curves_forwards`` history so M3 GB sheds the
+        ``INSUFFICIENT_HISTORY`` flag.
+        """
+        if date_start > date_end:
+            msg = f"date_start {date_start} is after date_end {date_end}"
+            raise ValueError(msg)
+        archive_bytes = await self._fetch_archive_bytes(BOE_NOMINAL_ARCHIVE_URL)
+        sub_files = _select_archive_files(date_start, date_end, _NOMINAL_ARCHIVE_FILE_BANDS)
+        if not sub_files:
+            msg = (
+                f"No BoE nominal sub-archive covers the requested window {date_start}..{date_end}."
+            )
+            raise DataUnavailableError(msg)
+
+        collected: list[BoeNominalSpotObservation] = []
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+            for sub_name in sub_files:
+                try:
+                    raw = zf.read(sub_name)
+                except KeyError as exc:
+                    log.warning(
+                        "boe_yc.archive_member_missing",
+                        member=sub_name,
+                        error=str(exc),
+                    )
+                    continue
+                collected.extend(
+                    _parse_spot_curve_xlsx(
+                        raw,
+                        sub_name=sub_name,
+                        date_start=date_start,
+                        date_end=date_end,
+                        tenors=tenors,
+                        obs_factory=_nominal_obs_factory,
+                        fallback_columns=NOMINAL_SPOT_CURVE_TENOR_COLUMNS,
+                    )
+                )
+        if not collected:
+            msg = f"BoE nominal archive returned zero rows for {date_start}..{date_end}."
+            raise DataUnavailableError(msg)
+        collected.sort(key=lambda o: o.observation_date)
+        log.info(
+            "boe_yc.parsed",
+            variant="nominal",
             count=len(collected),
             date_start=date_start.isoformat(),
             date_end=date_end.isoformat(),
@@ -251,14 +377,44 @@ class BoeYieldCurvesConnector:
         return collected
 
 
-def _select_archive_files(date_start: date, date_end: date) -> list[str]:
+def _select_archive_files(
+    date_start: date,
+    date_end: date,
+    bands: tuple[tuple[str, date, date | None], ...],
+) -> list[str]:
     """Return the sub-xlsx names whose date band intersects ``[start, end]``."""
     out: list[str] = []
-    for name, band_start, band_end in _ARCHIVE_FILE_BANDS:
+    for name, band_start, band_end in bands:
         effective_end = band_end if band_end is not None else date_end
         if band_start <= date_end and effective_end >= date_start:
             out.append(name)
     return out
+
+
+def _bei_obs_factory(
+    *,
+    country_code: str,
+    observation_date: date,
+    tenors: dict[str, float],
+) -> BoeBeiSpotObservation:
+    return BoeBeiSpotObservation(
+        country_code=country_code,
+        observation_date=observation_date,
+        tenors=tenors,
+    )
+
+
+def _nominal_obs_factory(
+    *,
+    country_code: str,
+    observation_date: date,
+    tenors: dict[str, float],
+) -> BoeNominalSpotObservation:
+    return BoeNominalSpotObservation(
+        country_code=country_code,
+        observation_date=observation_date,
+        tenors=tenors,
+    )
 
 
 def _parse_spot_curve_xlsx(
@@ -268,8 +424,17 @@ def _parse_spot_curve_xlsx(
     date_start: date,
     date_end: date,
     tenors: tuple[float, ...],
-) -> list[BoeBeiSpotObservation]:
-    """Parse one ``GLC Inflation daily data_*.xlsx`` → observations."""
+    obs_factory: Any,
+    fallback_columns: dict[float, int],
+) -> list[Any]:
+    """Parse one ``GLC … daily data_*.xlsx`` → observations.
+
+    ``obs_factory`` builds either a :class:`BoeBeiSpotObservation` or a
+    :class:`BoeNominalSpotObservation`; ``fallback_columns`` is the hard-
+    coded tenor→column map used when the header-row lookup misses a
+    tenor (layout-drift guard — the BoE inflation + nominal workbooks
+    have distinct 2.5Y-vs-0.5Y anchors).
+    """
     wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     try:
         if _SPOT_CURVE_SHEET not in wb.sheetnames:
@@ -282,11 +447,19 @@ def _parse_spot_curve_xlsx(
             return []
         ws = wb[_SPOT_CURVE_SHEET]
         header = _read_header_row(ws)
-        col_map = _map_tenors_to_columns(header, tenors)
+        col_map = _map_tenors_to_columns(header, tenors, fallback_columns)
         if not col_map:
             log.warning("boe_yc.no_tenor_columns", sub=sub_name, tenors=list(tenors))
             return []
-        return list(_iter_data_rows(ws, col_map, date_start=date_start, date_end=date_end))
+        return list(
+            _iter_data_rows(
+                ws,
+                col_map,
+                date_start=date_start,
+                date_end=date_end,
+                obs_factory=obs_factory,
+            )
+        )
     finally:
         wb.close()
 
@@ -298,13 +471,18 @@ def _read_header_row(ws: Any) -> tuple[Any, ...]:
     return ()
 
 
-def _map_tenors_to_columns(header: tuple[Any, ...], tenors: tuple[float, ...]) -> dict[float, int]:
+def _map_tenors_to_columns(
+    header: tuple[Any, ...],
+    tenors: tuple[float, ...],
+    fallback_columns: dict[float, int],
+) -> dict[float, int]:
     """Locate each requested tenor in the BoE ``years:`` header row.
 
-    Falls back to the hard-coded :data:`SPOT_CURVE_TENOR_COLUMNS` when
-    a tenor is not found in the header (layout-drift guard — BoE's
-    workbook format has been stable for decades but we still protect
-    the parse).
+    Falls back to ``fallback_columns`` when a tenor is not found in the
+    header (layout-drift guard — BoE's workbook format has been stable
+    for decades but we still protect the parse). Inflation and nominal
+    archives have distinct fallback maps because their first data
+    column anchors at different maturities (2.5Y vs 0.5Y).
     """
     out: dict[float, int] = {}
     for tenor in tenors:
@@ -314,7 +492,7 @@ def _map_tenors_to_columns(header: tuple[Any, ...], tenors: tuple[float, ...]) -
                 found = i
                 break
         if found is None:
-            found = SPOT_CURVE_TENOR_COLUMNS.get(tenor)
+            found = fallback_columns.get(tenor)
         if found is None:
             log.warning("boe_yc.tenor_missing_from_header", tenor=tenor)
             continue
@@ -328,8 +506,9 @@ def _iter_data_rows(
     *,
     date_start: date,
     date_end: date,
-) -> Iterable[BoeBeiSpotObservation]:
-    """Yield :class:`BoeBeiSpotObservation` rows from the spot-curve sheet.
+    obs_factory: Any,
+) -> Iterable[Any]:
+    """Yield observation rows from the spot-curve sheet.
 
     Rows are emitted only when **all** mapped tenors carry a numeric
     value for that date — partial rows are skipped (matches the
@@ -363,7 +542,7 @@ def _iter_data_rows(
             tenors_decimal[_tenor_key(tenor)] = pct / 100.0
         if not all_present or not tenors_decimal:
             continue
-        yield BoeBeiSpotObservation(
+        yield obs_factory(
             country_code="GB",
             observation_date=obs_date,
             tenors=tenors_decimal,
