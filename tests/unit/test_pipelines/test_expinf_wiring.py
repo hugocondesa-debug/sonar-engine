@@ -207,12 +207,25 @@ class TestLoadLiveExpInflationKwargs:
         assert kwargs is None
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("country", ["DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"])
-    async def test_non_us_returns_none(self, country: str) -> None:
+    @pytest.mark.parametrize("country", ["GB", "JP", "CA", "BR", "IN"])
+    async def test_non_us_non_ea_returns_none(self, country: str) -> None:
+        """Countries outside US + EA cohort return None (no live connector)."""
         kwargs = await load_live_exp_inflation_kwargs(
             country,
             OBS_DATE,
             fred=_full_us_fake_fred(),  # type: ignore[arg-type]
+        )
+        assert kwargs is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", ["EA", "DE", "FR", "IT", "ES", "PT", "NL"])
+    async def test_ea_cohort_returns_none_without_ecb_sdw(self, country: str) -> None:
+        """EA cohort members without ecb_sdw connector → None (Sprint Q.1 guard)."""
+        kwargs = await load_live_exp_inflation_kwargs(
+            country,
+            OBS_DATE,
+            fred=_full_us_fake_fred(),  # type: ignore[arg-type]
+            ecb_sdw=None,
         )
         assert kwargs is None
 
@@ -305,3 +318,175 @@ class TestLiveAssemblersExpinfWiring:
             rf_tuple=None,
         )
         assert bundle.expected_inflation is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1 — ECB SDW SPF EA cohort wiring
+# ---------------------------------------------------------------------------
+
+
+from datetime import date as _date  # noqa: E402 — placed after original imports
+
+from sonar.connectors.ecb_sdw import ExpInflationSurveyObservation as _SpfObs  # noqa: E402
+from sonar.overlays.expected_inflation import METHODOLOGY_VERSION_SURVEY  # noqa: E402
+
+
+class _FakeEcbSdw:
+    """Async-compatible fake EcbSdwConnector for SPF tests."""
+
+    def __init__(
+        self,
+        *,
+        observations: list[_SpfObs] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._observations = observations or []
+        self._error = error
+        self.calls: list[tuple[str, _date, _date]] = []
+
+    async def fetch_survey_expected_inflation(
+        self, *, country: str, start: _date, end: _date
+    ) -> list[_SpfObs]:
+        self.calls.append((country, start, end))
+        if self._error is not None:
+            raise self._error
+        return self._observations
+
+
+def _full_spf_observations(survey_date: _date = _date(2026, 1, 1)) -> list[_SpfObs]:
+    """2026-Q1 release with 1Y / 2Y / LTE horizons populated."""
+    return [
+        _SpfObs(survey_date=survey_date, horizon_year="2027", tenor="1Y", value_pct=1.971),
+        _SpfObs(survey_date=survey_date, horizon_year="2028", tenor="2Y", value_pct=2.051),
+        _SpfObs(survey_date=survey_date, horizon_year="LT", tenor="LTE", value_pct=2.017),
+        # Junk horizons that should be filtered out by the loader.
+        _SpfObs(survey_date=survey_date, horizon_year="2026", tenor="0Y", value_pct=1.838),
+        _SpfObs(
+            survey_date=_date(2025, 10, 1),
+            horizon_year="LT",
+            tenor="LTE",
+            value_pct=2.023,
+        ),
+    ]
+
+
+class TestEaSpfCohort:
+    @pytest.mark.asyncio
+    async def test_ea_aggregate_populates_kwargs(self, db_session: Session) -> None:
+        ecb = _FakeEcbSdw(observations=_full_spf_observations())
+        kwargs = await load_live_exp_inflation_kwargs(
+            "EA",
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=db_session,
+        )
+        assert kwargs is not None
+        assert kwargs["country_code"] == "EA"
+        assert kwargs["bei"] is None
+        assert kwargs["survey"] is not None
+        assert kwargs["bc_target_pct"] == pytest.approx(0.02)
+
+        survey = kwargs["survey"]
+        assert survey.horizons["1Y"] == pytest.approx(0.01971)
+        assert survey.horizons["LTE"] == pytest.approx(0.02017)
+        assert survey.interpolated_tenors["5y5y"] == pytest.approx(0.02017)
+        assert "SPF_LT_AS_ANCHOR" in survey.flags
+        assert "SPF_AREA_PROXY" not in survey.flags
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("country", ["DE", "FR", "IT", "ES", "PT", "NL"])
+    async def test_ea_member_carries_area_proxy_flag(
+        self, db_session: Session, country: str
+    ) -> None:
+        ecb = _FakeEcbSdw(observations=_full_spf_observations())
+        kwargs = await load_live_exp_inflation_kwargs(
+            country,
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=db_session,
+        )
+        assert kwargs is not None
+        assert kwargs["country_code"] == country
+        assert "SPF_AREA_PROXY" in kwargs["survey"].flags
+
+    @pytest.mark.asyncio
+    async def test_empty_spf_window_returns_none(self, db_session: Session) -> None:
+        ecb = _FakeEcbSdw(observations=[])
+        kwargs = await load_live_exp_inflation_kwargs(
+            "EA",
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=db_session,
+        )
+        assert kwargs is None
+
+    @pytest.mark.asyncio
+    async def test_spf_http_error_returns_none(self, db_session: Session) -> None:
+        ecb = _FakeEcbSdw(error=httpx.HTTPError("SDW 500"))
+        kwargs = await load_live_exp_inflation_kwargs(
+            "EA",
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=db_session,
+        )
+        assert kwargs is None
+
+    @pytest.mark.asyncio
+    async def test_session_persists_survey_row(self, db_session: Session) -> None:
+        from sonar.db.models import ExpInflationSurveyRow  # noqa: PLC0415
+
+        ecb = _FakeEcbSdw(observations=_full_spf_observations())
+        _ = await load_live_exp_inflation_kwargs(
+            "EA",
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=db_session,
+        )
+        db_session.commit()
+        rows = db_session.query(ExpInflationSurveyRow).all()
+        assert len(rows) == 1
+        assert rows[0].country_code == "EA"
+        assert rows[0].survey_name == "ECB_SPF_HICP"
+        assert "SPF_LT_AS_ANCHOR" in (rows[0].flags or "")
+
+    @pytest.mark.asyncio
+    async def test_session_upsert_is_idempotent(self, db_session: Session) -> None:
+        from sonar.db.models import ExpInflationSurveyRow  # noqa: PLC0415
+
+        ecb = _FakeEcbSdw(observations=_full_spf_observations())
+        for _ in range(3):
+            await load_live_exp_inflation_kwargs(
+                "EA",
+                OBS_DATE,
+                fred=None,
+                ecb_sdw=ecb,  # type: ignore[arg-type]
+                session=db_session,
+            )
+            db_session.commit()
+        # Unique constraint honoured; duplicate inserts skipped.
+        count = (
+            db_session.query(ExpInflationSurveyRow)
+            .filter(ExpInflationSurveyRow.country_code == "EA")
+            .count()
+        )
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_none_session_still_returns_kwargs(self) -> None:
+        """Without session the loader computes kwargs without persistence."""
+        ecb = _FakeEcbSdw(observations=_full_spf_observations())
+        kwargs = await load_live_exp_inflation_kwargs(
+            "EA",
+            OBS_DATE,
+            fred=None,
+            ecb_sdw=ecb,  # type: ignore[arg-type]
+            session=None,
+        )
+        assert kwargs is not None
+        assert kwargs["survey"].horizons["LTE"] == pytest.approx(0.02017)
+        assert METHODOLOGY_VERSION_SURVEY == "EXP_INF_SURVEY_v0.1"

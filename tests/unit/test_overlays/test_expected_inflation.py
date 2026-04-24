@@ -14,6 +14,7 @@ from sonar.overlays.expected_inflation import (
     compute_5y5y,
     compute_bei_from_yields,
     compute_bei_us,
+    compute_survey_spf,
     compute_survey_us,
 )
 
@@ -179,3 +180,77 @@ class TestStandardTenors:
     def test_includes_5y5y_forward(self) -> None:
         assert "5y5y" in STANDARD_TENORS
         assert len(STANDARD_TENORS) == 6
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1 — compute_survey_spf
+# ---------------------------------------------------------------------------
+
+
+class TestSurveySpf:
+    def test_ea_aggregate_full_horizons(self) -> None:
+        """EA path: 1Y/2Y/LTE horizons produce 5Y/10Y/5y5y/30Y via LT anchor."""
+        survey = compute_survey_spf(
+            country_code="EA",
+            survey_horizons={"1Y": 0.01971, "2Y": 0.02051, "LTE": 0.02017},
+            observation_date=date(2026, 4, 23),
+            survey_release_date=date(2026, 1, 1),
+        )
+        assert survey.country_code == "EA"
+        assert survey.survey_name == "ECB_SPF_HICP"
+        # 1Y + 2Y preserved from raw horizons.
+        assert survey.interpolated_tenors["1Y"] == pytest.approx(0.01971)
+        assert survey.interpolated_tenors["2Y"] == pytest.approx(0.02051)
+        # LT mapped to 5Y / 10Y / 5y5y / 30Y — anchor proxy.
+        for tenor in ("5Y", "10Y", "5y5y", "30Y"):
+            assert survey.interpolated_tenors[tenor] == pytest.approx(0.02017)
+        # Flags — LT-as-anchor always, AREA_PROXY not for EA.
+        assert "SPF_LT_AS_ANCHOR" in survey.flags
+        assert "SPF_AREA_PROXY" not in survey.flags
+        # Confidence baseline 1.0 — degradation applied in build_canonical.
+        assert survey.confidence == 1.0
+
+    def test_ea_member_area_proxy_flag_set(self) -> None:
+        survey = compute_survey_spf(
+            country_code="DE",
+            survey_horizons={"1Y": 0.019, "LTE": 0.020},
+            observation_date=date(2026, 4, 23),
+            survey_release_date=date(2026, 1, 1),
+            is_area_proxy=True,
+        )
+        assert survey.country_code == "DE"
+        assert "SPF_AREA_PROXY" in survey.flags
+        assert "SPF_LT_AS_ANCHOR" in survey.flags
+
+    def test_missing_lt_skips_anchor_tenors(self) -> None:
+        """No LTE input → no 5Y/10Y/5y5y; no SPF_LT_AS_ANCHOR flag."""
+        survey = compute_survey_spf(
+            country_code="EA",
+            survey_horizons={"1Y": 0.019, "2Y": 0.020},
+            observation_date=date(2026, 4, 23),
+            survey_release_date=date(2026, 1, 1),
+        )
+        assert "5y5y" not in survey.interpolated_tenors
+        assert "10Y" not in survey.interpolated_tenors
+        assert "SPF_LT_AS_ANCHOR" not in survey.flags
+
+    def test_build_canonical_spf_survey_only_emits_5y5y(self) -> None:
+        """End-to-end build_canonical with EA SPF survey yields 5y5y in output."""
+        survey = compute_survey_spf(
+            country_code="EA",
+            survey_horizons={"1Y": 0.01971, "LTE": 0.02017},
+            observation_date=date(2026, 4, 23),
+            survey_release_date=date(2026, 1, 1),
+        )
+        canonical = build_canonical(
+            country_code="EA",
+            observation_date=date(2026, 4, 23),
+            bei=None,
+            survey=survey,
+            bc_target_pct=0.02,
+        )
+        assert "5y5y" in canonical.expected_inflation_tenors
+        assert canonical.source_method_per_tenor["5y5y"] == "SURVEY"
+        # 5y5y = LT (0.02017); dev vs 2% target = +17 bps; well_anchored edge.
+        assert canonical.anchor_status in {"well_anchored", "moderately_anchored"}
+        assert canonical.methods_available == 1

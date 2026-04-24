@@ -24,10 +24,13 @@ from sonar.connectors.ecb_sdw import (
     ECB_EUROSYSTEM_BS_DATAFLOW,
     ECB_EUROSYSTEM_BS_SERIES_ID,
     ECB_SERIES_TENORS,
+    ECB_SPF_COHORT,
     PERIPHERY_CAL_POINTERS,
     EcbMonetaryObservation,
     EcbSdwConnector,
+    ExpInflationSurveyObservation,
     _parse_time_period,
+    _spf_derive_tenor,
 )
 
 
@@ -323,3 +326,158 @@ async def test_cache_hit_no_http(httpx_mock: HTTPXMock, ecb_connector: EcbSdwCon
     )
     assert len(obs) == 1
     assert obs[0].yield_bps == 245
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1 — SPF (Survey of Professional Forecasters) extension
+# ---------------------------------------------------------------------------
+
+
+_SPF_CSV_HEADER = (
+    "KEY,FREQ,REF_AREA,FCT_TOPIC,FCT_BREAKDOWN,FCT_HORIZON,SURVEY_FREQ,"
+    "FCT_SOURCE,TIME_PERIOD,OBS_VALUE,OBS_STATUS,OBS_CONF\n"
+)
+
+
+def _spf_row(
+    horizon: str,
+    time_period: str,
+    value: str,
+    *,
+    status: str = "F",
+    conf: str = "F",
+) -> str:
+    key = f"SPF.Q.U2.HICP.POINT.{horizon}.Q.AVG"
+    return f"{key},Q,U2,HICP,POINT,{horizon},Q,AVG,{time_period},{value},{status},{conf}\n"
+
+
+def _spf_csv(rows: list[tuple[str, str, str]]) -> str:
+    """Build an SPF csvdata payload from (horizon, time_period, value) triples."""
+    return _SPF_CSV_HEADER + "".join(_spf_row(h, t, v) for h, t, v in rows)
+
+
+def test_ecb_spf_cohort_members() -> None:
+    """Cohort locks the six M3-cascade targets + NL for forward compat."""
+    assert frozenset({"EA", "DE", "FR", "IT", "ES", "PT", "NL"}) == ECB_SPF_COHORT
+
+
+def test_spf_derive_tenor_rolling_horizons() -> None:
+    assert _spf_derive_tenor(2026, "2026") == "0Y"
+    assert _spf_derive_tenor(2026, "2027") == "1Y"
+    assert _spf_derive_tenor(2026, "2028") == "2Y"
+    assert _spf_derive_tenor(2026, "2029") == "3Y"
+
+
+def test_spf_derive_tenor_long_term_and_skip() -> None:
+    assert _spf_derive_tenor(2026, "LT") == "LTE"
+    # ≥ 4y ahead falls out of canonical rolling tenors
+    assert _spf_derive_tenor(2026, "2031") is None
+    # Past years (back-fill) also skipped
+    assert _spf_derive_tenor(2026, "2024") is None
+    assert _spf_derive_tenor(2026, "garbage") is None
+
+
+async def test_fetch_survey_expected_inflation_happy(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    """EA call returns 2 quarters x 4 horizons with canonical tenor mapping."""
+    csv = _spf_csv(
+        [
+            ("2026", "2026-Q1", "1.838"),
+            ("2027", "2026-Q1", "1.971"),
+            ("2028", "2026-Q1", "2.051"),
+            ("LT", "2026-Q1", "2.017"),
+            ("2025", "2025-Q4", "2.098"),  # back-fill row — tenor derives to None (-1y delta)
+            ("2026", "2025-Q4", "1.825"),  # 1Y ahead from 2025-Q4
+            ("LT", "2025-Q4", "2.023"),
+        ],
+    )
+    httpx_mock.add_response(method="GET", text=csv)
+    obs = await ecb_connector.fetch_survey_expected_inflation(
+        country="EA",
+        start=date(2025, 9, 1),
+        end=date(2026, 4, 30),
+    )
+    assert len(obs) == 7
+    # All EA aggregate — source flag constant.
+    assert all(o.source == "ecb_sdw_spf_area" for o in obs)
+    # 2026-Q1 horizon=2027 should map to 1Y; value is decimal % as-is (no /100 here).
+    hits = [o for o in obs if o.survey_date == date(2026, 1, 1) and o.tenor == "1Y"]
+    assert len(hits) == 1
+    assert hits[0].value_pct == pytest.approx(1.971)
+    assert hits[0].horizon_year == "2027"
+    # LT → LTE
+    lte_hits = [o for o in obs if o.survey_date == date(2026, 1, 1) and o.tenor == "LTE"]
+    assert len(lte_hits) == 1
+    assert lte_hits[0].value_pct == pytest.approx(2.017)
+
+
+async def test_fetch_survey_ea_member_uses_area_aggregate(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    """EA members (DE/FR/IT/ES/PT/NL) receive the same U2 series — AREA_PROXY."""
+    csv = _spf_csv(
+        [
+            ("2027", "2026-Q1", "1.971"),
+            ("LT", "2026-Q1", "2.017"),
+        ],
+    )
+    httpx_mock.add_response(method="GET", text=csv)
+    obs = await ecb_connector.fetch_survey_expected_inflation(
+        country="PT",  # periphery proxy
+        start=date(2025, 10, 1),
+        end=date(2026, 4, 24),
+    )
+    assert len(obs) == 2
+    # source is invariant — REF_AREA=U2 regardless of requested country.
+    assert all(o.source == "ecb_sdw_spf_area" for o in obs)
+
+
+async def test_fetch_survey_rejects_non_cohort_country(
+    ecb_connector: EcbSdwConnector,
+) -> None:
+    """Non-cohort country must raise with CAL pointer — no HTTP fired."""
+    with pytest.raises(ValueError, match="CAL-EXPINF"):
+        await ecb_connector.fetch_survey_expected_inflation(
+            country="GB",
+            start=date(2025, 1, 1),
+            end=date(2026, 4, 1),
+        )
+
+
+async def test_fetch_survey_malformed_rows_skipped(
+    httpx_mock: HTTPXMock, ecb_connector: EcbSdwConnector
+) -> None:
+    csv = _SPF_CSV_HEADER + (
+        # Valid
+        _spf_row("2027", "2026-Q1", "1.971")
+        # Empty value — skipped
+        + _spf_row("2027", "2025-Q3", "")
+        # NA sentinel — skipped
+        + _spf_row("LT", "2025-Q2", "NA")
+        # Malformed quarter — skipped
+        + "SPF.Q.U2.HICP.POINT.2027.Q.AVG,Q,U2,HICP,POINT,2027,Q,AVG,not-a-quarter,2.0,F,F\n"
+    )
+    httpx_mock.add_response(method="GET", text=csv)
+    obs = await ecb_connector.fetch_survey_expected_inflation(
+        country="EA",
+        start=date(2025, 1, 1),
+        end=date(2026, 4, 30),
+    )
+    assert len(obs) == 1
+    assert obs[0].horizon_year == "2027"
+
+
+async def test_fetch_survey_observation_dataclass_fields() -> None:
+    """Regression: dataclass contract — frozen + slots + expected attrs."""
+    o = ExpInflationSurveyObservation(
+        survey_date=date(2026, 1, 1),
+        horizon_year="2027",
+        tenor="1Y",
+        value_pct=1.971,
+    )
+    assert o.source == "ecb_sdw_spf_area"
+    assert o.survey_date == date(2026, 1, 1)
+    assert o.tenor == "1Y"
+    with pytest.raises((AttributeError, Exception)):
+        o.value_pct = 2.0  # type: ignore[misc] # frozen

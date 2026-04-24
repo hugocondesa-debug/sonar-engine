@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 from datetime import date
 from typing import Any
@@ -417,7 +416,13 @@ class TestBackendLiveCLI:
 
 
 class TestLiveInputsBuilderFactory:
-    def test_factory_returns_builder_and_close_list(self, tmp_path: Any) -> None:
+    @pytest.mark.asyncio
+    async def test_factory_returns_builder_and_close_list(self, tmp_path: Any) -> None:
+        # Running inside a pytest-asyncio loop so the httpx.AsyncClient
+        # objects (created synchronously in each connector's __init__)
+        # are awaited for close inside the *same* loop that will host
+        # them — avoids ``BaseEventLoop.__del__`` unraisable warnings
+        # leaking across the suite under ``filterwarnings = error``.
         builder, connectors = _live_inputs_builder_factory(
             fmp_api_key="x",  # pragma: allowlist secret
             te_api_key="x",  # pragma: allowlist secret
@@ -425,9 +430,10 @@ class TestLiveInputsBuilderFactory:
             cache_dir=str(tmp_path / "overlays-cache"),
         )
         assert callable(builder)
-        assert len(connectors) == 6  # fmp + shiller + multpl + damodaran + te + fred
+        # Sprint Q.1 added ecb_sdw for the EA SPF survey leg.
+        assert len(connectors) == 7  # fmp + shiller + multpl + damodaran + te + fred + ecb_sdw
         for conn in connectors:
             close = getattr(conn, "aclose", None)
             if close is not None:
                 with contextlib.suppress(RuntimeError):
-                    asyncio.run(close())
+                    await close()
