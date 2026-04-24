@@ -2748,12 +2748,41 @@ as sub-bullets below when it differs materially from peer countries.
   - `CAL-ECB-SPF-HISTOGRAM` — expose SPF distribution buckets for
     tail-risk / deflation-probability use cases (Phase 2+).
 
-### CAL-EXPINF-GB-BOE-ILG-SPF — GB BEI via BoE inflation-linked gilts + BoE SPF (Phase 2)
+### CAL-EXPINF-GB-BOE-ILG-SPF — GB BEI via BoE inflation-linked gilts ✅ CLOSED (ILG leg)
 
-- **Priority:** MEDIUM — single-country FULL uplift.
-- **Scope:** `BoEDatabaseConnector` extension with inflation-linked
-  gilt (ILG) series + BoE SPF quarterly inflation forecasts. Loader
-  adds GB branch.
+- **Status:** CLOSED 2026-04-24 via Week 11 Sprint Q.2 (branch
+  `sprint-q-2-cal-expinf-gb-boe-ilg-spf`). Retrospective at
+  `docs/planning/retrospectives/week11-sprint-q-2-cal-expinf-gb-boe-ilg-spf-report.md`;
+  pre-flight probe at
+  `docs/backlog/probe-results/sprint-q-2-boe-ilg-spf-probe.md`.
+- **Shipped:**
+  - New connector `BoeYieldCurvesConnector` (distinct from the
+    Akamai-blocked `BoEDatabaseConnector` IADB path) reading the
+    public content-store ``glcinflationddata.zip`` → sheet
+    ``4. spot curve``.
+  - `exp_inflation_bei` table first writer:
+    `persist_bei_row` in
+    `src/sonar/indices/monetary/exp_inflation_writers.py`.
+  - `build_m3_inputs_from_db` + `_load_histories` +
+    `classify_m3_compute_mode` extended with BEI fallback branch
+    (Lesson #20 #5 applied from start — all three shipped in the
+    same commit). Priority cascade: canonical > survey > BEI.
+  - 1578 GB BEI rows backfilled 2020-01-02 → 2026-03-31 via the
+    idempotent `sonar.scripts.backfill_boe_bei` script.
+  - GB M3 DEGRADED → FULL — compute-mode classifier emits
+    ``m3_compute_mode=FULL`` with flags
+    ``{GB_M3_T1_TIER, BEI_FITTED_IMPLIED, M3_EXPINF_FROM_BEI,
+    M3_FULL_LIVE}`` when the cascade reaches the BEI branch.
+- **Outstanding (sub-CALs):**
+  - **`CAL-EXPINF-GB-SEF`** — BoE Survey of External Forecasters
+    leg (survey-side divergence signal vs BEI). Deferred from
+    Sprint Q.2 scope lock; Week 12+ if ILG-alone proves
+    insufficient for the `BEI_SURVEY_DIVERGENCE` M3 observability
+    signal.
+  - **`CAL-EXPINF-GB-FORWARDS-BACKFILL`** — GB
+    `yield_curves_forwards` only has 2 days of history in DB at
+    Sprint-Q.2 close; full FRED gilt cascade backfill is pipeline
+    ops, not an EXPINF-side CAL but tracked here for cross-ref.
 - **Dependency:** none.
 
 ### CAL-EXPINF-FR-BDF-OATI-LINKER — FR BEI via Banque de France OATi/OATei (Phase 2)
