@@ -106,6 +106,11 @@ FRED_SERIES_TENORS: dict[str, float] = {
     "T5YIE": 5.0,
     "T10YIE": 10.0,
     "T30YIEM": 30.0,
+    # 5-year, 5-year forward breakeven inflation — cross-validation
+    # series for the BEI 5y5y forward computed by the US BEI builder
+    # (spec expected-inflation §4 + Sprint 1.1). Tenor labelled as 7.5
+    # (forward midpoint) for Observation provenance only.
+    "T5YIFR": 7.5,
     # Survey series — synthetic horizon tenor (consumer treats as expectation
     # horizon, not bond maturity).
     "MICH": 1.0,

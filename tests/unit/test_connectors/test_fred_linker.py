@@ -112,6 +112,26 @@ async def test_fetch_yield_curve_rejects_non_us(
         )
 
 
+def test_t5yifr_xval_series_in_catalog() -> None:
+    # Sprint 1.1 — T5YIFR cross-val series for US BEI 5y5y forward.
+    # Tenor 7.5 (forward midpoint) is provenance-only, not used in compute.
+    assert "T5YIFR" in FRED_SERIES_TENORS
+    assert FRED_SERIES_TENORS["T5YIFR"] == 7.5
+
+
+async def test_fetch_t5yifr_smoke(httpx_mock: HTTPXMock, fred_connector: FredConnector) -> None:
+    # Generic fetch_series path covers T5YIFR — verify the bps round-trip.
+    httpx_mock.add_response(
+        method="GET",
+        json={"observations": [{"date": "2024-01-02", "value": "2.54"}]},
+    )
+    obs = await fred_connector.fetch_series("T5YIFR", date(2024, 1, 2), date(2024, 1, 2))
+    assert len(obs) == 1
+    assert obs[0].source_series_id == "T5YIFR"
+    assert obs[0].tenor_years == 7.5
+    assert obs[0].yield_bps == 254  # 2.54 * 100
+
+
 async def test_fetch_yield_curve_picks_latest_in_window(
     httpx_mock: HTTPXMock, fred_connector: FredConnector
 ) -> None:

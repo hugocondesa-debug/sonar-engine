@@ -1,10 +1,16 @@
 """``sonar backfill`` — historical fill orchestrators.
 
-Sprint 2 (Week 11) ships the first sub-command: ``nss-curves``, the
-10-country tenor backfill orchestrator described in
-:mod:`sonar.overlays.nss_curves_backfill`. Future sprints register
-additional sub-commands under the same ``sonar backfill <name>``
-namespace.
+Sprint 2 (Week 11) shipped ``nss-curves`` — the 10-country tenor
+backfill orchestrator described in
+:mod:`sonar.overlays.nss_curves_backfill`.
+
+Sprint 1.1 (Week 11) adds ``expinf-us-bei`` — fetches + persists US
+BEI rows from FRED, then re-runs the canonical T1 orchestrator so the
+new rows compose into ``exp_inflation_canonical`` alongside the
+SURVEY / SWAP / DERIVED legs already shipped by Sprint 1.
+
+Future sprints register additional sub-commands under the same
+``sonar backfill <name>`` namespace.
 """
 
 from __future__ import annotations
@@ -14,9 +20,16 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import structlog
 import typer
 
+from sonar.db.session import SessionLocal
+from sonar.overlays.expected_inflation.backfill import (
+    T1_COUNTRIES,
+    backfill_canonical_t1,
+    backfill_us_bei,
+)
 from sonar.overlays.nss_curves_backfill import (
     DEFAULT_LOOKBACK_BD,
     T1_SPOT_BACKFILL_COUNTRIES,
@@ -27,7 +40,7 @@ log = structlog.get_logger()
 
 app = typer.Typer(
     name="backfill",
-    help="Historical-fill orchestrators (Sprint 2: nss-curves).",
+    help="Historical-fill orchestrators (Sprint 2: nss-curves, Sprint 1.1: expinf-us-bei).",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -112,3 +125,67 @@ def nss_curves(
         return EXIT_OK
 
     sys.exit(asyncio.run(_run()))
+
+
+def _bdays_in_range(start: date, end: date) -> int:
+    """Count business days in ``[start, end]`` inclusive."""
+    return len(pd.bdate_range(start=pd.Timestamp(start), end=pd.Timestamp(end)))
+
+
+@app.command("expinf-us-bei")
+def expinf_us_bei(
+    start: str = typer.Option(..., "--start", help="ISO start date (inclusive)."),
+    end: str = typer.Option(..., "--end", help="ISO end date (inclusive)."),
+    skip_canonical: bool = typer.Option(
+        False,  # noqa: FBT003
+        "--skip-canonical",
+        help="Persist BEI rows only; skip the canonical T1 rerun.",
+    ),
+) -> None:
+    """Sprint 1.1: US BEI backfill via FRED + canonical rerun for T1 cohort.
+
+    Persists ``exp_inflation_bei`` rows for ``country_code='US'`` over
+    the requested window, then re-runs :func:`backfill_canonical_t1`
+    so the new BEI rows compose into ``exp_inflation_canonical``.
+
+    The canonical rerun covers the full T1 cohort
+    (``US/EA/DE/FR/IT/ES/PT/GB/JP/CA``) — Sprint 1 shipped the writer
+    code but the canonical orchestrator was never executed against
+    the live DB, so this run also fills the 9 non-US rows from the
+    already-persisted SURVEY / synthesised SWAP / DERIVED legs.
+    """
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end)
+    if end_date < start_date:
+        msg = f"end ({end}) precedes start ({start})"
+        raise typer.BadParameter(msg)
+
+    lookback_bd = _bdays_in_range(start_date, end_date)
+    typer.echo(f"US BEI backfill: start={start} end={end} lookback_bd={lookback_bd}")
+
+    with SessionLocal() as session:
+        bei_result = asyncio.run(backfill_us_bei(session, lookback_bd=lookback_bd, as_of=end_date))
+        typer.echo(
+            f"  exp_inflation_bei US: inserted={bei_result.inserted} "
+            f"duplicate={bei_result.duplicate} "
+            f"skipped_no_spot={bei_result.skipped_no_spot} "
+            f"errors={bei_result.errors}"
+        )
+
+        if skip_canonical:
+            typer.echo("Canonical rerun skipped (--skip-canonical).")
+            return
+
+        canonical = backfill_canonical_t1(
+            session,
+            lookback_bd=lookback_bd,
+            as_of=end_date,
+            countries=T1_COUNTRIES,
+        )
+        typer.echo(
+            f"  exp_inflation_canonical T1: "
+            f"canonical_inserted={canonical.canonical_inserted} "
+            f"canonical_skipped={canonical.canonical_skipped} "
+            f"swap_inserted={canonical.swap_inserted} "
+            f"derived_inserted={canonical.derived_inserted}"
+        )

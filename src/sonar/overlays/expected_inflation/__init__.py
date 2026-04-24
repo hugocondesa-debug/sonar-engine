@@ -41,7 +41,9 @@ __all__ = [
     "ExpInfCanonical",
     "ExpInfSurvey",
     "anchor_status",
+    "build_bei_row",
     "build_canonical",
+    "build_us_bei_row",
     "compute_5y5y",
     "compute_bei_from_yields",
     "compute_bei_us",
@@ -264,6 +266,10 @@ def anchor_status(deviation_bps_abs: int) -> str:
 # module tail so canonical.py's own imports of this package can read
 # :class:`ExpInfBEI` / :class:`ExpInfSurvey` without circular-import
 # error.
+from sonar.overlays.expected_inflation.bei import (  # noqa: E402
+    build_bei_row,
+    build_us_bei_row,
+)
 from sonar.overlays.expected_inflation.canonical import (  # noqa: E402
     ExpInfCanonical,
     build_canonical,

@@ -34,11 +34,17 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import structlog
 
+from sonar.config import settings
+from sonar.connectors.fred import FredConnector
 from sonar.db.models import ExpInflationBeiRow, ExpInflationSurveyRow
+from sonar.indices.monetary.exp_inflation_writers import persist_bei_row
+from sonar.overlays.exceptions import DataUnavailableError
 from sonar.overlays.expected_inflation import (
+    METHODOLOGY_VERSION_BEI,
     ExpInfBEI,
     ExpInfSurvey,
 )
+from sonar.overlays.expected_inflation.bei import build_us_bei_row
 from sonar.overlays.expected_inflation.canonical import (
     build_canonical,
     persist_canonical_row,
@@ -65,7 +71,9 @@ __all__ = [
     "SURVEY_FRESHNESS_MAX_DAYS",
     "T1_COUNTRIES",
     "BackfillResult",
+    "UsBeiBackfillResult",
     "backfill_canonical_t1",
+    "backfill_us_bei",
 ]
 
 
@@ -364,5 +372,115 @@ def backfill_canonical_t1(
         swap_inserted=swap_inserted,
         derived_inserted=derived_inserted,
         countries_covered=countries,
+        dates_covered=(dates[0], dates[-1]),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class UsBeiBackfillResult:
+    """Counts emitted by :func:`backfill_us_bei`."""
+
+    inserted: int
+    duplicate: int
+    skipped_no_spot: int
+    errors: int
+    dates_covered: tuple[date_t, date_t] | None
+
+
+async def backfill_us_bei(
+    session: Session,
+    *,
+    lookback_bd: int = 60,
+    as_of: date_t | None = None,
+    fred_connector: FredConnector | None = None,
+) -> UsBeiBackfillResult:
+    """Sprint 1.1 — fetch + persist US BEI rows for the trailing
+    ``lookback_bd`` business days ending ``as_of``.
+
+    Per spec §2 hierarchy table the US BEI feeds the canonical 5Y/10Y/
+    30Y tenors; once the rows land here :func:`backfill_canonical_t1`
+    picks them up via the existing :func:`_latest_bei` reader, no
+    orchestrator changes needed.
+
+    Idempotent per ADR-0011 P1 — duplicates skipped via the
+    persistence ``INSERT OR IGNORE`` contract. Dates without a
+    matching ``yield_curves_spot`` US row are logged + skipped (spec
+    §8 mandates the FK).
+    """
+    dates = _recent_business_days(lookback_bd, as_of)
+    if not dates:
+        return UsBeiBackfillResult(0, 0, 0, 0, None)
+
+    inserted = 0
+    duplicate = 0
+    skipped_no_spot = 0
+    errors = 0
+
+    owns_connector = fred_connector is None
+    if fred_connector is None:
+        fred_connector = FredConnector(
+            api_key=settings.fred_api_key,
+            cache_dir=str(settings.cache_dir / "fred"),
+        )
+
+    try:
+        for observation_date in dates:
+            try:
+                bei = await build_us_bei_row(
+                    session,
+                    observation_date,
+                    fred_connector=fred_connector,
+                )
+            except DataUnavailableError as exc:
+                log.warning(
+                    "exp_inflation.us_bei.skip",
+                    date=observation_date.isoformat(),
+                    reason=str(exc),
+                )
+                skipped_no_spot += 1
+                continue
+            except Exception:
+                log.exception(
+                    "exp_inflation.us_bei.error",
+                    date=observation_date.isoformat(),
+                )
+                errors += 1
+                continue
+
+            ok = persist_bei_row(
+                session,
+                country_code=bei.country_code,
+                observation_date=bei.observation_date,
+                bei_tenors_decimal=bei.bei_tenors,
+                linker_connector=bei.linker_connector,
+                methodology_version=METHODOLOGY_VERSION_BEI,
+                confidence=bei.confidence,
+                flags=bei.flags,
+                nominal_yields_decimal=bei.nominal_yields,
+                linker_real_yields_decimal=bei.linker_real_yields,
+                nss_fit_id=str(bei.nss_fit_id) if bei.nss_fit_id else None,
+            )
+            if ok:
+                inserted += 1
+            else:
+                duplicate += 1
+            session.commit()
+    finally:
+        if owns_connector:
+            await fred_connector.aclose()
+
+    log.info(
+        "exp_inflation.us_bei.completed",
+        lookback_bd=lookback_bd,
+        inserted=inserted,
+        duplicate=duplicate,
+        skipped_no_spot=skipped_no_spot,
+        errors=errors,
+    )
+    return UsBeiBackfillResult(
+        inserted=inserted,
+        duplicate=duplicate,
+        skipped_no_spot=skipped_no_spot,
+        errors=errors,
         dates_covered=(dates[0], dates[-1]),
     )
