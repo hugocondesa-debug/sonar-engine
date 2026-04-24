@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 import sonar.db.session  # noqa: F401
 from sonar.db.models import (
     Base,
+    ExpInflationBeiRow,
     ExpInflationSurveyRow,
     IndexValue,
     NSSYieldCurveForwards,
@@ -22,10 +23,12 @@ from sonar.db.models import (
 )
 from sonar.indices.monetary.db_backed_builder import (
     EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_BEI_FLAG,
     M3_EXPINF_FROM_SURVEY_FLAG,
     MonetaryDbBackedInputsBuilder,
     build_m3_inputs_from_db,
 )
+from sonar.indices.monetary.exp_inflation_writers import persist_bei_row
 
 ANCHOR = date(2024, 12, 31)
 
@@ -681,3 +684,299 @@ def test_load_histories_ea_full_path_persistable_by_downstream(session: Session)
     # Critical invariant: both history arrays ≥ 2 (closes Q.1.1 regression).
     assert len(out.nominal_5y5y_history_bps) >= 2
     assert len(out.anchor_deviation_abs_history_bps) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.2 — BEI fallback (main builder + _load_histories together;
+# Lesson #20 #5 applied from start — see
+# docs/backlog/probe-results/sprint-q-2-boe-ilg-spf-probe.md §4)
+# ---------------------------------------------------------------------------
+
+
+def _bei_row(
+    obs_date: date,
+    *,
+    country: str = "GB",
+    y5: float = 0.040,
+    y10: float = 0.035,
+    extra_tenors: dict[str, float] | None = None,
+    flags: str | None = "BEI_FITTED_IMPLIED",
+    confidence: float = 0.85,
+    linker_connector: str = "BOE_GLC_INFLATION",
+) -> ExpInflationBeiRow:
+    """Factory: BEI row matching the Sprint Q.2 writer shape.
+
+    Defaults mirror a realistic GB BEI snapshot (5Y=4.0 %, 10Y=3.5 %) so
+    the implied 5Y5Y forward derives to ``2*350 - 400 = 300`` bps.
+    """
+    tenors: dict[str, float] = {"5Y": y5, "10Y": y10}
+    if extra_tenors:
+        tenors.update(extra_tenors)
+    return ExpInflationBeiRow(
+        exp_inf_id=f"{country}-{obs_date.isoformat()}-bei",
+        country_code=country,
+        date=obs_date,
+        methodology_version="EXPINF_BEI_v1.0",
+        confidence=confidence,
+        flags=flags,
+        nominal_yields_json=json.dumps({}),
+        linker_real_yields_json=json.dumps({}),
+        bei_tenors_json=json.dumps(tenors),
+        linker_connector=linker_connector,
+        nss_fit_id=None,
+    )
+
+
+def test_bei_fallback_activates_when_canonical_and_survey_empty(session: Session) -> None:
+    """Sprint Q.2: BEI row serves M3Inputs when both canonical + survey absent."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    # Seed BEI-only at ANCHOR; no canonical IndexValue, no SPF survey.
+    session.add(_bei_row(ANCHOR, country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR)
+    assert out is not None
+    # 5Y5Y derived: 2 * 350 - 400 = 300 bps.
+    assert out.breakeven_5y5y_bps == pytest.approx(300.0)
+    # BEI path exposes the market-implied leg.
+    assert out.bei_10y_bps == pytest.approx(350.0)
+    assert out.survey_10y_bps is None
+    assert M3_EXPINF_FROM_BEI_FLAG in out.expinf_flags
+    assert "BEI_FITTED_IMPLIED" in out.expinf_flags
+    assert out.expinf_confidence == pytest.approx(0.85)
+
+
+def test_bei_fallback_canonical_primary(session: Session) -> None:
+    """Sprint Q.2: canonical IndexValue takes priority over BEI row."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    session.add(_expinf_row(ANCHOR, country="GB", be_5y5y=0.0245, be_10y=0.024))
+    session.add(_bei_row(ANCHOR, country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR)
+    assert out is not None
+    assert out.breakeven_5y5y_bps == pytest.approx(245.0)
+    assert M3_EXPINF_FROM_BEI_FLAG not in out.expinf_flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_bei_fallback_survey_wins_over_bei(session: Session) -> None:
+    """Sprint Q.2: priority is canonical > survey > BEI — survey beats BEI."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    # No canonical; both survey + BEI populated.
+    session.add(
+        _survey_row(
+            ANCHOR,
+            country="GB",
+            be_5y5y=0.0250,
+            be_10y=0.0245,
+            survey_name="BOE_SEF",
+            flags="SPF_LT_AS_ANCHOR",
+        )
+    )
+    session.add(_bei_row(ANCHOR, country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR)
+    assert out is not None
+    # Survey 0.025 → 250bps wins; BEI derivation would have been 300bps.
+    assert out.breakeven_5y5y_bps == pytest.approx(250.0)
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+    assert M3_EXPINF_FROM_BEI_FLAG not in out.expinf_flags
+
+
+def test_bei_fallback_picks_most_recent_on_or_before(session: Session) -> None:
+    """Sprint Q.2: weekend / holiday forward-fill — most recent BEI row wins."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    # Two BEI rows: 3d prior (most recent weekday) + 10d prior.
+    session.add(_bei_row(ANCHOR - timedelta(days=10), country="GB", y5=0.041, y10=0.036))
+    session.add(_bei_row(ANCHOR - timedelta(days=3), country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR)
+    assert out is not None
+    # Most-recent row (3d prior): 5Y=0.040, 10Y=0.035 → 5Y5Y = 300 bps.
+    assert out.breakeven_5y5y_bps == pytest.approx(300.0)
+
+
+def test_bei_fallback_partial_curve_returns_none(session: Session) -> None:
+    """Sprint Q.2: BEI row missing 5Y OR 10Y tenor → 5Y5Y uncomputable → None."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    session.add(
+        ExpInflationBeiRow(
+            exp_inf_id="gb-partial",
+            country_code="GB",
+            date=ANCHOR,
+            methodology_version="EXPINF_BEI_v1.0",
+            confidence=0.85,
+            flags=None,
+            nominal_yields_json=json.dumps({}),
+            linker_real_yields_json=json.dumps({}),
+            # Only 10Y present — 5Y missing → _bei_5y5y_bps_from_tenors = None.
+            bei_tenors_json=json.dumps({"10Y": 0.035}),
+            linker_connector="BOE_GLC_INFLATION",
+        )
+    )
+    session.commit()
+    assert build_m3_inputs_from_db(session, "GB", ANCHOR) is None
+
+
+def test_bei_fallback_no_data_returns_none(session: Session) -> None:
+    """Sprint Q.2: no canonical, no survey, no BEI → None."""
+    _forwards_with_spot(session, ANCHOR, country="GB")
+    session.commit()
+    assert build_m3_inputs_from_db(session, "GB", ANCHOR) is None
+
+
+def test_bei_fallback_us_regression_unchanged(session: Session) -> None:
+    """Sprint Q.2: US canonical path identical — BEI row present but ignored."""
+    _forwards_with_spot(session, ANCHOR, country="US")
+    session.add(_expinf_row(ANCHOR, country="US"))
+    # Seed a BEI row too — canonical must win; BEI branch not entered.
+    session.add(_bei_row(ANCHOR, country="US", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    assert out.breakeven_5y5y_bps == pytest.approx(245.0)
+    assert out.bei_10y_bps == pytest.approx(240.0)  # from canonical, NOT 350bps BEI.
+    assert M3_EXPINF_FROM_BEI_FLAG not in out.expinf_flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_load_histories_bei_fallback_when_canonical_and_survey_empty(session: Session) -> None:
+    """Sprint Q.2 Lesson #20 #5: _load_histories extends to BEI fallback."""
+    # 4 forwards rows across 90d window; no canonical, no survey, BEI-only.
+    for i, delta_days in enumerate([90, 60, 30, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(
+            session, prior, country="GB", forward_5y5y=0.045 + i * 0.0005, fit_suffix=f"g{i}"
+        )
+    # BEI rows: one per forwards date (daily cadence).
+    for delta_days in [90, 60, 30, 0]:
+        prior = ANCHOR - timedelta(days=delta_days)
+        session.add(_bei_row(prior, country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR, history_days=120)
+    assert out is not None
+    assert len(out.nominal_5y5y_history_bps) == 4
+    # Each forwards date matches a BEI row → 4 anchor points.
+    assert len(out.anchor_deviation_abs_history_bps) == 4
+    # 5Y5Y = 300 bps; GB target (BoE) 2% = 200 bps; |300-200|=100.
+    for value in out.anchor_deviation_abs_history_bps:
+        assert value == pytest.approx(100.0)
+    assert M3_EXPINF_FROM_BEI_FLAG in out.expinf_flags
+
+
+def test_load_histories_bei_sparse_forward_fill(session: Session) -> None:
+    """Sprint Q.2: BEI row on earlier date forward-fills later forwards dates."""
+    for i, delta_days in enumerate([40, 20, 10, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(session, prior, country="GB", forward_5y5y=0.045, fit_suffix=f"s{i}")
+    # Only one BEI row, 50d prior — forward-fills every later forwards date.
+    session.add(_bei_row(ANCHOR - timedelta(days=50), country="GB", y5=0.040, y10=0.035))
+    # Anchor-date BEI so main builder resolves.
+    session.add(_bei_row(ANCHOR, country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR, history_days=120)
+    assert out is not None
+    # All 4 forwards rows get forward-filled anchor deviations.
+    assert len(out.anchor_deviation_abs_history_bps) == 4
+
+
+def test_load_histories_canonical_wins_over_bei_when_both_present(session: Session) -> None:
+    """Sprint Q.2: canonical-priority invariant — BEI branch NOT queried if canonical exists.
+
+    Mirrors the Q.1.2 survey-priority test. Any country with at least one canonical
+    row in the window stays on the canonical-only branch; BEI rows are ignored.
+    """
+    _forwards_with_spot(session, ANCHOR - timedelta(days=30), country="US", fit_suffix="b0")
+    _forwards_with_spot(session, ANCHOR, country="US", fit_suffix="b1")
+    session.add(_expinf_row(ANCHOR, country="US", be_5y5y=0.024))
+    # BEI row that would have forward-filled the 30d-prior date — must be ignored.
+    session.add(_bei_row(ANCHOR - timedelta(days=45), country="US", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "US", ANCHOR, history_days=120)
+    assert out is not None
+    assert len(out.nominal_5y5y_history_bps) == 2
+    # Canonical-only: only the ANCHOR date has a match (30d prior skipped).
+    assert len(out.anchor_deviation_abs_history_bps) == 1
+    assert M3_EXPINF_FROM_BEI_FLAG not in out.expinf_flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_load_histories_survey_wins_over_bei_when_both_present(session: Session) -> None:
+    """Sprint Q.2: priority cascade — survey branch entered → BEI query skipped."""
+    # Forwards for GB across 60d window; no canonical; survey + BEI both present.
+    for i, delta_days in enumerate([60, 30, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(session, prior, country="GB", forward_5y5y=0.045, fit_suffix=f"p{i}")
+    session.add(_survey_row(ANCHOR, country="GB", be_5y5y=0.025, be_10y=0.025))
+    # BEI row at the 30d date — should NOT be consulted because survey is present.
+    session.add(_bei_row(ANCHOR - timedelta(days=30), country="GB", y5=0.040, y10=0.035))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "GB", ANCHOR, history_days=90)
+    assert out is not None
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+    assert M3_EXPINF_FROM_BEI_FLAG not in out.expinf_flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.2 — persist_bei_row writer (Sprint Q.1.1 wire-style integration)
+# ---------------------------------------------------------------------------
+
+
+def test_persist_bei_row_inserts_new_row(session: Session) -> None:
+    """Sprint Q.2: first insert returns True + row is retrievable."""
+    result = persist_bei_row(
+        session,
+        country_code="GB",
+        observation_date=ANCHOR,
+        bei_tenors_decimal={"5Y": 0.040, "10Y": 0.035, "30Y": 0.033},
+        linker_connector="BOE_GLC_INFLATION",
+        methodology_version="EXPINF_BEI_v1.0",
+        flags=("BEI_FITTED_IMPLIED",),
+    )
+    session.commit()
+    assert result is True
+    rows = session.query(ExpInflationBeiRow).all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.country_code == "GB"
+    assert row.date == ANCHOR
+    assert row.linker_connector == "BOE_GLC_INFLATION"
+    assert row.flags == "BEI_FITTED_IMPLIED"
+    assert json.loads(row.bei_tenors_json) == {"10Y": 0.035, "30Y": 0.033, "5Y": 0.040}
+
+
+def test_persist_bei_row_is_idempotent_on_duplicate(session: Session) -> None:
+    """Sprint Q.2: duplicate (country, date, methodology) returns False; one row only."""
+    payload = {
+        "country_code": "GB",
+        "observation_date": ANCHOR,
+        "bei_tenors_decimal": {"5Y": 0.040, "10Y": 0.035},
+        "linker_connector": "BOE_GLC_INFLATION",
+        "methodology_version": "EXPINF_BEI_v1.0",
+    }
+    assert persist_bei_row(session, **payload) is True
+    session.commit()
+    assert persist_bei_row(session, **payload) is False
+    session.commit()
+    assert session.query(ExpInflationBeiRow).count() == 1
+
+
+def test_persist_bei_row_rejects_empty_tenors(session: Session) -> None:
+    """Sprint Q.2: empty tenor map is a programmer bug, not a data miss."""
+    with pytest.raises(ValueError, match="empty bei_tenors_decimal"):
+        persist_bei_row(
+            session,
+            country_code="GB",
+            observation_date=ANCHOR,
+            bei_tenors_decimal={},
+            linker_connector="BOE_GLC_INFLATION",
+            methodology_version="EXPINF_BEI_v1.0",
+        )

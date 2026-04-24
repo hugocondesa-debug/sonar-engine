@@ -46,6 +46,7 @@ from sqlalchemy.orm import Session
 import sonar.db.session  # noqa: F401
 from sonar.db.models import (
     Base,
+    ExpInflationBeiRow,
     ExpInflationSurveyRow,
     IndexValue,
     NSSYieldCurveForwards,
@@ -53,6 +54,7 @@ from sonar.db.models import (
 )
 from sonar.indices.monetary.db_backed_builder import (
     EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_BEI_FLAG,
     M3_EXPINF_FROM_SURVEY_FLAG,
     MonetaryDbBackedInputsBuilder,
 )
@@ -572,3 +574,148 @@ async def test_m3_async_lifecycle_compatible(session: Session) -> None:
         outcome = await run_one(session, country, ANCHOR, db_backed_builder=db_backed)
         # m3 persist = 0 because EXPINF missing → build_m3_inputs None.
         assert outcome.persisted["m3"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.2 — BEI fallback branch of classify_m3_compute_mode
+# ---------------------------------------------------------------------------
+
+
+def _seed_bei(
+    session: Session,
+    *,
+    country: str,
+    obs: date = ANCHOR,
+    flags: str | None = "BEI_FITTED_IMPLIED",
+    confidence: float = 0.85,
+    y5: float = 0.040,
+    y10: float = 0.035,
+) -> None:
+    """Seed an ``exp_inflation_bei`` row mirroring the Sprint Q.2 writer."""
+    session.add(
+        ExpInflationBeiRow(
+            exp_inf_id=f"{country}-{obs.isoformat()}-bei",
+            country_code=country,
+            date=obs,
+            methodology_version="EXPINF_BEI_v1.0",
+            confidence=confidence,
+            flags=flags,
+            nominal_yields_json=json.dumps({}),
+            linker_real_yields_json=json.dumps({}),
+            bei_tenors_json=json.dumps({"5Y": y5, "10Y": y10}),
+            linker_connector="BOE_GLC_INFLATION",
+            nss_fit_id=None,
+        )
+    )
+
+
+def test_classifier_bei_fallback_uplifts_gb_to_full(session: Session) -> None:
+    """Sprint Q.2: GB canonical + survey empty + BEI row present → FULL + BEI flags."""
+    _seed_forwards(session, country="GB")
+    _seed_bei(session, country="GB", flags="BEI_FITTED_IMPLIED")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "GB", ANCHOR)
+    assert mode == "FULL"
+    assert "GB_M3_T1_TIER" in flags
+    assert "BEI_FITTED_IMPLIED" in flags
+    assert M3_EXPINF_FROM_BEI_FLAG in flags
+    assert "M3_FULL_LIVE" in flags
+    assert "M3_EXPINF_MISSING" not in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_survey_wins_over_bei_when_both_present(session: Session) -> None:
+    """Sprint Q.2: survey branch takes priority over BEI — GB gets SURVEY flag, not BEI."""
+    _seed_forwards(session, country="GB")
+    _seed_survey(session, country="GB", flags="SPF_LT_AS_ANCHOR")
+    _seed_bei(session, country="GB")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "GB", ANCHOR)
+    assert mode == "FULL"
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+    assert M3_EXPINF_FROM_BEI_FLAG not in flags
+
+
+def test_classifier_canonical_wins_over_bei_when_both_present(session: Session) -> None:
+    """Sprint Q.2: canonical IndexValue trumps BEI — GB gets no fallback flag."""
+    _seed_forwards(session, country="GB")
+    # Seed canonical EXPINF row (mirrors US cohort path).
+    session.add(
+        IndexValue(
+            index_code=EXPINF_INDEX_CODE,
+            country_code="GB",
+            date=ANCHOR,
+            methodology_version="EXPINF_v1.0",
+            raw_value=0.025,
+            zscore_clamped=0.0,
+            value_0_100=50.0,
+            sub_indicators_json=json.dumps(
+                {
+                    "expected_inflation_tenors": {"5y5y": 0.025, "10Y": 0.025},
+                    "source_method_per_tenor": {"5y5y": "BEI", "10Y": "BEI"},
+                    "methods_available": 1,
+                    "anchor_status": "well_anchored",
+                }
+            ),
+            confidence=0.90,
+            flags=None,
+            source_overlays_json=json.dumps({}),
+        )
+    )
+    _seed_bei(session, country="GB")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "GB", ANCHOR)
+    assert mode == "FULL"
+    assert M3_EXPINF_FROM_BEI_FLAG not in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_bei_subthreshold_confidence_remains_degraded(session: Session) -> None:
+    """Sprint Q.2: BEI row below MIN_EXPINF_CONFIDENCE does NOT uplift to FULL."""
+    _seed_forwards(session, country="GB")
+    _seed_bei(session, country="GB", confidence=MIN_EXPINF_CONFIDENCE - 0.01)
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "GB", ANCHOR)
+    assert mode == "DEGRADED"
+    assert "M3_EXPINF_CONFIDENCE_SUBTHRESHOLD" in flags
+    assert M3_EXPINF_FROM_BEI_FLAG not in flags
+
+
+def test_classifier_bei_us_regression_unchanged(session: Session) -> None:
+    """Sprint Q.2: US canonical path identical — BEI row present but ignored."""
+    _seed_forwards(session, country="US")
+    session.add(
+        IndexValue(
+            index_code=EXPINF_INDEX_CODE,
+            country_code="US",
+            date=ANCHOR,
+            methodology_version="EXPINF_v1.0",
+            raw_value=0.024,
+            zscore_clamped=0.0,
+            value_0_100=50.0,
+            sub_indicators_json=json.dumps(
+                {
+                    "expected_inflation_tenors": {"5y5y": 0.024, "10Y": 0.024},
+                    "source_method_per_tenor": {"5y5y": "BEI", "10Y": "BEI"},
+                    "methods_available": 1,
+                }
+            ),
+            confidence=1.0,
+            flags=None,
+            source_overlays_json=json.dumps({}),
+        )
+    )
+    # A BEI row too — must be completely ignored.
+    _seed_bei(session, country="US")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "US", ANCHOR)
+    assert mode == "FULL"
+    assert "US_M3_T1_TIER" in flags
+    assert "M3_FULL_LIVE" in flags
+    assert M3_EXPINF_FROM_BEI_FLAG not in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
