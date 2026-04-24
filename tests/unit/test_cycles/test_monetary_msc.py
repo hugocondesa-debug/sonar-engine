@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 import sonar.db.session  # noqa: F401
-from sonar.cycles.base import InsufficientCycleInputsError
+from sonar.cycles.base import REWEIGHT_CONFIDENCE_CAP, InsufficientCycleInputsError
 from sonar.cycles.monetary_msc import (
     CANONICAL_WEIGHTS,
     DILEMMA_MSC_THRESHOLD,
@@ -606,3 +606,141 @@ class TestMscEaCrossCountry:
         expected = (0.30 * 60 + 0.15 * 50 + 0.25 * 40 + 0.20 * 30) / 0.90
         assert result.score_0_100 == pytest.approx(expected, abs=0.01)
         assert result.country_code == "US"
+
+
+# ---------------------------------------------------------------------------
+# Sprint P.1 (Week 11 Day 1) — MSC GB L4 third cross-country composite
+# ---------------------------------------------------------------------------
+
+
+class TestMscGbCrossCountry:
+    """Sprint P.1: MSC builder dispatched against GB sub-indices. GB sits
+    on Sprint Q.2's M3 FULL via BoE BEI (flags ``M3_EXPINF_FROM_BEI`` +
+    ``BEI_FITTED_IMPLIED``) and Sprint J C5's M4 scaffold (raises,
+    ``GB_M4_SCAFFOLD_ONLY`` — MSC reweights on 3/5 inputs + emits
+    ``M4_MISSING``). Pairs with the US + EA suites above to prove the
+    builder is a pure cross-country function.
+    """
+
+    def test_gb_composite_three_inputs_m4_missing(self, db_session: Session) -> None:
+        """Sprint P.1 Tier A: GB MSC with M1+M2+M3 present (M4 scaffold
+        absent) → 3/5 inputs, Policy 1 re-weight over 0.70, composite in
+        0-100, regime label emitted, ``M4_MISSING`` flag surfaced.
+        """
+        obs = date(2026, 4, 23)
+        _seed_m1(db_session, country_code="GB", observation_date=obs, score=68.6)
+        _seed_m2(db_session, country_code="GB", observation_date=obs, score=50.0)
+        _seed_m3(
+            db_session,
+            country_code="GB",
+            observation_date=obs,
+            value_0_100=44.1,
+            confidence=0.65,
+        )
+        # No _seed_m4 — GB M4 is scaffold-only (raises in builders), so
+        # the ``monetary_m4_fci`` row is absent and compute_msc reweights.
+        db_session.commit()
+
+        result = compute_msc(db_session, "GB", obs)
+
+        assert result.country_code == "GB"
+        assert result.date == obs
+        assert result.inputs_available == 3
+        assert result.m4_score_0_100 is None
+        assert result.cs_score_0_100 is None
+        assert 0 <= result.score_0_100 <= 100
+        # Re-weighted sum (M1=68.6, M2=50, M3=44.1) over 0.70
+        # = (0.30·68.6 + 0.15·50 + 0.25·44.1) / 0.70 ≈ 55.86.
+        expected = (0.30 * 68.6 + 0.15 * 50 + 0.25 * 44.1) / 0.70
+        assert result.score_0_100 == pytest.approx(expected, abs=0.05)
+        # Score ≈ 55.9 → NEUTRAL_TIGHT territory per spec Cap 15.8.
+        assert result.regime_6band == "NEUTRAL_TIGHT"
+        assert result.regime_3band == "NEUTRAL"
+        # M4 + CS both absent → two canonical missing flags emitted.
+        assert "M4_MISSING" in result.flags
+        assert "COMM_SIGNAL_MISSING" in result.flags
+        # Policy 1 re-weight triggered → confidence cap applies.
+        assert result.confidence <= REWEIGHT_CONFIDENCE_CAP
+        assert result.methodology_version == METHODOLOGY_VERSION
+
+    def test_gb_m3_bei_flags_propagate(self, db_session: Session) -> None:
+        """Sprint P.1 Tier A #4: GB MSC inherits M3 BoE BEI lineage flags.
+
+        Sprint Q.2's M3 GB DB-backed builder emits ``M3_EXPINF_FROM_BEI``
+        + ``BEI_FITTED_IMPLIED`` when the BoE BEI curve feeds the
+        expected-inflation anchor. The MSC aggregator must propagate
+        those into the composite flag bundle so downstream consumers
+        see the BEI lineage end-to-end.
+        """
+        obs = date(2026, 4, 23)
+        _seed_m1(db_session, country_code="GB", observation_date=obs)
+        _seed_m2(db_session, country_code="GB", observation_date=obs)
+        db_session.add(
+            IndexValue(
+                index_code="M3_MARKET_EXPECTATIONS",
+                country_code="GB",
+                date=obs,
+                methodology_version="M3_MARKET_EXPECTATIONS_ANCHOR_v0.1",
+                raw_value=0.3,
+                zscore_clamped=0.3,
+                value_0_100=44.1,
+                confidence=0.65,
+                flags="BEI_FITTED_IMPLIED,INSUFFICIENT_HISTORY,M3_EXPINF_FROM_BEI",
+            )
+        )
+        db_session.commit()
+
+        result = compute_msc(db_session, "GB", obs)
+
+        assert "M3_EXPINF_FROM_BEI" in result.flags
+        assert "BEI_FITTED_IMPLIED" in result.flags
+
+    def test_cohort_us_ea_gb_isolation(self, db_session: Session) -> None:
+        """Sprint P.1 Tier A: compute_msc filters sub-indices by
+        ``country_code`` across the full Sprint P.1 cohort. US, EA, and
+        GB compute must not cross-bleed inputs on a shared date. Guards
+        against a regression where country filtering silently widened
+        when the cohort was extended from 2 to 3.
+        """
+        obs = date(2026, 4, 23)
+        # US seed — high scores.
+        _seed_m1(db_session, country_code="US", observation_date=obs, score=85.0)
+        _seed_m2(db_session, country_code="US", observation_date=obs, score=80.0)
+        _seed_m3(db_session, country_code="US", observation_date=obs, value_0_100=78.0)
+        _seed_m4(db_session, country_code="US", observation_date=obs, score=75.0)
+        # EA seed — low scores.
+        _seed_m1(db_session, country_code="EA", observation_date=obs, score=20.0)
+        _seed_m2(db_session, country_code="EA", observation_date=obs, score=25.0)
+        _seed_m3(db_session, country_code="EA", observation_date=obs, value_0_100=22.0)
+        _seed_m4(db_session, country_code="EA", observation_date=obs, score=28.0)
+        # GB seed — mid scores, no M4 (scaffold).
+        _seed_m1(db_session, country_code="GB", observation_date=obs, score=55.0)
+        _seed_m2(db_session, country_code="GB", observation_date=obs, score=52.0)
+        _seed_m3(db_session, country_code="GB", observation_date=obs, value_0_100=48.0)
+        db_session.commit()
+
+        us = compute_msc(db_session, "US", obs)
+        ea = compute_msc(db_session, "EA", obs)
+        gb = compute_msc(db_session, "GB", obs)
+
+        assert us.country_code == "US"
+        assert ea.country_code == "EA"
+        assert gb.country_code == "GB"
+        # Composite scores must reflect each country's own inputs.
+        us_expected = (0.30 * 85 + 0.15 * 80 + 0.25 * 78 + 0.20 * 75) / 0.90
+        ea_expected = (0.30 * 20 + 0.15 * 25 + 0.25 * 22 + 0.20 * 28) / 0.90
+        gb_expected = (0.30 * 55 + 0.15 * 52 + 0.25 * 48) / 0.70
+        assert us.score_0_100 == pytest.approx(us_expected, abs=0.05)
+        assert ea.score_0_100 == pytest.approx(ea_expected, abs=0.05)
+        assert gb.score_0_100 == pytest.approx(gb_expected, abs=0.05)
+        # GB has only 3/5 inputs (M4 scaffold-absent); US + EA have 4/5.
+        assert us.inputs_available == 4
+        assert ea.inputs_available == 4
+        assert gb.inputs_available == 3
+        assert "M4_MISSING" in gb.flags
+        assert "M4_MISSING" not in us.flags
+        assert "M4_MISSING" not in ea.flags
+        # Sanity: regime separation — zero cross-talk.
+        assert us.regime_3band == "TIGHT"
+        assert ea.regime_3band == "ACCOMMODATIVE"
+        assert gb.regime_3band == "NEUTRAL"
