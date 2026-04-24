@@ -19,7 +19,11 @@ from __future__ import annotations
 
 import typer
 
-from sonar.cli import health as health_cli, status as status_cli
+from sonar.cli import (
+    backfill as backfill_cli,
+    health as health_cli,
+    status as status_cli,
+)
 from sonar.scripts import retention as retention_cli
 
 app = typer.Typer(
@@ -32,6 +36,7 @@ app = typer.Typer(
 app.add_typer(status_cli.app, name="status", help="Cross-cycle country status dashboard.")
 app.add_typer(health_cli.app, name="health", help="Pipeline freshness + success snapshot.")
 app.add_typer(retention_cli.app, name="retention", help="Retention policies + SQLite VACUUM.")
+app.add_typer(backfill_cli.app, name="backfill", help="Historical-fill orchestrators.")
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,0 +1,32 @@
+{
+  "meta": {
+    "fixture_id": "real_us_2024_01_02",
+    "source": "FRED DFII5/7/10/20/30 live close 2024-01-02 (verified Sprint 2 via FredConnector.fetch_yield_curve_linker; 0.00 bps delta vs FRED H.15 archive). Sibling of us_2024_01_02 (DGS* nominal).",
+    "curve_input_type": "linker_real",
+    "unit_convention": "decimal (per units.md §Yields)",
+    "note": "5 TIPS tenors → 4-param NS reduced fit (LINKER_MIN_OBSERVATIONS=5; n_obs<MIN_OBSERVATIONS_FOR_SVENSSON=9). Sprint 2 spec §7 row 9 target real_10Y ≈ 0.0185 ± 15 bps holds against actual FRED DFII10=0.0174 (drift 11 bps, within tolerance)."
+  },
+  "input": {
+    "country_code": "US",
+    "observation_date": "2024-01-02",
+    "linker_yields": {
+      "5Y": 0.0176,
+      "7Y": 0.0175,
+      "10Y": 0.0174,
+      "20Y": 0.0184,
+      "30Y": 0.0191
+    },
+    "nominal_spot_fitted_10Y": 0.0395
+  },
+  "expected": {
+    "method": "direct_linker",
+    "linker_connector": "fred",
+    "real_10Y_approx": 0.0185,
+    "breakeven_10Y_approx": 0.0220,
+    "confidence_min": 0.70
+  },
+  "tolerance": {
+    "real_yield_bps": 15.0,
+    "breakeven_bps": 15.0
+  }
+}

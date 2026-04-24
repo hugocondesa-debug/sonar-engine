@@ -151,6 +151,11 @@ def _to_forwards_row(r: NSSFitResult) -> NSSYieldCurveForwards:
 
 def _to_real_row(r: NSSFitResult) -> NSSYieldCurveReal:
     assert r.real is not None  # caller-checked
+    # Sprint 2: real curve carries its own confidence + flags. Legacy
+    # callers (derive_real_curve) leave both unset and we fall back to
+    # mirroring the spot row, preserving the pre-Sprint 2 behaviour.
+    confidence = r.real.confidence if r.real.confidence is not None else r.spot.confidence
+    merged_flags = tuple(sorted(set(r.spot.flags) | set(r.real.flags)))
     return NSSYieldCurveReal(
         country_code=r.country_code,
         date=r.observation_date,
@@ -159,8 +164,8 @@ def _to_real_row(r: NSSFitResult) -> NSSYieldCurveReal:
         real_yields_json=json.dumps(r.real.real_yields),
         method=r.real.method,
         linker_connector=r.real.linker_connector,
-        confidence=r.spot.confidence,
-        flags=_flags_to_csv(r.spot.flags),
+        confidence=confidence,
+        flags=_flags_to_csv(merged_flags),
     )
 
 

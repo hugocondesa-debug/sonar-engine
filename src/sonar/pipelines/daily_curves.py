@@ -150,7 +150,7 @@ from sonar.connectors.bundesbank import BundesbankConnector
 from sonar.connectors.ecb_sdw import EcbSdwConnector
 from sonar.connectors.fred import FredConnector
 from sonar.connectors.te import TE_YIELD_CURVE_SYMBOLS, TEConnector
-from sonar.db.models import NSSYieldCurveSpot
+from sonar.db.models import ExpInflationCanonicalRow, NSSYieldCurveSpot
 from sonar.db.persistence import DuplicatePersistError, persist_nss_fit_result
 from sonar.db.session import SessionLocal
 from sonar.overlays.exceptions import InsufficientDataError
@@ -161,10 +161,10 @@ from sonar.overlays.nss import (
     _label_to_years,
     assemble_nss_fit_result,
     derive_forward_curve,
-    derive_real_curve,
     derive_zero_curve,
     fit_nss,
 )
+from sonar.overlays.nss_real_writer import build_real_curve
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -195,6 +195,34 @@ class _CurveRunOutcomes:
     skipped_existing: list[str] = field(default_factory=list)
     skipped_insufficient: list[tuple[str, str]] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _latest_expinf_canonical(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+) -> dict[str, float] | None:
+    """Latest ``exp_inflation_canonical`` tenors for ``(country, date)``.
+
+    Sprint 2 hand-off into :func:`build_real_curve` for the derived
+    path. ``None`` means the real writer logs a remedy and skips the
+    real row — spot/zero/forwards still persist as a 3-sibling set.
+    """
+    row = (
+        session.query(ExpInflationCanonicalRow)
+        .filter(
+            ExpInflationCanonicalRow.country_code == country_code,
+            ExpInflationCanonicalRow.date == observation_date,
+        )
+        .order_by(ExpInflationCanonicalRow.id.desc())
+        .first()
+    )
+    if row is None:
+        return None
+    import json  # noqa: PLC0415 — local; module top has heavier imports already
+
+    payload = json.loads(row.expected_inflation_tenors_json)
+    return {k: float(v) for k, v in payload.items()}
 
 
 def _curve_already_persisted(
@@ -412,11 +440,13 @@ async def run_country(
     forward = derive_forward_curve(zero)
 
     linker_yields = {t: linkers[t].yield_bps / 10_000.0 for t in linkers}
-    real = derive_real_curve(
-        spot,
-        linker_yields=linker_yields if linker_yields else None,
-        observation_date=observation_date,
+    expinf_tenors = _latest_expinf_canonical(session, country_upper, observation_date)
+    real = build_real_curve(
         country_code=country_upper,
+        observation_date=observation_date,
+        nominal_spot=spot,
+        linker_yields=linker_yields if linker_yields else None,
+        exp_inflation_tenors=expinf_tenors,
     )
 
     result = assemble_nss_fit_result(

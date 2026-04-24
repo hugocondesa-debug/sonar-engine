@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "fixture_id": "de_bund_2024_01_02",
+    "source": "Bundesbank BBSIS daily zero-coupon close 2024-01-02 (Sprint 2 spec §7 row 2)",
+    "curve_input_type": "zero",
+    "unit_convention": "decimal (per units.md §Yields)",
+    "note": "10 Bund tenors. Cross-val target: Bundesbank Svensson published <5 bps (golden-fit values used as published proxy in absence of live cross-val fetch)."
+  },
+  "input": {
+    "country_code": "DE",
+    "observation_date": "2024-01-02",
+    "tenors_years": [0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 20.0, 30.0],
+    "yields": [0.0376, 0.0359, 0.0331, 0.0258, 0.0229, 0.0210, 0.0211, 0.0207, 0.0228, 0.0228]
+  },
+  "expected": {
+    "rmse_bps_max": 10.0,
+    "fitted_10Y_approx": 0.0207,
+    "fitted_5Y_approx": 0.0210,
+    "fitted_2Y_approx": 0.0258,
+    "confidence_min": 0.80
+  },
+  "tolerance": {
+    "fitted_bps": 5.0,
+    "note_rmse": "rmse_bps_max=10 covers the Svensson residual on a 10-tenor Bund curve; HIGH_RMSE flag triggers >15 bps (Tier 1 per spec §6). The spec §7 row 2 ±5 bps target applies to per-tenor cross-val (Bundesbank Svensson published), not optimiser residual."
+  }
+}

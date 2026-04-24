@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "fixture_id": "forward_5y5y_us_2024_01_02",
+    "source": "Derived from us_2024_01_02 nominal Treasury fit (Sprint 2 spec §7 row 8)",
+    "unit_convention": "decimal (per units.md §Yields)",
+    "note": "Nominal 5y5y forward computed from us_2024_01_02 spot → zero → forward. Spec §7 row 8 reference to FRED T5YIFR is a spec gloss — T5YIFR is the inflation 5y5y; this fixture exercises the nominal 5y5y forward derivation."
+  },
+  "expected": {
+    "forward_5y5y_approx": 0.0400,
+    "note_spec_deviation": "Spec §7 row 8 target 0.0385 is genuinely stale. us_2024_01_02 inputs verified Sprint 2 (live FRED H.15 fetch) match the archive at 0.00 bps delta on all 11 DGS tenors — DGS5=3.93%, DGS10=3.95%, DGS30=4.08% are authentic 2024-01-02 closes. With par 10Y > par 5Y (upward-sloping at the long end), the (1+z10)^10/(1+z5)^5 forward derivation lands ≈ 0.0401 — a 5y5y nominal forward of 3.85% would require an inverted 5Y-10Y segment, which 2024-01-02 did not have. Spec §7 row 8 also references 'matches FRED T5YIFR' which is a category error: T5YIFR is the 5y5y INFLATION expectation (~2.3% in early 2024), not the nominal forward. Sprint 2 calibrates against the actual derivation; recommend opening CAL-SPEC-REFRESH-NSS-FORWARD-5Y5Y to update spec §7 row 8."
+  },
+  "tolerance": {
+    "forward_bps": 10.0
+  }
+}

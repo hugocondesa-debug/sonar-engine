@@ -173,11 +173,20 @@ class ForwardCurve:
 
 @dataclass(frozen=True, slots=True)
 class RealCurve:
-    """Per spec §3 / §8 yield_curves_real. ``real_yields`` dict values decimal."""
+    """Per spec §3 / §8 yield_curves_real. ``real_yields`` dict values decimal.
+
+    ``confidence`` and ``flags`` are real-row-specific (Sprint 2). ``None``
+    on confidence means the persistence layer should inherit the parent
+    spot row's confidence; an empty ``flags`` tuple has the same effect
+    on the flags column. Pre-Sprint 2 callers (``derive_real_curve``)
+    leave both at default and the legacy "mirror spot" behaviour holds.
+    """
 
     real_yields: dict[str, float]
     method: RealCurveMethod
     linker_connector: str | None
+    confidence: float | None = None
+    flags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
