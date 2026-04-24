@@ -719,3 +719,118 @@ def test_classifier_bei_us_regression_unchanged(session: Session) -> None:
     assert "M3_FULL_LIVE" in flags
     assert M3_EXPINF_FROM_BEI_FLAG not in flags
     assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.3 — JP Tankan + CA CES classifier cohort
+# ---------------------------------------------------------------------------
+
+
+def test_classifier_jp_tankan_survey_uplifts_to_full(session: Session) -> None:
+    """Sprint Q.3: JP survey row (BOJ_TANKAN) uplifts JP from DEGRADED to FULL.
+
+    JP sits in :data:`M3_T1_DEGRADED_EXPECTED` (linker-sparsity cohort)
+    so the sparsity reason flag is emitted alongside the survey uplift
+    — same observability pattern as Sprint Q.1 for IT/ES.
+    """
+    _seed_forwards(session, country="JP")
+    session.add(
+        ExpInflationSurveyRow(
+            exp_inf_id="JP-tankan-anchor",
+            country_code="JP",
+            date=ANCHOR,
+            methodology_version="EXPINF_SURVEY_v1.0",
+            confidence=1.0,
+            flags="TANKAN_LT_AS_ANCHOR",
+            survey_name="BOJ_TANKAN",
+            survey_release_date=ANCHOR,
+            horizons_json=json.dumps({"1Y": 0.026, "3Y": 0.025, "5Y": 0.025}),
+            interpolated_tenors_json=json.dumps(
+                {
+                    "5y5y": 0.025,
+                    "10Y": 0.025,
+                    "5Y": 0.025,
+                    "2Y": 0.0255,
+                    "1Y": 0.026,
+                    "3Y": 0.025,
+                    "30Y": 0.025,
+                }
+            ),
+        )
+    )
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "JP", ANCHOR)
+    assert mode == "FULL"
+    assert "JP_M3_T1_TIER" in flags
+    assert "JP_M3_BEI_LINKER_THIN_EXPECTED" in flags
+    assert "TANKAN_LT_AS_ANCHOR" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+    assert "M3_FULL_LIVE" in flags
+
+
+def test_classifier_ca_ces_survey_uplifts_to_full(session: Session) -> None:
+    """Sprint Q.3: CA survey row (BOC_CES) uplifts CA from DEGRADED to FULL.
+
+    CA's RRB-sparsity reason flag remains emitted alongside the survey
+    uplift.
+    """
+    _seed_forwards(session, country="CA")
+    session.add(
+        ExpInflationSurveyRow(
+            exp_inf_id="CA-ces-anchor",
+            country_code="CA",
+            date=ANCHOR,
+            methodology_version="EXPINF_SURVEY_v1.0",
+            confidence=1.0,
+            flags="CES_LT_AS_ANCHOR",
+            survey_name="BOC_CES",
+            survey_release_date=ANCHOR,
+            horizons_json=json.dumps({"1Y": 0.040, "2Y": 0.034, "5Y": 0.030}),
+            interpolated_tenors_json=json.dumps(
+                {
+                    "5y5y": 0.030,
+                    "10Y": 0.030,
+                    "5Y": 0.030,
+                    "2Y": 0.034,
+                    "1Y": 0.040,
+                    "3Y": 0.032,
+                    "30Y": 0.030,
+                }
+            ),
+        )
+    )
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "CA", ANCHOR)
+    assert mode == "FULL"
+    assert "CA_M3_T1_TIER" in flags
+    assert "CA_M3_BEI_RRB_LIMITED_EXPECTED" in flags
+    assert "CES_LT_AS_ANCHOR" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+    assert "M3_FULL_LIVE" in flags
+
+
+def test_classifier_jp_no_survey_still_degraded(session: Session) -> None:
+    """Sprint Q.3 regression: JP without survey row → DEGRADED (pre-Q.3 baseline)."""
+    _seed_forwards(session, country="JP")
+    session.commit()
+    mode, flags = classify_m3_compute_mode(session, "JP", ANCHOR)
+    assert mode == "DEGRADED"
+    assert "JP_M3_T1_TIER" in flags
+    assert "JP_M3_BEI_LINKER_THIN_EXPECTED" in flags
+    assert "M3_EXPINF_MISSING" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_ea_survey_uplift_unchanged_by_q3_additions(session: Session) -> None:
+    """Sprint Q.3 regression: EA SPF survey path unchanged — no TANKAN/CES flag bleed."""
+    _seed_forwards(session, country="EA")
+    _seed_survey(session, country="EA", flags="SPF_LT_AS_ANCHOR")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "EA", ANCHOR)
+    assert mode == "FULL"
+    assert "SPF_LT_AS_ANCHOR" in flags
+    assert "TANKAN_LT_AS_ANCHOR" not in flags
+    assert "CES_LT_AS_ANCHOR" not in flags

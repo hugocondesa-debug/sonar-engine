@@ -980,3 +980,91 @@ def test_persist_bei_row_rejects_empty_tenors(session: Session) -> None:
             linker_connector="BOE_GLC_INFLATION",
             methodology_version="EXPINF_BEI_v1.0",
         )
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.3 — JP (BOJ_TANKAN) + CA (BOC_CES) survey cohort extension
+# ---------------------------------------------------------------------------
+
+
+def test_q3_jp_tankan_survey_row_uplifts_to_full(session: Session) -> None:
+    """Sprint Q.3: JP Tankan row is picked up by the same survey cascade.
+
+    The M3 builder filters ``exp_inflation_survey`` by ``country_code``
+    only (no ``survey_name`` hardcoding). Seeding a row with
+    ``survey_name='BOJ_TANKAN'`` and the Tankan-style ``TANKAN_LT_AS_ANCHOR``
+    flag must produce an M3Inputs bundle with ``M3_EXPINF_FROM_SURVEY``
+    flag propagated — same code path as Sprint Q.1 EA / DE / PT survey
+    uplift.
+    """
+    _forwards_with_spot(session, ANCHOR, country="JP")
+    session.add(
+        _survey_row(
+            ANCHOR,
+            country="JP",
+            be_5y5y=0.025,
+            flags="TANKAN_LT_AS_ANCHOR",
+            survey_name="BOJ_TANKAN",
+        )
+    )
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "JP", ANCHOR)
+    assert out is not None
+    assert out.breakeven_5y5y_bps == pytest.approx(250.0)
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+    assert "TANKAN_LT_AS_ANCHOR" in out.expinf_flags
+    assert "SPF_LT_AS_ANCHOR" not in out.expinf_flags
+
+
+def test_q3_ca_ces_survey_row_uplifts_to_full(session: Session) -> None:
+    """Sprint Q.3: CA CES row lands on the same survey path."""
+    _forwards_with_spot(session, ANCHOR, country="CA")
+    session.add(
+        _survey_row(
+            ANCHOR,
+            country="CA",
+            be_5y5y=0.030,
+            flags="CES_LT_AS_ANCHOR",
+            survey_name="BOC_CES",
+        )
+    )
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "CA", ANCHOR)
+    assert out is not None
+    assert out.breakeven_5y5y_bps == pytest.approx(300.0)
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+    assert "CES_LT_AS_ANCHOR" in out.expinf_flags
+
+
+def test_q3_survey_path_distinct_country_rows_isolated(session: Session) -> None:
+    """Sprint Q.3: JP Tankan + CA CES seeded together don't cross-contaminate."""
+    _forwards_with_spot(session, ANCHOR, country="JP")
+    _forwards_with_spot(session, ANCHOR, country="CA", fit_suffix="b")
+    session.add(
+        _survey_row(
+            ANCHOR,
+            country="JP",
+            be_5y5y=0.025,
+            flags="TANKAN_LT_AS_ANCHOR",
+            survey_name="BOJ_TANKAN",
+        )
+    )
+    session.add(
+        _survey_row(
+            ANCHOR, country="CA", be_5y5y=0.030, flags="CES_LT_AS_ANCHOR", survey_name="BOC_CES"
+        )
+    )
+    session.commit()
+
+    jp = build_m3_inputs_from_db(session, "JP", ANCHOR)
+    ca = build_m3_inputs_from_db(session, "CA", ANCHOR)
+    assert jp is not None
+    assert ca is not None
+    assert jp.breakeven_5y5y_bps == pytest.approx(250.0)
+    assert ca.breakeven_5y5y_bps == pytest.approx(300.0)
+    assert "TANKAN_LT_AS_ANCHOR" in jp.expinf_flags
+    assert "CES_LT_AS_ANCHOR" in ca.expinf_flags
+    assert "CES_LT_AS_ANCHOR" not in jp.expinf_flags
+    assert "TANKAN_LT_AS_ANCHOR" not in ca.expinf_flags

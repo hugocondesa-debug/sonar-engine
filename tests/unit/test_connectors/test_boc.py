@@ -25,10 +25,15 @@ from tenacity import wait_none
 
 from sonar.connectors.base import Observation
 from sonar.connectors.boc import (
+    BOC_CES_LONG_TERM,
+    BOC_CES_MID_TERM,
+    BOC_CES_SERIES_BY_HORIZON,
+    BOC_CES_SHORT_TERM,
     BOC_GOC_10Y,
     BOC_OVERNIGHT_TARGET,
     BOC_VALET_BASE_URL,
     BoCConnector,
+    CESInflationExpectation,
 )
 from sonar.overlays.exceptions import DataUnavailableError
 
@@ -291,3 +296,171 @@ async def test_live_canary_boc_goc_10y(tmp_path: Path) -> None:
 def test_no_env_key_required_for_boc() -> None:
     """Valet API is keyless — ``BOC_API_KEY`` / similar env must not exist."""
     assert "BOC_API_KEY" not in os.environ
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.3 — CES (Canadian Survey of Consumer Expectations) inflation
+# expectations fetcher. Exercises happy-path, partial-horizon tolerance,
+# and full-miss surface.
+# ---------------------------------------------------------------------------
+
+
+class TestBoCConnectorFetchCesInflation:
+    @pytest.mark.asyncio
+    async def test_happy_path_collates_three_horizons(
+        self, httpx_mock: HTTPXMock, boc_connector: BoCConnector
+    ) -> None:
+        """Three Valet series stitch together into one release per quarter."""
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_SHORT_TERM}"
+                "?start_date=2025-01-01&end_date=2026-04-24"
+            ),
+            json={
+                "observations": [
+                    {"d": "2025-10-01", BOC_CES_SHORT_TERM: {"v": "4.10"}},
+                    {"d": "2026-01-01", BOC_CES_SHORT_TERM: {"v": "3.98"}},
+                ]
+            },
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_MID_TERM}"
+                "?start_date=2025-01-01&end_date=2026-04-24"
+            ),
+            json={
+                "observations": [
+                    {"d": "2025-10-01", BOC_CES_MID_TERM: {"v": "3.50"}},
+                    {"d": "2026-01-01", BOC_CES_MID_TERM: {"v": "3.40"}},
+                ]
+            },
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_LONG_TERM}"
+                "?start_date=2025-01-01&end_date=2026-04-24"
+            ),
+            json={
+                "observations": [
+                    {"d": "2025-10-01", BOC_CES_LONG_TERM: {"v": "3.00"}},
+                    {"d": "2026-01-01", BOC_CES_LONG_TERM: {"v": "3.02"}},
+                ]
+            },
+        )
+        try:
+            out = await boc_connector.fetch_ces_inflation_expectations(
+                date(2025, 1, 1), date(2026, 4, 24)
+            )
+            assert len(out) == 2
+            assert all(isinstance(r, CESInflationExpectation) for r in out)
+            assert out[0].release_date == date(2025, 10, 1)
+            assert out[0].horizons_pct == {"1Y": 4.10, "2Y": 3.50, "5Y": 3.00}
+            assert out[1].release_date == date(2026, 1, 1)
+            assert out[1].horizons_pct == {"1Y": 3.98, "2Y": 3.40, "5Y": 3.02}
+        finally:
+            await boc_connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_partial_horizon_miss_preserves_other_series(
+        self, httpx_mock: HTTPXMock, boc_connector: BoCConnector
+    ) -> None:
+        """One 404 leg still produces a release with the other two horizons."""
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_SHORT_TERM}"
+                "?start_date=2026-01-01&end_date=2026-04-24"
+            ),
+            json={
+                "observations": [
+                    {"d": "2026-01-01", BOC_CES_SHORT_TERM: {"v": "3.98"}},
+                ]
+            },
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_MID_TERM}"
+                "?start_date=2026-01-01&end_date=2026-04-24"
+            ),
+            status_code=404,
+            is_reusable=True,
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=(
+                f"https://www.bankofcanada.ca/valet/observations/{BOC_CES_LONG_TERM}"
+                "?start_date=2026-01-01&end_date=2026-04-24"
+            ),
+            json={
+                "observations": [
+                    {"d": "2026-01-01", BOC_CES_LONG_TERM: {"v": "3.02"}},
+                ]
+            },
+        )
+        try:
+            out = await boc_connector.fetch_ces_inflation_expectations(
+                date(2026, 1, 1), date(2026, 4, 24)
+            )
+            assert len(out) == 1
+            assert out[0].horizons_pct == {"1Y": 3.98, "5Y": 3.02}
+            assert "2Y" not in out[0].horizons_pct
+        finally:
+            await boc_connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_all_series_fail_raises(
+        self, httpx_mock: HTTPXMock, boc_connector: BoCConnector
+    ) -> None:
+        """All three horizons 404 → DataUnavailableError aggregates misses."""
+        httpx_mock.add_response(method="GET", status_code=404, is_reusable=True)
+        try:
+            with pytest.raises(DataUnavailableError, match="no usable observations"):
+                await boc_connector.fetch_ces_inflation_expectations(
+                    date(2026, 1, 1), date(2026, 4, 24)
+                )
+        finally:
+            await boc_connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_cache_round_trip(
+        self, httpx_mock: HTTPXMock, boc_connector: BoCConnector
+    ) -> None:
+        for series in (BOC_CES_SHORT_TERM, BOC_CES_MID_TERM, BOC_CES_LONG_TERM):
+            httpx_mock.add_response(
+                method="GET",
+                url=(
+                    f"https://www.bankofcanada.ca/valet/observations/{series}"
+                    "?start_date=2026-01-01&end_date=2026-04-24"
+                ),
+                json={"observations": [{"d": "2026-01-01", series: {"v": "3.0"}}]},
+            )
+        try:
+            first = await boc_connector.fetch_ces_inflation_expectations(
+                date(2026, 1, 1), date(2026, 4, 24)
+            )
+            second = await boc_connector.fetch_ces_inflation_expectations(
+                date(2026, 1, 1), date(2026, 4, 24)
+            )
+            assert len(first) == 1
+            assert first[0].horizons_pct == second[0].horizons_pct
+            # First call → 3 HTTP hits (one per series). Cache short-circuits
+            # the second call entirely.
+            assert len(httpx_mock.get_requests()) == 3
+        finally:
+            await boc_connector.aclose()
+
+
+def test_ces_series_catalogue_stable() -> None:
+    """Regression guard — CES series codes for Sprint Q.3 survey path."""
+    assert BOC_CES_SHORT_TERM == "CES_C1_SHORT_TERM"
+    assert BOC_CES_MID_TERM == "CES_C1_MID_TERM"
+    assert BOC_CES_LONG_TERM == "CES_C1_LONG_TERM"
+    assert BOC_CES_SERIES_BY_HORIZON == {
+        "1Y": BOC_CES_SHORT_TERM,
+        "2Y": BOC_CES_MID_TERM,
+        "5Y": BOC_CES_LONG_TERM,
+    }
