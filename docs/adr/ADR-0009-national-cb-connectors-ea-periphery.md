@@ -775,6 +775,136 @@ países (sem borderline 5-tenor ambíguo; gap 8↔3 tenors limpo). A
 correctness do classifier é confirmada; a hipótese geográfica
 subjacente (sparse-T1 ⊃ S1 probability) é refutada.
 
+## Addendum Sprint T-Retry (2026-04-24) — multi-prefix Path 1 re-sweep NZ/CH/SE/NO/DK; codificação v2.3
+
+Sprint T-Retry (Week 11 Day 1) executou multi-prefix + multi-suffix +
+`/markets/bond`-authoritative re-sweep para os 5 países S2 HALT-0 de
+Sprint T. Objectivo: fechar os 3 methodology gaps flagged por Sprint T
+§9 (pattern library v2.3 candidatos). Orçamento ~1450 calls TE
+(~700-800 API-paid após cached zero-response filtering).
+
+### Resultado empírico Sprint T-Retry (2026-04-24)
+
+| Country | Sprint T tenors | Sprint T-Retry tenors | Delta | S1 upgrade? | Decisão |
+|---|---|---|---|---|---|
+| NZ | 3 (1Y, 2Y, 10Y) | 5 (3M, 6M, 1Y, 2Y, 10Y) | +2 (short-end) | ❌ | S2 HALT-0 re-confirmado |
+| CH | 2 (2Y, 10Y) | 2 (2Y, 10Y) | 0 | ❌ | S2 HALT-0 re-confirmado |
+| SE | 2 (2Y, 10Y) | 2 (2Y, 10Y) | 0 | ❌ | S2 HALT-0 re-confirmado |
+| NO | 3 (6M, 52W, 10Y) | 3 (6M, 52W, 10Y) | 0 | ❌ | S2 HALT-0 re-confirmado |
+| DK | 2 (2Y, 10Y) | 2 (2Y, 10Y) | 0 | ❌ | S2 HALT-0 re-confirmado |
+
+S1 upgrade rate: **0/5 = 0 %** (alinhado com brief worst-case). NZ ganha 2
+tenors short-end (3M + 6M) descobertos via `/markets/bond` (não listados em
+nenhuma query variant `/search`), mas permanece S2 — 5 < 6 threshold e
+ausência estrutural de mid-tenors (3Y / 5Y / 7Y) bloqueia NSS regardless.
+
+### Pattern library v2.3 — codificação formal
+
+Sprint T flagged três amendments candidatos. Sprint T-Retry valida e
+codifica formalmente:
+
+**v2.3.1 — `/markets/bond` é a autoridade canónica sobre `/search`**
+
+Antes (v2.2): cascade abria em `/search/<country>%20government%20bond` +
+per-tenor sweep. Sprint T Discovery #1 flagged: `GNZGB1:IND` não aparecia
+em `/search` apesar de daily-live (531 obs).
+
+Sprint T-Retry generaliza: **NZ expõe 5 symbols em `/markets/bond` filtered
+by Country="New Zealand" (`GNZGB10:IND`, `GNZGB2:GOV`, `GNZGB1:IND`,
+`GNZGB3M:IND`, `GNZGB6M:IND`); apenas 3 survivem `/search` em qualquer
+query variant** ("government bond", "sovereign yield", "treasury", "bond",
+"yield"). O gap é sistemático nos short-tenors short-bond (3M + 6M).
+
+v2.3 canonical cascade:
+
+1. **`/markets/bond?c=<key>&format=json`** → filter `.[] | select(.Country == "<C>")`
+   — autoridade final sobre TE bond universe per country.
+2. `/search/<C>%20{bond|yield|treasury|sovereign}` — secundário, name-matching
+   high-recall mas não exhaustivo (short-tenor gap documentado).
+3. Per-tenor `/markets/historical/<symbol>?d1=...&d2=...` sweep para cross-check
+   + catch de símbolos hosted mas omitted de ambos `/markets/bond` + `/search`
+   (edge-case; não observado empiricamente em NZ/CH/SE/NO/DK).
+
+**v2.3.2 — Multi-prefix families codificado como canonical, não excepção**
+
+Sprint T Discovery #2 (NO: GNOR + NORYIELD) já documentava possibilidade.
+Sprint T-Retry confirma: NO é a única multi-prefix observada no ledger
+actual (11+5=16 countries probed post-Retry), mas a regra aplica-se
+universalmente. Probe discipline MUST:
+
+1. Enumerar **todos** os prefixos observed em `/markets/bond` filter per
+   country (qualquer `<Ticker>` único é um prefix candidate).
+2. Sweep cada `(prefix, tenor, suffix)` tuple no grid 31 tenor × 3 suffix.
+3. Early-exit permitido sobre prefix candidates com zero `/markets/bond`
+   presence (Sprint T-Retry observou NOGB / NOKGB / GCHF / GSEK / GDKK
+   zero-hit across all tenor/suffix combos — expected empty).
+
+**v2.3.3 — ISO 4217 currency code ≠ TE prefix (falsificada empiricamente)**
+
+Brief Sprint T-Retry §2.1.2 enumerou `GCHF` (CHF), `GSEK` (SEK), `GDKK`
+(DKK) como prefix candidates (tentative, per CC brief). Sprint T-Retry
+empiricamente **falsificou**:
+
+- CH → `GSWISS` (não `GCHF`) — Bloomberg-style security-master convention
+- SE → `GSGB` (não `GSEK`) — idem
+- DK → `GDGB` (não `GDKK`) — idem
+- NZ → `GNZGB` — country-based (ISO 2L), não currency
+- NO → `GNOR` + `NORYIELD` — country-based + instrument-type specific
+
+Regra codificada: **default prefix probe sequence é
+`G<country-2L> / G<country-3L> / G<country-equity-ticker>`, nunca ISO
+4217 currency code**. Currency-code prefixes zero-hit em probe matrix
+Sprint T-Retry (confirmado falsificação).
+
+### Ledger v2 actualizado ao fecho Sprint T-Retry
+
+**Inversões TE Path 1 (Sprint H/I/M/T)**: IT + ES + FR + PT + AU → **5**
+(unchanged; Sprint T-Retry não adicionou inversões).
+
+**Não-inversões S2 HALT-0 (Path 2 warranted)**: NL (Sprint M) + NZ + CH +
+SE + NO + DK (**Sprint T confirmed, Sprint T-Retry re-confirmed**) →
+**6 não-inversões** (também unchanged).
+
+Ledger ratio pós-Retry: 5 inversões : 6 não-inversões. S2 cohort
+consolidado e justificado empiricamente via multi-prefix discipline —
+Week 11+ Path 2 cohort sprint opera com confiança alta de que não há
+Path 1 false-negatives pendentes.
+
+### Structural signal — mid-tenor gap é universal nas 5 sparse residuals
+
+Observação pattern-library adicional, não codificada como regra mas
+documentada:
+
+Todos os 5 países Sprint T-Retry têm a mesma shape: **≤2 short + 0 mid +
+1 long** (CH/SE/DK: 2Y + 10Y; NZ: 3M + 6M + 1Y + 2Y + 10Y; NO: 6M + 52W
++ 10Y). **Nenhum dos 5 tem qualquer mid-tenor (3Y / 5Y / 7Y) em TE.**
+
+Implicação Phase 2+: o driver de TE mid-tenor coverage é offshore
+real-money presence (Bloomberg / Reuters primary-market desk activity),
+não sovereign-market AUM. AU clears o limiar (ACGB actively followed
+offshore); CHF / SEK / NOK / DKK / NZD trade primariamente via local
+dealers. Path 2 (national-CB direct) é a única route para mid-tenor
+density nesses mercados.
+
+### Follow-ups (Sprint T-Retry addendum)
+
+1. **Path 2 cohort sprint Week 11+** empiricamente justificado para os 5
+   residuals. Sprint T-Retry confirma zero Path 1 false-negatives → cohort
+   pode operar com priorização definida (CH primeiro se SNB Svensson publish
+   direct; restantes per-country).
+2. **Pattern library v2.3 shipped** (este addendum) — v2.3.1 + v2.3.2 +
+   v2.3.3 codificadas como canonical, não mais "candidates".
+3. **`CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2`** recebem Sprint T-Retry
+   confirmation stamp em `docs/backlog/calibration-tasks.md` (C6 commit
+   complementar).
+
+### Post-Sprint T-Retry coverage state
+
+**T1 curves coverage 11/16** (unchanged vs. post-Sprint-T: US/DE/EA/GB/JP/CA +
+IT/ES/FR/PT + AU). Zero T1 delta. Value shipped: methodology gap closed +
+pattern library v2.3 formalmente codificada + Path 2 cohort sprint
+empiricamente unblocked.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback
@@ -815,6 +945,17 @@ subjacente (sparse-T1 ⊃ S1 probability) é refutada.
   — Sprint T retro (closes AU-PATH-2 via Path 1 canonical; opens 5
   per-country `CAL-CURVES-{NZ,CH,SE,NO,DK}-PATH-2`; documents
   hypothesis bias against sparse-T1 TE coverage priors).
+- `docs/planning/week11-sprint-t-retry-multi-prefix-probe-nz-ch-se-no-dk-brief.md`
+  — Sprint T-Retry brief (v3.3 format; multi-prefix Path 1 re-sweep
+  + v2.3 codification mandate).
+- `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` —
+  Sprint T-Retry raw multi-prefix × tenor × suffix sweep matrix +
+  `/markets/bond` authoritative listing cross-validation for NZ/CH/SE/NO/DK
+  (2026-04-24); 0 S1 upgrades + 5 S2 HALT-0 re-confirmed.
+- `docs/planning/retrospectives/week11-sprint-t-retry-multi-prefix-probe-report.md`
+  — Sprint T-Retry retro (codifies pattern library v2.3: `/markets/bond`
+  authoritative, multi-prefix canonical, ISO-currency-code falsified;
+  closes Sprint T methodology gap; unblocks Week 11+ Path 2 cohort sprint).
 - `docs/planning/retrospectives/week10-sprint-ea-periphery-report.md`
   — Sprint A precedent (ECB SDW periphery HALT).
 - `docs/planning/retrospectives/week10-sprint-cal138-report.md` —
