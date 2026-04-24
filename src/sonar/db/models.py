@@ -1029,6 +1029,109 @@ class ExpInflationSurveyRow(Base):
     )
 
 
+class ExpInflationSwapRow(Base):
+    """Row per migration ``004_exp_inflation_schema`` — zero-coupon inflation
+    swap rate observation. Sprint 1 first writer: ECB SDW swap tape for EA
+    (Bloomberg / FRED legs deferred). One row per
+    ``(country_code, date, methodology_version)``; swap rates persisted as
+    JSON per-tenor (``{"1Y": 0.022, "5Y": 0.021, "10Y": 0.0225, "5y5y": 0.0240}``).
+    """
+
+    __tablename__ = "exp_inflation_swap"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    exp_inf_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+    swap_rates_json: Mapped[str] = mapped_column(Text, nullable=False)
+    swap_provider: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_exp_swap_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_exp_swap_cdm"),
+        Index("idx_exp_swap_cd", "country_code", "date"),
+    )
+
+
+class ExpInflationDerivedRow(Base):
+    """Row per migration ``004_exp_inflation_schema`` — synthesized expected-
+    inflation term structure via regional aggregate + country-specific
+    differential (spec §4 DERIVED path). Sprint 1 scope: Portugal via EA
+    aggregate + PT-EA HICP 5y rolling differential; other periphery linkers
+    (ES thin, etc.) deferred.
+    """
+
+    __tablename__ = "exp_inflation_derived"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    exp_inf_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+    regional_bei_json: Mapped[str] = mapped_column(Text, nullable=False)
+    regional_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    differential_pp: Mapped[float] = mapped_column(Float, nullable=False)
+    differential_window_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    differential_computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    derived_tenors_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_exp_derived_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_exp_derived_cdm"),
+        Index("idx_exp_derived_cd", "country_code", "date"),
+    )
+
+
+class ExpInflationCanonicalRow(Base):
+    """Row per migration ``004_exp_inflation_schema`` — canonical per-tenor
+    best-of selection across the BEI / SWAP / DERIVED / SURVEY method rows
+    (spec §4 step 8). Exposes the ``expected_inflation_tenors_json`` term
+    structure consumed downstream by NSS derived real curves (overlay),
+    CRP forwards (overlay), M3 (monetary index), MSC (monetary cycle) and
+    cost-of-capital (integration).
+    """
+
+    __tablename__ = "exp_inflation_canonical"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    exp_inf_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_inflation_tenors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_method_per_tenor_json: Mapped[str] = mapped_column(Text, nullable=False)
+    methods_available: Mapped[int] = mapped_column(Integer, nullable=False)
+    bc_target_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    anchor_deviation_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    bei_vs_survey_divergence_bps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("methods_available BETWEEN 1 AND 4", name="ck_exp_canonical_methods"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_exp_canonical_confidence"),
+        UniqueConstraint(
+            "country_code", "date", "methodology_version", name="uq_exp_canonical_cdm"
+        ),
+        Index("idx_exp_canonical_cd", "country_code", "date"),
+    )
+
+
 class M1EffectiveRatesResult(Base):
     """Row per spec ``M1-effective-rates.md`` §8 — monetary effective rates index."""
 

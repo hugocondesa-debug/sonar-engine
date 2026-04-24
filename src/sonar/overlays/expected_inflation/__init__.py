@@ -1,15 +1,20 @@
-"""Expected-inflation overlay (L2) — Week 3 US v0.1.
+"""Expected-inflation overlay (L2) — Week 3 US v0.1 → Week 11 Sprint 1.
 
 Spec: docs/specs/overlays/expected-inflation.md
 Methodology versions:
   - BEI:        ``EXP_INF_BEI_v0.1``
-  - SWAP:       ``EXP_INF_SWAP_v0.1`` (not implemented Week 3)
-  - DERIVED:    ``EXP_INF_DERIVED_v0.1`` (not implemented Week 3)
+  - SWAP:       ``EXP_INF_SWAP_v0.1``
+  - DERIVED:    ``EXP_INF_DERIVED_v0.1``
   - SURVEY:     ``EXP_INF_SURVEY_v0.1``
   - CANONICAL:  ``EXP_INF_CANONICAL_v0.1``
 
-Week 3 scope: US BEI + SURVEY paths only. EA + DE/PT DERIVED paths
-deferred to Week 4 sprint (CAL-043).
+Week 11 Sprint 1 completes the 5-table hierarchy: canonical composer
++ persistence + SWAP + DERIVED writers. Sub-modules:
+
+* :mod:`.swap` — SWAP method (``EA`` writer Sprint 1).
+* :mod:`.derived` — DERIVED method (``PT`` EA-aggregate + diff).
+* :mod:`.canonical` — hierarchy pick + anchor + persistence.
+* :mod:`.backfill` — 10 T1 countries x 60 recent bd orchestrator.
 
 Storage convention per units.md §Yields: all rates decimal (0.0245 =
 2.45%). Anchor deviation stored in bps for editorial / display.
@@ -17,9 +22,8 @@ Storage convention per units.md §Yields: all rates decimal (0.0245 =
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
-from uuid import uuid4
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import date as date_type
@@ -29,7 +33,9 @@ __all__ = [
     "ANCHOR_BANDS_BPS",
     "METHODOLOGY_VERSION_BEI",
     "METHODOLOGY_VERSION_CANONICAL",
+    "METHODOLOGY_VERSION_DERIVED",
     "METHODOLOGY_VERSION_SURVEY",
+    "MIN_CONFIDENCE_NOMINAL",
     "STANDARD_TENORS",
     "ExpInfBEI",
     "ExpInfCanonical",
@@ -59,8 +65,6 @@ ANCHOR_BANDS_BPS: dict[str, int] = {
 }
 
 MIN_CONFIDENCE_NOMINAL: float = 0.50
-HierarchyMethod = Literal["BEI", "SWAP", "DERIVED", "SURVEY"]
-HIERARCHY: tuple[HierarchyMethod, ...] = ("BEI", "SWAP", "DERIVED", "SURVEY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,24 +94,6 @@ class ExpInfSurvey:
     interpolated_tenors: dict[str, float]
     confidence: float
     flags: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ExpInfCanonical:
-    """Canonical per-tenor selection across methods."""
-
-    exp_inf_id: UUID
-    country_code: str
-    observation_date: date_type
-    expected_inflation_tenors: dict[str, float]
-    source_method_per_tenor: dict[str, HierarchyMethod]
-    methods_available: int
-    bc_target_pct: float | None
-    anchor_deviation_bps: int | None
-    anchor_status: str | None
-    bei_vs_survey_divergence_bps: int | None
-    confidence: float
-    flags: tuple[str, ...] = field(default_factory=tuple)
 
 
 def compute_bei_from_yields(
@@ -271,105 +257,14 @@ def anchor_status(deviation_bps_abs: int) -> str:
     return "unanchored"
 
 
-def _hierarchy_pick(
-    tenor: str,
-    method_rows: dict[HierarchyMethod, dict[str, float]],
-    min_confidence: dict[HierarchyMethod, float],
-) -> tuple[HierarchyMethod | None, float | None]:
-    for method in HIERARCHY:
-        rates = method_rows.get(method)
-        if rates is None:
-            continue
-        if tenor not in rates:
-            continue
-        if min_confidence.get(method, 0.0) < MIN_CONFIDENCE_NOMINAL:
-            continue
-        return method, rates[tenor]
-    return None, None
-
-
-def build_canonical(  # noqa: PLR0912 — Sprint Q.1 added flag propagation branch; method is a canonical composer, branches are inherent not refactor-bait
-    *,
-    country_code: str,
-    observation_date: date_type,
-    bei: ExpInfBEI | None = None,
-    survey: ExpInfSurvey | None = None,
-    bc_target_pct: float | None = None,
-) -> ExpInfCanonical:
-    """Hierarchy picker (BEI > SURVEY for Week 3 US) + anchor computation."""
-    method_rows: dict[HierarchyMethod, dict[str, float]] = {}
-    confidences: dict[HierarchyMethod, float] = {}
-    if bei is not None:
-        method_rows["BEI"] = bei.bei_tenors
-        confidences["BEI"] = bei.confidence
-    if survey is not None:
-        method_rows["SURVEY"] = survey.interpolated_tenors
-        confidences["SURVEY"] = survey.confidence
-
-    expected_tenors: dict[str, float] = {}
-    sources: dict[str, HierarchyMethod] = {}
-    flags: list[str] = []
-
-    for tenor in STANDARD_TENORS:
-        method, value = _hierarchy_pick(tenor, method_rows, confidences)
-        if method is None or value is None:
-            continue
-        expected_tenors[tenor] = value
-        sources[tenor] = method
-
-    methods_available = len(method_rows)
-
-    # Anchor computation requires 5y5y forward.
-    deviation_bps: int | None = None
-    status: str | None = None
-    if bc_target_pct is not None and "5y5y" in expected_tenors:
-        deviation = expected_tenors["5y5y"] - bc_target_pct
-        deviation_bps = round(deviation * 10_000.0)
-        status = anchor_status(abs(deviation_bps))
-    else:
-        flags.append("ANCHOR_UNCOMPUTABLE")
-
-    # Propagate method-level transparency flags (Sprint Q.1 added
-    # ``SPF_LT_AS_ANCHOR`` + ``SPF_AREA_PROXY`` on the EA survey leg so
-    # the M3 classifier + analysts can see which horizon proxy + which
-    # geographic proxy is in play). Keeps canonical.flags the single
-    # truth-surface for downstream consumers.
-    for src in (bei, survey):
-        if src is None:
-            continue
-        for src_flag in src.flags:
-            if src_flag not in flags:
-                flags.append(src_flag)
-
-    bei_vs_survey: int | None = None
-    if bei is not None and survey is not None:
-        bei_10y = bei.bei_tenors.get("10Y")
-        survey_10y = survey.interpolated_tenors.get("10Y")
-        if bei_10y is not None and survey_10y is not None:
-            diff = abs(bei_10y - survey_10y)
-            bei_vs_survey = round(diff * 10_000.0)
-            if bei_vs_survey > 100:
-                flags.append("INFLATION_METHOD_DIVERGENCE")
-
-    base_confidence = max(confidences.values()) if confidences else 0.0
-    deduction = 0.0
-    if "INFLATION_METHOD_DIVERGENCE" in flags:
-        deduction += 0.10
-    if "ANCHOR_UNCOMPUTABLE" in flags:
-        deduction += 0.10
-    confidence_canonical = max(0.0, min(1.0, base_confidence - deduction))
-
-    return ExpInfCanonical(
-        exp_inf_id=uuid4(),
-        country_code=country_code,
-        observation_date=observation_date,
-        expected_inflation_tenors=expected_tenors,
-        source_method_per_tenor=sources,
-        methods_available=methods_available,
-        bc_target_pct=bc_target_pct,
-        anchor_deviation_bps=deviation_bps,
-        anchor_status=status,
-        bei_vs_survey_divergence_bps=bei_vs_survey,
-        confidence=confidence_canonical,
-        flags=tuple(flags),
-    )
+# Re-export from sub-module so ``from sonar.overlays.expected_inflation
+# import ExpInfCanonical, build_canonical`` continues to resolve (back-
+# compat with Week 3 caller surface) while the canonical composer +
+# persistence lives in :mod:`.canonical` per Sprint 1 split. Placed at
+# module tail so canonical.py's own imports of this package can read
+# :class:`ExpInfBEI` / :class:`ExpInfSurvey` without circular-import
+# error.
+from sonar.overlays.expected_inflation.canonical import (  # noqa: E402
+    ExpInfCanonical,
+    build_canonical,
+)
