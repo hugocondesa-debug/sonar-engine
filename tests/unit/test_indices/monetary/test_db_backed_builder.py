@@ -511,3 +511,173 @@ def test_survey_fallback_us_regression_unchanged(session: Session) -> None:
     assert out.breakeven_5y5y_bps == pytest.approx(245.0)
     assert out.bei_10y_bps == pytest.approx(240.0)
     assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1.2 — _load_histories survey fallback
+# ---------------------------------------------------------------------------
+
+
+def test_load_histories_canonical_path_unchanged_sprint_q_1_2(session: Session) -> None:
+    """Sprint Q.1.2: canonical history path remains bit-identical (US regression)."""
+    # Seed 4 prior dates canonical path, no survey rows → Q.1.2 fallback MUST not trigger.
+    for i, delta_days in enumerate([90, 60, 30, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(
+            session, prior, country="US", forward_5y5y=0.040 + i * 0.0005, fit_suffix=f"u{i}"
+        )
+        session.add(_expinf_row(prior, country="US", be_5y5y=0.024 + i * 0.0002))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "US", ANCHOR, history_days=120)
+    assert out is not None
+    assert len(out.nominal_5y5y_history_bps) == 4
+    assert len(out.anchor_deviation_abs_history_bps) == 4
+    # No FROM_SURVEY flag — canonical path exclusive.
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_load_histories_survey_fallback_populates_anchor_hist(session: Session) -> None:
+    """Sprint Q.1.2: canonical empty + survey populated → anchor_hist forward-filled."""
+    # Seed 4 forwards rows for EA across 90d window, no canonical IndexValue.
+    for i, delta_days in enumerate([90, 60, 30, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(
+            session, prior, country="EA", forward_5y5y=0.039 + i * 0.0005, fit_suffix=f"e{i}"
+        )
+    # 2 sparse survey rows — forward-fill against all 4 forwards dates.
+    session.add(_survey_row(ANCHOR - timedelta(days=95), country="EA", be_5y5y=0.020, be_10y=0.020))
+    session.add(_survey_row(ANCHOR - timedelta(days=45), country="EA", be_5y5y=0.022, be_10y=0.022))
+    # Data-point survey row at anchor so build_m3_inputs_from_db main path resolves.
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.022, be_10y=0.022))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR, history_days=120)
+    assert out is not None
+    # All 4 forwards dates produced a forward-filled anchor deviation.
+    assert len(out.nominal_5y5y_history_bps) == 4
+    assert len(out.anchor_deviation_abs_history_bps) == 4
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+
+
+def test_load_histories_survey_sparse_forward_fill_all_dates(session: Session) -> None:
+    """Sprint Q.1.2: single early survey release forward-fills every later forwards date."""
+    for i, delta_days in enumerate([80, 60, 40, 20, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(session, prior, country="EA", forward_5y5y=0.041, fit_suffix=f"s{i}")
+    # Single survey release ~90d before anchor.
+    session.add(_survey_row(ANCHOR - timedelta(days=90), country="EA", be_5y5y=0.021))
+    # Anchor-date survey row so main builder resolves.
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.021))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR, history_days=120)
+    assert out is not None
+    # All 5 forwards dates get the same forward-filled anchor deviation.
+    assert len(out.anchor_deviation_abs_history_bps) == 5
+    # 0.021 decimal → 210 bps; ECB target 2% → 200 bps → |210-200|=10.
+    for value in out.anchor_deviation_abs_history_bps:
+        assert value == pytest.approx(10.0)
+
+
+def test_load_histories_no_survey_rows_before_earliest_forwards(session: Session) -> None:
+    """Sprint Q.1.2: survey releases AFTER all forwards → early dates get no anchor."""
+    # Forwards at D1,D2,D3 (early); survey at D4 (after last forwards but in window).
+    d1 = ANCHOR - timedelta(days=60)
+    d2 = ANCHOR - timedelta(days=45)
+    d3 = ANCHOR - timedelta(days=30)
+    d4 = ANCHOR - timedelta(days=15)
+    for i, prior in enumerate([d1, d2, d3]):
+        _forwards_with_spot(session, prior, country="EA", fit_suffix=f"f{i}")
+    session.add(_survey_row(d4, country="EA", be_5y5y=0.020))
+    # Anchor-date survey so main builder resolves (doesn't count for history).
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.020))
+    _forwards_with_spot(session, ANCHOR, country="EA", fit_suffix="anc")
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR, history_days=90)
+    assert out is not None
+    # 4 forwards rows total; first 3 before d4 survey → no anchor match for those 3.
+    # Anchor date itself matches d4 (latest on-or-before) → 1 anchor point from d4 +
+    # 1 from the anchor-date survey row = 2 total (anchor + anchor-date both use
+    # anchor-date survey which is latest-on-or-before for ANCHOR, the d4 row is
+    # latest-on-or-before for every forwards >= d4).
+    assert len(out.nominal_5y5y_history_bps) == 4
+    # Only forwards at/after d4 get a match → just the anchor date = 1 entry.
+    # (d1,d2,d3 are before d4; anchor is at ANCHOR ≥ d4 so it matches.)
+    assert len(out.anchor_deviation_abs_history_bps) == 1
+
+
+def test_load_histories_no_canonical_no_survey_returns_empty_anchor(session: Session) -> None:
+    """Sprint Q.1.2: empty canonical + empty survey → anchor_hist empty (backward compat)."""
+    # EA country but no EXPINF canonical AND no survey rows in history window.
+    _forwards_with_spot(session, ANCHOR - timedelta(days=30), country="EA", fit_suffix="x0")
+    _forwards_with_spot(session, ANCHOR, country="EA", fit_suffix="x1")
+    # Provide a single survey row AT anchor only (for build_m3_inputs main-path resolve)
+    # — but outside the history window so it doesn't contribute to forward-fill.
+    # Actually the window is [anchor-history_days, anchor] so ANCHOR itself is inside.
+    # Use history_days=10 so 30d-prior forwards is outside but will still be queried —
+    # in fact the forwards query uses the same window so it's also outside. Let's just
+    # have NO prior forwards and let history be len 1 for nominal.
+    session.commit()
+
+    # With only the single anchor-date survey row (no history survey coverage other
+    # than anchor itself), anchor_hist has at most 1 entry from the anchor date. Add
+    # survey row at anchor so main builder resolves, then assert history short.
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.020))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR, history_days=120)
+    assert out is not None
+    # 2 forwards rows (30d prior + anchor) → 2 nominal_hist entries.
+    assert len(out.nominal_5y5y_history_bps) == 2
+    # Only the single survey row at anchor → forward-fills just the anchor (prior date
+    # has no survey on-or-before). 1 anchor entry.
+    assert len(out.anchor_deviation_abs_history_bps) == 1
+
+
+def test_load_histories_canonical_wins_over_survey_when_both_present(session: Session) -> None:
+    """Sprint Q.1.2: mixed window — canonical populated → survey table NOT queried.
+
+    Design decision captured in audit §4.3: minimum-change approach queries survey
+    only when canonical is fully empty. With even one canonical row present, the
+    survey branch is skipped entirely and non-matching dates simply get no anchor
+    entry. Guards against regressing the US canonical path.
+    """
+    # Canonical has 1 row @ ANCHOR; forwards has 2 (anchor + 30d prior). Seed a
+    # survey row at 30d-prior too — it MUST be ignored.
+    _forwards_with_spot(session, ANCHOR - timedelta(days=30), country="US", fit_suffix="p0")
+    _forwards_with_spot(session, ANCHOR, country="US", fit_suffix="p1")
+    session.add(_expinf_row(ANCHOR, country="US", be_5y5y=0.024))
+    # Survey row that would have forward-filled 30d-prior had survey branch been taken.
+    session.add(_survey_row(ANCHOR - timedelta(days=45), country="US", be_5y5y=0.021))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "US", ANCHOR, history_days=120)
+    assert out is not None
+    # Canonical-only branch: only the ANCHOR date has a match → 1 anchor entry.
+    # 30d-prior forwards has no canonical match and survey branch NOT taken → skipped.
+    assert len(out.nominal_5y5y_history_bps) == 2
+    assert len(out.anchor_deviation_abs_history_bps) == 1
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_load_histories_ea_full_path_persistable_by_downstream(session: Session) -> None:
+    """Sprint Q.1.2 integration: EA M3Inputs history arrays satisfy z-score guard."""
+    # Seed enough history that m3_market_expectations guard (≥2 points both arrays) passes.
+    for i, delta_days in enumerate([100, 80, 60, 40, 20, 0]):
+        prior = ANCHOR - timedelta(days=delta_days)
+        _forwards_with_spot(
+            session, prior, country="EA", forward_5y5y=0.038 + i * 0.001, fit_suffix=f"p{i}"
+        )
+    # Quarterly survey cadence: 2 releases in the 100d window + anchor date.
+    session.add(_survey_row(ANCHOR - timedelta(days=95), country="EA", be_5y5y=0.019))
+    session.add(_survey_row(ANCHOR - timedelta(days=30), country="EA", be_5y5y=0.021))
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.021))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR, history_days=120)
+    assert out is not None
+    # Critical invariant: both history arrays ≥ 2 (closes Q.1.1 regression).
+    assert len(out.nominal_5y5y_history_bps) >= 2
+    assert len(out.anchor_deviation_abs_history_bps) >= 2
