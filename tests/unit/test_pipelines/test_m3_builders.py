@@ -1,10 +1,10 @@
 """Sprint O regression coverage — M3 T1 cohort dispatcher + classifier.
 
-Parametric coverage over the 9-country M3 T1 cohort (US/DE/EA/GB/JP/CA/
-IT/ES/FR) + degradation paths + NOT_IMPLEMENTED dispatch fallback, so
+Parametric coverage over the 10-country M3 T1 cohort (US/DE/EA/GB/JP/CA/
+IT/ES/FR/PT) + degradation paths + NOT_IMPLEMENTED dispatch fallback, so
 the observability channel (``monetary_pipeline.m3_compute_mode``) and
 the country-policy metadata stay locked to the sprint acceptance §1
-contract.
+contract. Sprint Q.4b promoted PT via the SPF_AREA_PROXY cascade.
 
 Scope (brief §2.5):
 
@@ -17,7 +17,7 @@ Scope (brief §2.5):
   + ``M3_EXPINF_CONFIDENCE_SUBTHRESHOLD``.
 * ``test_classifier_degraded_forwards_missing`` — forwards row absent
   → ``DEGRADED`` + ``M3_FORWARDS_MISSING`` (upstream curves skip).
-* ``test_classifier_not_implemented_*`` — PT / NL / AU outside cohort
+* ``test_classifier_not_implemented_*`` — NL / AU outside cohort
   → ``NOT_IMPLEMENTED`` + empty flag tuple (no raise).
 * ``test_m3_dispatcher_9_countries_none_not_implemented`` — acceptance
   §1 parametric: every T1 cohort member resolves to FULL *or* DEGRADED,
@@ -186,8 +186,8 @@ def test_country_m3_flags_attaches_sparsity_for_degraded_expected() -> None:
 
 
 def test_country_m3_flags_empty_for_non_cohort() -> None:
-    """PT / NL / AU / unknown-code → empty tuple (cheap membership guard)."""
-    for country in ("PT", "NL", "AU", "NZ", "CH", "ZZ"):
+    """NL / AU / unknown-code → empty tuple (cheap membership guard)."""
+    for country in ("NL", "AU", "NZ", "CH", "ZZ"):
         assert country_m3_flags(country) == ()
 
 
@@ -207,15 +207,16 @@ def test_t1_m3_countries_alias_resolves_to_unified_cohort() -> None:
     """Sprint Q.0.5: T1_M3_COUNTRIES is now a deprecated alias for the 12-country T1_COUNTRIES.
 
     M3_T1_COUNTRIES (the per-country classifier policy frozenset, scope
-    of Sprint O) remains the 9-country FULL/DEGRADED-capable subset —
-    AU/NL/PT outside it resolve to NOT_IMPLEMENTED gracefully when the
-    pipeline iterates the unified cohort.
+    of Sprint O + Sprint Q.4b) is the 10-country FULL/DEGRADED-capable
+    subset — AU/NL outside it resolve to NOT_IMPLEMENTED gracefully when
+    the pipeline iterates the unified cohort.
     """
+    assert len(M3_T1_COUNTRIES) == 10
     assert len(T1_M3_COUNTRIES) == 12
-    # The 9-country classifier policy set is a strict subset of the
+    # The 10-country classifier policy set is a strict subset of the
     # 12-country pipeline iteration cohort.
     assert M3_T1_COUNTRIES.issubset(set(T1_M3_COUNTRIES))
-    assert set(T1_M3_COUNTRIES) - M3_T1_COUNTRIES == {"AU", "NL", "PT"}
+    assert set(T1_M3_COUNTRIES) - M3_T1_COUNTRIES == {"AU", "NL"}
 
 
 # ---------------------------------------------------------------------------
@@ -273,14 +274,6 @@ def test_classifier_degraded_forwards_missing(session: Session) -> None:
     assert "M3_FORWARDS_MISSING" in flags
 
 
-def test_classifier_not_implemented_pt() -> None:
-    """PT outside :data:`M3_T1_COUNTRIES` → NOT_IMPLEMENTED + empty flags."""
-    # Session unused — NOT_IMPLEMENTED short-circuits the DB query path.
-    mode, flags = classify_m3_compute_mode(None, "PT", ANCHOR)  # type: ignore[arg-type]
-    assert mode == "NOT_IMPLEMENTED"
-    assert flags == ()
-
-
 def test_classifier_not_implemented_nl_blocked_on_sprint_m() -> None:
     """NL excluded (blocked on Sprint M curves probe) → NOT_IMPLEMENTED."""
     mode, flags = classify_m3_compute_mode(None, "NL", ANCHOR)  # type: ignore[arg-type]
@@ -329,10 +322,10 @@ def test_m3_dispatcher_9_countries_none_not_implemented(session: Session, countr
     (not NOT_IMPLEMENTED) because cohort membership is the gate.
 
     Sprint Q.0.5 split: the M3 classifier policy frozenset
-    (:data:`M3_T1_COUNTRIES`, 9 countries) parametrises this test —
-    distinct from the unified pipeline iteration cohort
-    (:data:`T1_M3_COUNTRIES` / :data:`T1_COUNTRIES`, 12 countries) where
-    AU/NL/PT resolve to NOT_IMPLEMENTED gracefully.
+    (:data:`M3_T1_COUNTRIES`, 10 countries post-Sprint-Q.4b)
+    parametrises this test — distinct from the unified pipeline iteration
+    cohort (:data:`T1_M3_COUNTRIES` / :data:`T1_COUNTRIES`, 12 countries)
+    where AU/NL resolve to NOT_IMPLEMENTED gracefully.
     """
     _seed_forwards(session, country=country)
     session.commit()
@@ -402,17 +395,25 @@ async def test_run_one_emits_m3_compute_mode_log(
     assert "IT_M3_BEI_BTP_EI_SPARSE_EXPECTED" in captured.out
 
 
-async def test_run_one_m3_compute_mode_not_implemented_for_pt(
+async def test_run_one_m3_compute_mode_not_implemented_for_au(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """run_one still emits compute_mode for PT — NOT_IMPLEMENTED semantics."""
+    """run_one still emits compute_mode for AU — NOT_IMPLEMENTED semantics.
+
+    AU replaces the pre-Sprint-Q.4b PT variant of this test now that PT
+    has been promoted into :data:`M3_T1_COUNTRIES`. AU remains outside
+    the classifier cohort (Week 11+ sparse probe deferred) so the
+    Lesson #7 systemd verify contract — every pipelined country emits
+    ``monetary_pipeline.m3_compute_mode`` regardless of tier — still has
+    a NOT_IMPLEMENTED regression guard.
+    """
 
     db_backed = MonetaryDbBackedInputsBuilder(session)
-    await run_one(session, "PT", ANCHOR, db_backed_builder=db_backed)
+    await run_one(session, "AU", ANCHOR, db_backed_builder=db_backed)
 
     captured = capsys.readouterr()
     assert "monetary_pipeline.m3_compute_mode" in captured.out
-    assert "country=PT" in captured.out
+    assert "country=AU" in captured.out
     assert "mode=NOT_IMPLEMENTED" in captured.out
 
 
@@ -473,6 +474,28 @@ def test_classifier_survey_fallback_propagates_area_proxy(session: Session) -> N
     assert "SPF_LT_AS_ANCHOR" in flags
     assert "SPF_AREA_PROXY" in flags
     assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+
+
+def test_pt_resolves_via_spf_area_proxy(session: Session) -> None:
+    """Sprint Q.4b: PT in cohort + SPF_AREA_PROXY survey row → FULL with propagated flags.
+
+    PT has no national EXPINF canonical path and no linker-market depth;
+    the Sprint Q.1 ECB SDW SPF writer persists an EA-aggregate row under
+    ``country_code='PT'`` flagged ``SPF_AREA_PROXY``. The Sprint Q.1.1
+    classifier survey fallback picks it up and uplifts PT to FULL without
+    any PT-specific connector or writer.
+    """
+    _seed_forwards(session, country="PT")
+    _seed_survey(session, country="PT", flags="SPF_LT_AS_ANCHOR,SPF_AREA_PROXY")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "PT", ANCHOR)
+    assert mode == "FULL"
+    assert "PT_M3_T1_TIER" in flags
+    assert "SPF_LT_AS_ANCHOR" in flags
+    assert "SPF_AREA_PROXY" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+    assert "M3_FULL_LIVE" in flags
 
 
 def test_classifier_survey_fallback_preserves_sparsity_flag_for_it(session: Session) -> None:
