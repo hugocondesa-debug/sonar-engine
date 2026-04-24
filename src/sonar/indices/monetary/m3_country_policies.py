@@ -29,9 +29,15 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sonar.db.models import ExpInflationSurveyRow, IndexValue, NSSYieldCurveForwards
+from sonar.db.models import (
+    ExpInflationBeiRow,
+    ExpInflationSurveyRow,
+    IndexValue,
+    NSSYieldCurveForwards,
+)
 from sonar.indices.monetary.db_backed_builder import (
     EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_BEI_FLAG,
     M3_EXPINF_FROM_SURVEY_FLAG,
 )
 from sonar.indices.monetary.m3_market_expectations import MIN_EXPINF_CONFIDENCE
@@ -191,15 +197,40 @@ def classify_m3_compute_mode(  # noqa: PLR0911  # guard-style early returns per 
             .order_by(ExpInflationSurveyRow.date.desc())
             .first()
         )
-        if survey_row is None:
+        if survey_row is not None:
+            if survey_row.confidence < MIN_EXPINF_CONFIDENCE:
+                flags.append("M3_EXPINF_CONFIDENCE_SUBTHRESHOLD")
+                return "DEGRADED", tuple(flags)
+            survey_flags = [f for f in (survey_row.flags or "").split(",") if f]
+            flags.extend(survey_flags)
+            flags.append(M3_EXPINF_FROM_SURVEY_FLAG)
+            flags.append("M3_FULL_LIVE")
+            return "FULL", tuple(flags)
+
+        # Sprint Q.2 — BEI fallback. Canonical + SPF survey both empty;
+        # consult ``exp_inflation_bei`` populated by the BoE yield-curves
+        # writer. Mirrors the cascade priority of
+        # :func:`build_m3_inputs_from_db`: canonical > survey > BEI. A
+        # BEI row ≥ MIN_EXPINF_CONFIDENCE uplifts the country to FULL with
+        # ``M3_EXPINF_FROM_BEI`` propagated for observability.
+        bei_row = (
+            session.query(ExpInflationBeiRow)
+            .filter(
+                ExpInflationBeiRow.country_code == country,
+                ExpInflationBeiRow.date <= observation_date,
+            )
+            .order_by(ExpInflationBeiRow.date.desc())
+            .first()
+        )
+        if bei_row is None:
             flags.append("M3_EXPINF_MISSING")
             return "DEGRADED", tuple(flags)
-        if survey_row.confidence < MIN_EXPINF_CONFIDENCE:
+        if bei_row.confidence < MIN_EXPINF_CONFIDENCE:
             flags.append("M3_EXPINF_CONFIDENCE_SUBTHRESHOLD")
             return "DEGRADED", tuple(flags)
-        survey_flags = [f for f in (survey_row.flags or "").split(",") if f]
-        flags.extend(survey_flags)
-        flags.append(M3_EXPINF_FROM_SURVEY_FLAG)
+        bei_flags_csv = [f for f in (bei_row.flags or "").split(",") if f]
+        flags.extend(bei_flags_csv)
+        flags.append(M3_EXPINF_FROM_BEI_FLAG)
         flags.append("M3_FULL_LIVE")
         return "FULL", tuple(flags)
     if expinf_row.confidence < MIN_EXPINF_CONFIDENCE:

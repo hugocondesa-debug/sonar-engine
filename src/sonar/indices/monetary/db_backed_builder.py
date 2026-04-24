@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from sonar.db.models import ExpInflationSurveyRow, IndexValue, NSSYieldCurveForwards
+from sonar.db.models import (
+    ExpInflationBeiRow,
+    ExpInflationSurveyRow,
+    IndexValue,
+    NSSYieldCurveForwards,
+)
 from sonar.indices.monetary._config import load_bc_targets, load_country_to_target
 from sonar.indices.monetary.m3_market_expectations import M3Inputs
 
@@ -31,6 +36,7 @@ log = structlog.get_logger()
 
 
 __all__ = [
+    "M3_EXPINF_FROM_BEI_FLAG",
     "M3_EXPINF_FROM_SURVEY_FLAG",
     "MonetaryDbBackedInputsBuilder",
     "build_m3_inputs_from_db",
@@ -45,6 +51,14 @@ DEFAULT_HISTORY_DAYS: int = 365 * 5  # 5Y rolling window
 # ``(country, date)``. Consumers of ``expinf_flags`` can key on it to
 # distinguish the canonical vs survey-fallback provenance.
 M3_EXPINF_FROM_SURVEY_FLAG: str = "M3_EXPINF_FROM_SURVEY"
+
+# Sprint Q.2 — flag appended when the ``exp_inflation_bei`` table
+# serves the EXPINF leg because both the canonical IndexValue AND the
+# survey-table paths missed. GB is the first consumer (BoE yield-
+# curves writer); the fallback is tenor-complete (5Y/10Y/15Y/20Y/30Y)
+# so ``breakeven_5y5y_bps`` is derived algebraically from 5Y + 10Y
+# (zero-rate forward identity).
+M3_EXPINF_FROM_BEI_FLAG: str = "M3_EXPINF_FROM_BEI"
 
 
 class MonetaryDbBackedInputsBuilder:
@@ -133,6 +147,70 @@ def _query_survey(
     )
 
 
+def _query_bei(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+) -> ExpInflationBeiRow | None:
+    """Return most recent BEI row on-or-before ``observation_date``.
+
+    Sprint Q.2 fallback path — reads ``exp_inflation_bei`` populated
+    by the BoE yield-curves writer (``persist_bei_row``). Daily-cadence
+    source but forward-fill still needed for weekends / holidays.
+    Ordered ``date desc`` so the most recent row wins.
+    """
+    return (
+        session.query(ExpInflationBeiRow)
+        .filter(
+            ExpInflationBeiRow.country_code == country_code,
+            ExpInflationBeiRow.date <= observation_date,
+        )
+        .order_by(ExpInflationBeiRow.date.desc())
+        .first()
+    )
+
+
+def _bei_tenors_bps(row: ExpInflationBeiRow) -> dict[str, float]:
+    """Parse ``bei_tenors_json`` (decimal) → tenor→bps map.
+
+    Keys are preserved verbatim (``"5Y"``, ``"10Y"``, ``"5y5y"``) so
+    the caller can look up either the raw spot tenors or the derived
+    5Y5Y forward when the writer elected to persist it.
+    """
+    if not row.bei_tenors_json:
+        return {}
+    try:
+        raw = _parse_json_dict(row.bei_tenors_json)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    out: dict[str, float] = {}
+    for k, v in raw.items():
+        try:
+            out[str(k)] = _decimal_to_bps(float(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _bei_5y5y_bps_from_tenors(tenors_bps: dict[str, float]) -> float | None:
+    """Derive the 5Y5Y forward BEI (bps) from the 5Y + 10Y spots.
+
+    Zero-rate forward identity: a 5Y5Y instantaneous-forward rate
+    satisfies ``10 * y10 = 5 * y5 + 5 * f_{5,10}``, so
+    ``f_{5,10} = 2 * y10 - y5``. Applied in basis-point space (linear
+    transformation preserves units).
+
+    Returns ``None`` when either leg is absent — the caller treats a
+    partial BEI curve as a miss (the M3 compute contract requires the
+    5Y5Y input).
+    """
+    y5 = tenors_bps.get("5Y") or tenors_bps.get("5y")
+    y10 = tenors_bps.get("10Y") or tenors_bps.get("10y")
+    if y5 is None or y10 is None:
+        return None
+    return 2.0 * y10 - y5
+
+
 def _survey_tenors_bps(row: ExpInflationSurveyRow) -> dict[str, float]:
     """Parse ``interpolated_tenors_json`` → tenor→bps map.
 
@@ -201,7 +279,7 @@ def _expinf_method_tenors_bps(row: IndexValue, key: str) -> dict[str, float]:
     return out
 
 
-def build_m3_inputs_from_db(  # noqa: PLR0911  # guard-style early returns per validation step
+def build_m3_inputs_from_db(  # noqa: PLR0911, PLR0912, PLR0915  # guard-style early returns + Q.2 BEI branch
     session: Session,
     country_code: str,
     observation_date: date,
@@ -307,44 +385,83 @@ def build_m3_inputs_from_db(  # noqa: PLR0911  # guard-style early returns per v
         # propagated verbatim, plus ``M3_EXPINF_FROM_SURVEY`` so
         # downstream consumers can tell provenance apart.
         survey_row = _query_survey(session, country_code, observation_date)
-        if survey_row is None:
-            log.warning(
-                "m3_db_backed.expinf_missing",
+        if survey_row is not None:
+            survey_tenors_all_bps = _survey_tenors_bps(survey_row)
+            breakeven_5y5y_bps = survey_tenors_all_bps.get("5y5y")
+            if breakeven_5y5y_bps is None:
+                log.warning(
+                    "m3_db_backed.survey_5y5y_missing",
+                    country=country_code,
+                    date=observation_date.isoformat(),
+                    have_tenors=sorted(survey_tenors_all_bps),
+                )
+                return None
+
+            log.info(
+                "m3_db_backed.survey_fallback",
                 country=country_code,
                 date=observation_date.isoformat(),
+                survey_date=survey_row.date.isoformat(),
+                survey_name=survey_row.survey_name,
             )
-            return None
 
-        survey_tenors_all_bps = _survey_tenors_bps(survey_row)
-        breakeven_5y5y_bps = survey_tenors_all_bps.get("5y5y")
-        if breakeven_5y5y_bps is None:
-            log.warning(
-                "m3_db_backed.survey_5y5y_missing",
+            survey_flags = (
+                tuple(f for f in survey_row.flags.split(",") if f) if survey_row.flags else ()
+            )
+            expinf_flags = (*survey_flags, M3_EXPINF_FROM_SURVEY_FLAG)
+            expinf_confidence = survey_row.confidence
+            # Survey path exposes only the survey leg (no BEI) — populate
+            # ``survey_10y_bps`` from the 10Y tenor when present, leave
+            # ``bei_10y_bps`` None so M3 compute still emits the
+            # BEI_SURVEY_DIVERGENCE_UNAVAILABLE flag.
+            bei_10y_bps = None
+            survey_10y_bps = survey_tenors_all_bps.get("10Y")
+        else:
+            # Sprint Q.2 — BEI fallback (Lesson #20 #5 applied from
+            # start: the parallel ``_load_histories`` extension lives
+            # in the same commit). Both canonical + SPF survey missed;
+            # try the ``exp_inflation_bei`` table populated by the
+            # Sprint Q.2 BoE yield-curves writer. Breakeven 5Y5Y is
+            # derived algebraically from the 5Y + 10Y spot tenors
+            # (``2*y10 - y5``) because BoE publishes implied-inflation
+            # spot curves, not 5Y5Y forwards directly.
+            bei_row = _query_bei(session, country_code, observation_date)
+            if bei_row is None:
+                log.warning(
+                    "m3_db_backed.expinf_missing",
+                    country=country_code,
+                    date=observation_date.isoformat(),
+                )
+                return None
+
+            bei_tenors_all_bps = _bei_tenors_bps(bei_row)
+            breakeven_5y5y_bps = _bei_5y5y_bps_from_tenors(bei_tenors_all_bps)
+            if breakeven_5y5y_bps is None:
+                log.warning(
+                    "m3_db_backed.bei_5y5y_uncomputable",
+                    country=country_code,
+                    date=observation_date.isoformat(),
+                    have_tenors=sorted(bei_tenors_all_bps),
+                )
+                return None
+
+            log.info(
+                "m3_db_backed.bei_fallback",
                 country=country_code,
                 date=observation_date.isoformat(),
-                have_tenors=sorted(survey_tenors_all_bps),
+                bei_date=bei_row.date.isoformat(),
+                linker_connector=bei_row.linker_connector,
             )
-            return None
 
-        log.info(
-            "m3_db_backed.survey_fallback",
-            country=country_code,
-            date=observation_date.isoformat(),
-            survey_date=survey_row.date.isoformat(),
-            survey_name=survey_row.survey_name,
-        )
-
-        survey_flags = (
-            tuple(f for f in survey_row.flags.split(",") if f) if survey_row.flags else ()
-        )
-        expinf_flags = (*survey_flags, M3_EXPINF_FROM_SURVEY_FLAG)
-        expinf_confidence = survey_row.confidence
-        # Survey path exposes only the survey leg (no BEI) — populate
-        # ``survey_10y_bps`` from the 10Y tenor when present, leave
-        # ``bei_10y_bps`` None so M3 compute still emits the
-        # BEI_SURVEY_DIVERGENCE_UNAVAILABLE flag.
-        bei_10y_bps = None
-        survey_10y_bps = survey_tenors_all_bps.get("10Y")
+            bei_flags_csv = tuple(f for f in bei_row.flags.split(",") if f) if bei_row.flags else ()
+            expinf_flags = (*bei_flags_csv, M3_EXPINF_FROM_BEI_FLAG)
+            expinf_confidence = bei_row.confidence
+            # BEI path exposes the market-implied leg — populate
+            # ``bei_10y_bps`` from the 10Y tenor, leave
+            # ``survey_10y_bps`` None so downstream M3 compute still
+            # emits BEI_SURVEY_DIVERGENCE_UNAVAILABLE.
+            bei_10y_bps = bei_tenors_all_bps.get("10Y")
+            survey_10y_bps = None
 
     bc_target_decimal = _resolve_bc_target_pct(country_code)
     bc_target_bps = _decimal_to_bps(bc_target_decimal) if bc_target_decimal is not None else None
@@ -393,6 +510,26 @@ def _latest_survey_on_or_before(
     return matched
 
 
+def _latest_bei_on_or_before(
+    bei_rows: list[ExpInflationBeiRow],
+    target_date: date,
+) -> ExpInflationBeiRow | None:
+    """Return the latest BEI row with ``date <= target_date``.
+
+    Precondition: ``bei_rows`` sorted ascending by ``date``. Linear
+    scan — BEI is daily-cadence so the list is dense (~1250 rows per
+    5Y) but forward-fill across weekends/holidays still requires a
+    walker. Cost is acceptable given the ~5Y-max window.
+    """
+    matched: ExpInflationBeiRow | None = None
+    for row in bei_rows:
+        if row.date <= target_date:
+            matched = row
+        else:
+            break
+    return matched
+
+
 def _load_histories(
     session: Session,
     country_code: str,
@@ -418,6 +555,17 @@ def _load_histories(
     release cadence). Canonical path takes priority whenever at least
     one canonical row is present — US and other canonical-served
     countries remain bit-identical to the pre-Q.1.2 behaviour.
+
+    Sprint Q.2 — BEI fallback (Lesson #20 #5 applied from start):
+    when both canonical IndexValue AND ``exp_inflation_survey`` are
+    empty for the window (GB cohort case), fall back to
+    ``exp_inflation_bei`` populated by the BoE yield-curves writer.
+    Each forwards date is paired with the latest BEI row on-or-before
+    it (daily cadence with weekday cadence — forward-fill handles
+    weekends/holidays). The 5Y5Y breakeven is derived algebraically
+    (``2*y10 - y5``) from the BEI spot curve. Priority is strict:
+    canonical > survey > BEI; any country with at least one canonical
+    row stays bit-identical to the pre-Q.2 behaviour.
     """
     forwards = (
         session.query(NSSYieldCurveForwards)
@@ -443,6 +591,7 @@ def _load_histories(
     expinf_by_date = {row.date: row for row in expinf_rows}
 
     survey_rows: list[ExpInflationSurveyRow] = []
+    bei_rows: list[ExpInflationBeiRow] = []
     if not expinf_rows and bc_target_bps is not None:
         survey_rows = (
             session.query(ExpInflationSurveyRow)
@@ -454,6 +603,17 @@ def _load_histories(
             .order_by(ExpInflationSurveyRow.date.asc())
             .all()
         )
+        if not survey_rows:
+            bei_rows = (
+                session.query(ExpInflationBeiRow)
+                .filter(
+                    ExpInflationBeiRow.country_code == country_code,
+                    ExpInflationBeiRow.date >= start,
+                    ExpInflationBeiRow.date <= end,
+                )
+                .order_by(ExpInflationBeiRow.date.asc())
+                .all()
+            )
 
     nominal_hist: list[float] = []
     anchor_hist: list[float] = []
@@ -478,6 +638,10 @@ def _load_histories(
             matched_survey = _latest_survey_on_or_before(survey_rows, fwd.date)
             if matched_survey is not None:
                 be_5y5y = _survey_tenors_bps(matched_survey).get("5y5y")
+        elif bei_rows:
+            matched_bei = _latest_bei_on_or_before(bei_rows, fwd.date)
+            if matched_bei is not None:
+                be_5y5y = _bei_5y5y_bps_from_tenors(_bei_tenors_bps(matched_bei))
 
         if be_5y5y is None:
             continue

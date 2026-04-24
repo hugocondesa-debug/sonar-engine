@@ -952,6 +952,46 @@ class E4Sentiment(Base):
     )
 
 
+class ExpInflationBeiRow(Base):
+    """Row per migration ``004_exp_inflation_schema`` — BEI (breakeven
+    inflation) expected-inflation observation. Sprint Q.2 first writer
+    (CAL-EXPINF-GB-BOE-ILG-SPF): one row per (country,
+    observation_date, methodology_version); daily BoE-published implied
+    inflation spot-curve tenors persisted as JSON.
+
+    The schema carries the raw nominal + real-yield input legs (both
+    required by migration 004) even when the upstream source publishes
+    a pre-fitted BEI curve (BoE does). For those sources the writer
+    stores empty ``{}`` JSON for the input legs and flags the row with
+    ``BEI_FITTED_IMPLIED`` so consumers can tell the provenance apart
+    from full nominal-minus-real reconstructions.
+    """
+
+    __tablename__ = "exp_inflation_bei"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    exp_inf_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+    nominal_yields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    linker_real_yields_json: Mapped[str] = mapped_column(Text, nullable=False)
+    bei_tenors_json: Mapped[str] = mapped_column(Text, nullable=False)
+    linker_connector: Mapped[str] = mapped_column(String(32), nullable=False)
+    nss_fit_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_exp_bei_confidence"),
+        UniqueConstraint("country_code", "date", "methodology_version", name="uq_exp_bei_cdm"),
+        Index("idx_exp_bei_cd", "country_code", "date"),
+    )
+
+
 class ExpInflationSurveyRow(Base):
     """Row per migration ``004_exp_inflation_schema`` — SPF / survey-sourced
     expected-inflation observation. Sprint Q.1 first writer (CAL-EXPINF-EA-
