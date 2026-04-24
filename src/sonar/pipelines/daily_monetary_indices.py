@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
+import warnings
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Protocol
@@ -82,6 +83,7 @@ log = structlog.get_logger()
 __all__ = [
     "MONETARY_SUPPORTED_COUNTRIES",
     "T1_7_COUNTRIES",
+    "T1_COUNTRIES",
     "T1_M3_COUNTRIES",
     "InputsBuilder",
     "MonetaryPipelineOutcome",
@@ -94,18 +96,25 @@ __all__ = [
 # Kept module-private — public surface guarded via __all__. Tests import
 # directly via module path.
 
-T1_7_COUNTRIES: tuple[str, ...] = ("US", "DE", "PT", "IT", "ES", "FR", "NL")
-
-# Sprint O (Week 10) — M3-specific T1 dispatch cohort. Superset of
-# :data:`T1_7_COUNTRIES` minus NL + PT (NL blocked on Sprint M curves,
-# PT kept on the pre-Sprint-O canonical path) plus EA aggregate + the
-# non-EA T1 members GB / JP / CA reached by Sprint I / L / S cascades.
-# Iteration order is deterministic (tuple, not frozenset) so journal
-# output stays stable across runs — handy for the Lesson #7 systemd
-# verify grep contract. Mirror content of :data:`M3_T1_COUNTRIES` from
-# ``sonar.indices.monetary.m3_country_policies``; the tuple gives us
-# ordering the set cannot.
-T1_M3_COUNTRIES: tuple[str, ...] = (
+# Sprint Q.0.5 (Week 11 Day 1) — unified canonical T1 cohort. Resolves
+# the dual-constant drift between Sprint J's :data:`T1_7_COUNTRIES`
+# (M4 FCI EA-custom 7-country scope) and Sprint O's
+# :data:`T1_M3_COUNTRIES` (M3 classifier 9-country scope) which left
+# EA / GB / JP / CA / AU invisible to the systemd default `--all-t1`
+# fire. Single source of truth tracks **true T1 curves coverage**
+# (11 with shipped curves + NL graceful skip) so the daily monetary
+# pipeline iterates the full cohort under default semantics.
+#
+# Per-country expected mode at unification:
+#   US                          M1/M2/M3/M4 FULL
+#   DE                          M3 DEGRADED (Sprint Q.2), M4 FULL (Sprint J)
+#   EA                          M3 DEGRADED (Sprint Q.1), M4 FULL (Sprint J)
+#   GB / JP / CA                M3 DEGRADED, M4 scaffold
+#   IT / ES / FR                M3 DEGRADED, M4 FULL (Sprint J)
+#   PT                          M3 NOT_IMPLEMENTED, M4 FULL (Sprint J)
+#   NL                          curves absent → M-layers NOT_IMPLEMENTED graceful
+#   AU                          M-layers NOT_IMPLEMENTED graceful
+T1_COUNTRIES: tuple[str, ...] = (
     "US",
     "DE",
     "EA",
@@ -115,7 +124,17 @@ T1_M3_COUNTRIES: tuple[str, ...] = (
     "IT",
     "ES",
     "FR",
+    "NL",
+    "PT",
+    "AU",
 )
+
+# Backward-compat aliases — preserved for downstream imports until the
+# Week 12+ CAL-COHORT-CONSTANT-CLEANUP sprint removes them. Both
+# resolve to the unified :data:`T1_COUNTRIES`; semantics expanded
+# (7 → 12 / 9 → 12) per Sprint Q.0.5 unification.
+T1_7_COUNTRIES: tuple[str, ...] = T1_COUNTRIES
+T1_M3_COUNTRIES: tuple[str, ...] = T1_COUNTRIES
 
 # Monetary pipeline accepts GB via BoE → FRED cascade (sprint 8-I),
 # JP via BoJ → FRED cascade (sprint 8-L), CA via BoC Valet → FRED
@@ -126,12 +145,10 @@ T1_M3_COUNTRIES: tuple[str, ...] = (
 # DK via Nationalbanken Statbank.dk DNRENTD/OIBNAA → FRED cascade
 # (sprint 9-Y-DK; first EUR-peg country in the family — emits
 # DK_INFLATION_TARGET_IMPORTED_FROM_EA always since the inflation
-# anchor is imported from the ECB via the DKK/EUR ERM-II peg). All
-# stay separate from T1_7_COUNTRIES so --all-t1 preserves the
-# historical 7-country semantics; callers opt in via --country GB
-# (or the deprecated "UK" alias — ADR-0007), --country JP, --country
-# CA, --country AU, --country CH, --country NO, --country SE, or
-# --country DK.
+# anchor is imported from the ECB via the DKK/EUR ERM-II peg).
+# Sprint Q.0.5 unification: GB / JP / CA / AU enter the default
+# `--all-t1` cohort via :data:`T1_COUNTRIES`; CH / NO / SE / DK / NZ
+# remain opt-in via `--country` until promoted by future sprints.
 #
 # Backward compat: "UK" preserved as deprecated alias per ADR-0007.
 # CLI emits a structlog deprecation warning when ``--country UK`` is
@@ -722,16 +739,22 @@ def main(
     all_t1: bool = typer.Option(
         False,  # noqa: FBT003
         "--all-t1",
-        help="Iterate over all 7 T1 countries (US/DE/PT/IT/ES/FR/NL).",
+        help=(
+            "Iterate over the 12-country T1 cohort "
+            "(US/DE/EA/GB/JP/CA/IT/ES/FR/NL/PT/AU). Unified Sprint Q.0.5 "
+            "(Week 11 Day 1) — replaces the legacy M4-EA-custom-7 and "
+            "M3-T1-9 cohorts with single canonical T1 coverage. "
+            "Per-country classifier emits FULL/DEGRADED/NOT_IMPLEMENTED."
+        ),
     ),
     m3_t1_cohort: bool = typer.Option(
         False,  # noqa: FBT003
         "--m3-t1-cohort",
         help=(
-            "Iterate over the 9-country M3 T1 cohort (US/DE/EA/GB/JP/CA/IT/ES/FR) "
-            "— Sprint O. Mutually exclusive with --all-t1 and --country. Drives "
-            "the monetary_pipeline.m3_compute_mode observability channel without "
-            "changing --all-t1 semantics (T1_7 legacy preserved for M1/M2/M4)."
+            "[DEPRECATED — use --all-t1] Resolves to the unified 12-country "
+            "T1 cohort (Sprint Q.0.5 unification, Week 11 Day 1). Emits a "
+            "DeprecationWarning. Flag scheduled for removal in the Week 12+ "
+            "CAL-COHORT-CONSTANT-CLEANUP sprint."
         ),
     ),
     backend: str = typer.Option(
@@ -786,9 +809,16 @@ def main(
         )
         sys.exit(EXIT_IO)
     if m3_t1_cohort:
-        targets: list[str] = list(T1_M3_COUNTRIES)
+        warnings.warn(
+            "--m3-t1-cohort is deprecated. Use --all-t1 (now unified "
+            "12-country T1 cohort per Sprint Q.0.5). Flag will be "
+            "removed in the Week 12+ CAL-COHORT-CONSTANT-CLEANUP sprint.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        targets: list[str] = list(T1_COUNTRIES)
     elif all_t1:
-        targets = list(T1_7_COUNTRIES)
+        targets = list(T1_COUNTRIES)
     else:
         targets = [country]
     if not targets or targets == [""]:
