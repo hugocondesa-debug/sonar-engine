@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -19,9 +20,12 @@ from sonar.indices.monetary.m1_effective_rates import M1EffectiveRatesInputs
 from sonar.indices.monetary.m2_taylor_gaps import M2TaylorGapsInputs
 from sonar.indices.monetary.m4_fci import M4FciInputs
 from sonar.indices.monetary.orchestrator import MonetaryIndicesInputs
+from sonar.pipelines import daily_monetary_indices as pipeline_mod
 from sonar.pipelines.daily_monetary_indices import (
     MONETARY_SUPPORTED_COUNTRIES,
     T1_7_COUNTRIES,
+    T1_COUNTRIES,
+    T1_M3_COUNTRIES,
     _warn_if_deprecated_alias,
     default_inputs_builder,
     run_one,
@@ -107,45 +111,177 @@ async def test_run_one_with_synthetic_persists_three(session: Session) -> None:
     assert session.query(M4Row).count() == 1
 
 
-async def test_seven_country_synthetic_run(session: Session) -> None:
+async def test_unified_t1_cohort_synthetic_run(session: Session) -> None:
+    """Sprint Q.0.5: synthetic builder persists M1 for every member of the unified T1 cohort."""
     d = date(2024, 12, 31)
-    for country in T1_7_COUNTRIES:
+    for country in T1_COUNTRIES:
         outcome = await run_one(session, country, d, inputs_builder=_synthetic_builder)
         assert outcome.persisted["m1"] == 1
-    assert session.query(M1Row).count() == 7
+    assert session.query(M1Row).count() == len(T1_COUNTRIES)
 
 
-def test_targets_constant_matches_brief() -> None:
-    assert T1_7_COUNTRIES == ("US", "DE", "PT", "IT", "ES", "FR", "NL")
-    assert len(T1_7_COUNTRIES) == 7
+def test_t1_countries_unified_size() -> None:
+    """Sprint Q.0.5: T1_COUNTRIES is the canonical 12-country cohort.
+
+    Tracks true T1 curves coverage (11 with shipped curves + NL graceful skip).
+    """
+    assert len(T1_COUNTRIES) == 12
+    assert set(T1_COUNTRIES) == {
+        "US",
+        "DE",
+        "EA",
+        "GB",
+        "JP",
+        "CA",
+        "IT",
+        "ES",
+        "FR",
+        "NL",
+        "PT",
+        "AU",
+    }
+
+
+def test_t1_countries_iteration_order_stable() -> None:
+    """Tuple ordering is deterministic so journal grep contracts (Lesson #7) stay stable."""
+    assert T1_COUNTRIES == (
+        "US",
+        "DE",
+        "EA",
+        "GB",
+        "JP",
+        "CA",
+        "IT",
+        "ES",
+        "FR",
+        "NL",
+        "PT",
+        "AU",
+    )
+
+
+def test_deprecated_aliases_resolve_to_unified() -> None:
+    """Sprint Q.0.5: T1_7_COUNTRIES + T1_M3_COUNTRIES alias to T1_COUNTRIES (backward compat)."""
+    assert T1_7_COUNTRIES is T1_COUNTRIES
+    assert T1_M3_COUNTRIES is T1_COUNTRIES
+
+
+def _stub_main(monkeypatch: pytest.MonkeyPatch, captured: dict[str, object]) -> None:
+    """Patch the async dispatcher + asyncio.run so main() stays in-process.
+
+    Replaces ``_run_async_pipeline`` with a sync stub that captures the
+    ``targets`` list, and replaces :func:`asyncio.run` with a passthrough
+    that calls the stub directly — keeps the test off the event-loop
+    plumbing entirely so the unraisable-exception checker doesn't fire
+    on later async tests in the file.
+    """
+
+    def fake_run(*, targets: list[str], **_kwargs: object) -> object:
+        captured["targets"] = list(targets)
+        return SimpleNamespace(persisted=[], no_inputs=[], duplicate=[], failed=[])
+
+    def fake_asyncio_run(coro: object) -> object:
+        # Discard the coroutine — fake_run's return value is what main()
+        # actually uses. Closing the coroutine prevents
+        # ``RuntimeWarning: coroutine '...' was never awaited``.
+        if hasattr(coro, "close"):
+            coro.close()
+        return fake_run(targets=captured.get("__targets_proxy", []))
+
+    # Swap _run_async_pipeline to a sync function so main()'s
+    # ``asyncio.run(_run_async_pipeline(...))`` call site receives a
+    # plain object (not a coroutine) — combined with the asyncio.run
+    # passthrough below, no real event loop is ever created.
+    def sync_dispatcher(**kwargs: object) -> object:
+        captured["__targets_proxy"] = kwargs.get("targets", [])
+        return fake_run(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pipeline_mod, "_run_async_pipeline", sync_dispatcher)
+    monkeypatch.setattr(pipeline_mod.asyncio, "run", fake_asyncio_run)
+
+
+def test_m3_t1_cohort_flag_deprecated(monkeypatch: pytest.MonkeyPatch, tmp_path: object) -> None:
+    """Sprint Q.0.5: --m3-t1-cohort emits DeprecationWarning + resolves to T1_COUNTRIES.
+
+    Stubs the dispatcher + asyncio.run so the test stays in-process and
+    doesn't touch live connectors / DB sessions. Captures the targets
+    list passed to the dispatcher to assert the deprecated flag still
+    resolves to the unified 12-country cohort.
+    """
+    captured: dict[str, object] = {}
+    _stub_main(monkeypatch, captured)
+
+    with (
+        pytest.warns(DeprecationWarning, match="m3-t1-cohort"),
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        pipeline_mod.main(
+            country="",
+            target_date="2026-04-23",
+            all_t1=False,
+            m3_t1_cohort=True,
+            backend="default",
+            fred_api_key="",
+            te_api_key="",
+            cache_dir=str(tmp_path),
+            history_years=15,
+        )
+    assert excinfo.value.code == 0
+    assert captured["targets"] == list(T1_COUNTRIES)
+
+
+def test_all_t1_flag_resolves_to_unified_cohort(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: object,
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    """Sprint Q.0.5: --all-t1 dispatches the 12-country unified cohort (no warning)."""
+    captured: dict[str, object] = {}
+    _stub_main(monkeypatch, captured)
+
+    with pytest.raises(SystemExit) as excinfo:
+        pipeline_mod.main(
+            country="",
+            target_date="2026-04-23",
+            all_t1=True,
+            m3_t1_cohort=False,
+            backend="default",
+            fred_api_key="",
+            te_api_key="",
+            cache_dir=str(tmp_path),
+            history_years=15,
+        )
+    assert excinfo.value.code == 0
+    assert captured["targets"] == list(T1_COUNTRIES)
+    assert len(captured["targets"]) == 12
+    # No DeprecationWarning emitted on the canonical --all-t1 path.
+    assert not [w for w in recwarn.list if issubclass(w.category, DeprecationWarning)]
 
 
 def test_monetary_supported_countries_includes_gb_and_jp() -> None:
-    """GB (ADR-0007) + JP + CA + AU + NZ + CH + NO + SE + DK stay; US + EA present; none in T1_7."""
-    assert "GB" in MONETARY_SUPPORTED_COUNTRIES
-    assert "JP" in MONETARY_SUPPORTED_COUNTRIES
-    assert "CA" in MONETARY_SUPPORTED_COUNTRIES
-    assert "AU" in MONETARY_SUPPORTED_COUNTRIES
-    assert "NZ" in MONETARY_SUPPORTED_COUNTRIES
-    assert "CH" in MONETARY_SUPPORTED_COUNTRIES
-    assert "NO" in MONETARY_SUPPORTED_COUNTRIES
-    assert "SE" in MONETARY_SUPPORTED_COUNTRIES
-    assert "DK" in MONETARY_SUPPORTED_COUNTRIES
-    assert "US" in MONETARY_SUPPORTED_COUNTRIES
-    assert "EA" in MONETARY_SUPPORTED_COUNTRIES
-    # None of GB / JP / CA / AU / NZ / CH / NO / SE / DK / EA is in
-    # T1_7_COUNTRIES (--all-t1 preserves the historical 7-country
-    # semantics).
-    assert "GB" not in T1_7_COUNTRIES
-    assert "JP" not in T1_7_COUNTRIES
-    assert "CA" not in T1_7_COUNTRIES
-    assert "AU" not in T1_7_COUNTRIES
-    assert "NZ" not in T1_7_COUNTRIES
-    assert "CH" not in T1_7_COUNTRIES
-    assert "NO" not in T1_7_COUNTRIES
-    assert "SE" not in T1_7_COUNTRIES
-    assert "DK" not in T1_7_COUNTRIES
-    assert "EA" not in T1_7_COUNTRIES
+    """GB (ADR-0007) + JP + CA + AU + NZ + CH + NO + SE + DK stay; US + EA present.
+
+    Sprint Q.0.5 unification: GB / JP / CA / AU / EA now live in the
+    default :data:`T1_COUNTRIES` cohort; CH / NO / SE / DK / NZ remain
+    opt-in via ``--country`` until promoted by future sprints.
+    """
+    for country in (
+        "GB",
+        "JP",
+        "CA",
+        "AU",
+        "NZ",
+        "CH",
+        "NO",
+        "SE",
+        "DK",
+        "US",
+        "EA",
+    ):
+        assert country in MONETARY_SUPPORTED_COUNTRIES
+    # CH / NO / SE / DK / NZ remain outside the default --all-t1 cohort.
+    for country in ("NZ", "CH", "NO", "SE", "DK"):
+        assert country not in T1_COUNTRIES
 
 
 def test_monetary_supported_countries_preserves_uk_alias() -> None:

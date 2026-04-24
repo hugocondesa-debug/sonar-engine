@@ -194,10 +194,19 @@ def test_t1_cohort_degraded_expected_consistency() -> None:
     assert "FR" not in M3_T1_DEGRADED_EXPECTED
 
 
-def test_t1_m3_countries_tuple_matches_frozenset() -> None:
-    """T1_M3_COUNTRIES tuple (ordered) must match M3_T1_COUNTRIES set (content)."""
-    assert set(T1_M3_COUNTRIES) == M3_T1_COUNTRIES
-    assert len(T1_M3_COUNTRIES) == 9
+def test_t1_m3_countries_alias_resolves_to_unified_cohort() -> None:
+    """Sprint Q.0.5: T1_M3_COUNTRIES is now a deprecated alias for the 12-country T1_COUNTRIES.
+
+    M3_T1_COUNTRIES (the per-country classifier policy frozenset, scope
+    of Sprint O) remains the 9-country FULL/DEGRADED-capable subset —
+    AU/NL/PT outside it resolve to NOT_IMPLEMENTED gracefully when the
+    pipeline iterates the unified cohort.
+    """
+    assert len(T1_M3_COUNTRIES) == 12
+    # The 9-country classifier policy set is a strict subset of the
+    # 12-country pipeline iteration cohort.
+    assert M3_T1_COUNTRIES.issubset(set(T1_M3_COUNTRIES))
+    assert set(T1_M3_COUNTRIES) - M3_T1_COUNTRIES == {"AU", "NL", "PT"}
 
 
 # ---------------------------------------------------------------------------
@@ -301,14 +310,20 @@ def test_classifier_includes_sparsity_flag_for_jp(session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("country", list(T1_M3_COUNTRIES))
+@pytest.mark.parametrize("country", sorted(M3_T1_COUNTRIES))
 def test_m3_dispatcher_9_countries_none_not_implemented(session: Session, country: str) -> None:
-    """Every T1 cohort member resolves to FULL or DEGRADED — never NOT_IMPLEMENTED.
+    """Every M3-classifier-cohort member resolves to FULL or DEGRADED — never NOT_IMPLEMENTED.
 
     Runtime state today (audit §4) = all 9 DEGRADED pending the upstream
     EXPINF wiring CAL (CAL-EXPINF-LIVE-ASSEMBLER-WIRING, Week 11 P0).
     Seed forwards only — classifier must still resolve FULL / DEGRADED
     (not NOT_IMPLEMENTED) because cohort membership is the gate.
+
+    Sprint Q.0.5 split: the M3 classifier policy frozenset
+    (:data:`M3_T1_COUNTRIES`, 9 countries) parametrises this test —
+    distinct from the unified pipeline iteration cohort
+    (:data:`T1_M3_COUNTRIES` / :data:`T1_COUNTRIES`, 12 countries) where
+    AU/NL/PT resolve to NOT_IMPLEMENTED gracefully.
     """
     _seed_forwards(session, country=country)
     session.commit()
