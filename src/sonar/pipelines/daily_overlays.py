@@ -676,6 +676,7 @@ def _live_inputs_builder_factory(
     run completes.
     """
     from sonar.connectors.damodaran import DamodaranConnector  # noqa: PLC0415
+    from sonar.connectors.ecb_sdw import EcbSdwConnector  # noqa: PLC0415
     from sonar.connectors.fmp import FMPConnector  # noqa: PLC0415
     from sonar.connectors.fred import FredConnector  # noqa: PLC0415
     from sonar.connectors.multpl import MultplConnector  # noqa: PLC0415
@@ -692,6 +693,7 @@ def _live_inputs_builder_factory(
     damodaran = DamodaranConnector(cache_dir=f"{cache_dir}/damodaran")
     te = TEConnector(api_key=te_api_key, cache_dir=f"{cache_dir}/te")
     fred = FredConnector(api_key=fred_api_key, cache_dir=f"{cache_dir}/fred")
+    ecb_sdw = EcbSdwConnector(cache_dir=f"{cache_dir}/ecb_sdw")
 
     suite = LiveConnectorSuite(
         fmp=fmp,
@@ -700,10 +702,11 @@ def _live_inputs_builder_factory(
         multpl=multpl,
         damodaran=damodaran,
         fred=fred,
+        ecb_sdw=ecb_sdw,
     )
     resolver = _us_risk_free_resolver_factory(fred)
     builder = LiveInputsBuilder(suite, risk_free_resolver=resolver)
-    return builder, [fmp, shiller, multpl, damodaran, te, fred]
+    return builder, [fmp, shiller, multpl, damodaran, te, fred, ecb_sdw]
 
 
 # ---------------------------------------------------------------------------

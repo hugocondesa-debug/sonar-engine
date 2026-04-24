@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from sonar.connectors.damodaran import DamodaranConnector
+    from sonar.connectors.ecb_sdw import EcbSdwConnector
     from sonar.connectors.fmp import FMPConnector
     from sonar.connectors.fred import FredConnector
     from sonar.connectors.multpl import MultplConnector
@@ -524,6 +525,10 @@ class LiveConnectorSuite:
     # expected-inflation leg (BEI via T*YIE + survey via MICH/SPF).
     # Non-US countries stay None (no live BEI/survey source today).
     fred: FredConnector | None = None
+    # Sprint Q.1 CAL-EXPINF-EA-ECB-SPF — ECB SDW SPF powers the EA
+    # cohort expected-inflation survey leg (U2 aggregate proxied to
+    # DE/FR/IT/ES/PT/NL via SPF_AREA_PROXY flag).
+    ecb_sdw: EcbSdwConnector | None = None
 
 
 class LiveInputsBuilder:
@@ -635,6 +640,8 @@ class LiveInputsBuilder:
                 country_code,
                 observation_date,
                 fred=self._connectors.fred,
+                ecb_sdw=self._connectors.ecb_sdw,
+                session=session,
             )
         except _ConnectorErrors as exc:
             log.warning(
