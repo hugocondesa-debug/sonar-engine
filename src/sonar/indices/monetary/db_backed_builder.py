@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from sonar.db.models import IndexValue, NSSYieldCurveForwards
+from sonar.db.models import ExpInflationSurveyRow, IndexValue, NSSYieldCurveForwards
 from sonar.indices.monetary._config import load_bc_targets, load_country_to_target
 from sonar.indices.monetary.m3_market_expectations import M3Inputs
 
@@ -30,11 +30,21 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 
-__all__ = ["MonetaryDbBackedInputsBuilder", "build_m3_inputs_from_db"]
+__all__ = [
+    "M3_EXPINF_FROM_SURVEY_FLAG",
+    "MonetaryDbBackedInputsBuilder",
+    "build_m3_inputs_from_db",
+]
 
 
 EXPINF_INDEX_CODE: str = "EXPINF_CANONICAL"
 DEFAULT_HISTORY_DAYS: int = 365 * 5  # 5Y rolling window
+
+# Sprint Q.1.1 — flag appended when survey-table fallback serves the
+# EXPINF leg because the EXPINF_CANONICAL IndexValue row is missing for
+# ``(country, date)``. Consumers of ``expinf_flags`` can key on it to
+# distinguish the canonical vs survey-fallback provenance.
+M3_EXPINF_FROM_SURVEY_FLAG: str = "M3_EXPINF_FROM_SURVEY"
 
 
 class MonetaryDbBackedInputsBuilder:
@@ -100,6 +110,53 @@ def _query_expinf(session: Session, country_code: str, observation_date: date) -
     )
 
 
+def _query_survey(
+    session: Session,
+    country_code: str,
+    observation_date: date,
+) -> ExpInflationSurveyRow | None:
+    """Return most recent survey row on-or-before ``observation_date``.
+
+    Sprint Q.1.1 fallback path — reads ``exp_inflation_survey`` populated
+    by the Sprint Q.1 ECB SDW SPF writer. Ordered by ``date desc`` so a
+    sparse survey schedule (quarterly SPF releases) still serves a
+    recent observation for the target date.
+    """
+    return (
+        session.query(ExpInflationSurveyRow)
+        .filter(
+            ExpInflationSurveyRow.country_code == country_code,
+            ExpInflationSurveyRow.date <= observation_date,
+        )
+        .order_by(ExpInflationSurveyRow.date.desc())
+        .first()
+    )
+
+
+def _survey_tenors_bps(row: ExpInflationSurveyRow) -> dict[str, float]:
+    """Parse ``interpolated_tenors_json`` → tenor→bps map.
+
+    Mirrors :func:`_expinf_tenors_bps` but for the survey schema where
+    the tenor dict is stored directly (no nested
+    ``expected_inflation_tenors`` key). Returns ``{}`` on malformed JSON
+    so the caller treats the row as unusable and falls through to the
+    final ``None`` return.
+    """
+    if not row.interpolated_tenors_json:
+        return {}
+    try:
+        raw = _parse_json_dict(row.interpolated_tenors_json)
+    except (ValueError, json.JSONDecodeError):
+        return {}
+    out: dict[str, float] = {}
+    for k, v in raw.items():
+        try:
+            out[str(k)] = _decimal_to_bps(float(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _expinf_tenors_bps(row: IndexValue) -> dict[str, float]:
     """Parse EXPINF IndexValue ``sub_indicators_json`` → tenor→bps map."""
     if not row.sub_indicators_json:
@@ -144,7 +201,7 @@ def _expinf_method_tenors_bps(row: IndexValue, key: str) -> dict[str, float]:
     return out
 
 
-def build_m3_inputs_from_db(
+def build_m3_inputs_from_db(  # noqa: PLR0911  # guard-style early returns per validation step
     session: Session,
     country_code: str,
     observation_date: date,
@@ -213,38 +270,81 @@ def build_m3_inputs_from_db(
     nominal_5y5y_bps = _decimal_to_bps(float(nominal_5y5y))
 
     expinf_row = _query_expinf(session, country_code, observation_date)
-    if expinf_row is None:
-        log.warning(
-            "m3_db_backed.expinf_missing",
-            country=country_code,
-            date=observation_date.isoformat(),
-        )
-        return None
-    tenors_bps = _expinf_tenors_bps(expinf_row)
-    breakeven_5y5y_bps = tenors_bps.get("5y5y")
-    if breakeven_5y5y_bps is None:
-        log.warning(
-            "m3_db_backed.expinf_5y5y_missing",
-            country=country_code,
-            date=observation_date.isoformat(),
-            have_tenors=sorted(tenors_bps),
-        )
-        return None
+    if expinf_row is not None:
+        tenors_bps = _expinf_tenors_bps(expinf_row)
+        breakeven_5y5y_bps = tenors_bps.get("5y5y")
+        if breakeven_5y5y_bps is None:
+            log.warning(
+                "m3_db_backed.expinf_5y5y_missing",
+                country=country_code,
+                date=observation_date.isoformat(),
+                have_tenors=sorted(tenors_bps),
+            )
+            return None
 
-    expinf_flags = tuple(expinf_row.flags.split(",")) if expinf_row.flags else ()
-    # CAL-113 (Sprint M): if the EXPINF row carries per-method tenor
-    # splits, distinguish bei_10y from survey_10y; otherwise fall back
-    # to the legacy behaviour (populate bei only from unified tenors +
-    # leave survey None so the compute module emits
-    # BEI_SURVEY_DIVERGENCE_UNAVAILABLE).
-    bei_tenors_bps = _expinf_method_tenors_bps(expinf_row, "bei_tenors")
-    survey_tenors_bps = _expinf_method_tenors_bps(expinf_row, "survey_tenors")
-    if bei_tenors_bps or survey_tenors_bps:
-        bei_10y_bps: float | None = bei_tenors_bps.get("10Y")
-        survey_10y_bps: float | None = survey_tenors_bps.get("10Y")
+        expinf_flags: tuple[str, ...] = (
+            tuple(expinf_row.flags.split(",")) if expinf_row.flags else ()
+        )
+        expinf_confidence: float = expinf_row.confidence
+        # CAL-113 (Sprint M): if the EXPINF row carries per-method tenor
+        # splits, distinguish bei_10y from survey_10y; otherwise fall
+        # back to the legacy behaviour (populate bei only from unified
+        # tenors + leave survey None so the compute module emits
+        # BEI_SURVEY_DIVERGENCE_UNAVAILABLE).
+        bei_tenors_bps = _expinf_method_tenors_bps(expinf_row, "bei_tenors")
+        survey_tenors_bps = _expinf_method_tenors_bps(expinf_row, "survey_tenors")
+        if bei_tenors_bps or survey_tenors_bps:
+            bei_10y_bps: float | None = bei_tenors_bps.get("10Y")
+            survey_10y_bps: float | None = survey_tenors_bps.get("10Y")
+        else:
+            bei_10y_bps = tenors_bps.get("10Y")
+            survey_10y_bps = None
     else:
-        bei_10y_bps = tenors_bps.get("10Y")
-        survey_10y_bps = None
+        # Sprint Q.1.1 — survey fallback. EXPINF canonical IndexValue
+        # row is missing for ``(country, date)``; try the SPF survey
+        # table populated by Sprint Q.1. Flags from the survey row
+        # (``SPF_LT_AS_ANCHOR``, optionally ``SPF_AREA_PROXY``) are
+        # propagated verbatim, plus ``M3_EXPINF_FROM_SURVEY`` so
+        # downstream consumers can tell provenance apart.
+        survey_row = _query_survey(session, country_code, observation_date)
+        if survey_row is None:
+            log.warning(
+                "m3_db_backed.expinf_missing",
+                country=country_code,
+                date=observation_date.isoformat(),
+            )
+            return None
+
+        survey_tenors_all_bps = _survey_tenors_bps(survey_row)
+        breakeven_5y5y_bps = survey_tenors_all_bps.get("5y5y")
+        if breakeven_5y5y_bps is None:
+            log.warning(
+                "m3_db_backed.survey_5y5y_missing",
+                country=country_code,
+                date=observation_date.isoformat(),
+                have_tenors=sorted(survey_tenors_all_bps),
+            )
+            return None
+
+        log.info(
+            "m3_db_backed.survey_fallback",
+            country=country_code,
+            date=observation_date.isoformat(),
+            survey_date=survey_row.date.isoformat(),
+            survey_name=survey_row.survey_name,
+        )
+
+        survey_flags = (
+            tuple(f for f in survey_row.flags.split(",") if f) if survey_row.flags else ()
+        )
+        expinf_flags = (*survey_flags, M3_EXPINF_FROM_SURVEY_FLAG)
+        expinf_confidence = survey_row.confidence
+        # Survey path exposes only the survey leg (no BEI) — populate
+        # ``survey_10y_bps`` from the 10Y tenor when present, leave
+        # ``bei_10y_bps`` None so M3 compute still emits the
+        # BEI_SURVEY_DIVERGENCE_UNAVAILABLE flag.
+        bei_10y_bps = None
+        survey_10y_bps = survey_tenors_all_bps.get("10Y")
 
     bc_target_decimal = _resolve_bc_target_pct(country_code)
     bc_target_bps = _decimal_to_bps(bc_target_decimal) if bc_target_decimal is not None else None
@@ -269,7 +369,7 @@ def build_m3_inputs_from_db(
         nominal_5y5y_history_bps=tuple(nominal_hist),
         anchor_deviation_abs_history_bps=tuple(anchor_dev_abs_hist),
         bei_survey_div_abs_history_bps=None,
-        expinf_confidence=expinf_row.confidence,
+        expinf_confidence=expinf_confidence,
         expinf_flags=expinf_flags,
     )
 

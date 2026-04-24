@@ -29,8 +29,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from sonar.db.models import IndexValue, NSSYieldCurveForwards
-from sonar.indices.monetary.db_backed_builder import EXPINF_INDEX_CODE
+from sonar.db.models import ExpInflationSurveyRow, IndexValue, NSSYieldCurveForwards
+from sonar.indices.monetary.db_backed_builder import (
+    EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_SURVEY_FLAG,
+)
 from sonar.indices.monetary.m3_market_expectations import MIN_EXPINF_CONFIDENCE
 
 if TYPE_CHECKING:
@@ -105,7 +108,7 @@ def country_m3_flags(country_code: str) -> tuple[str, ...]:
     return tuple(flags)
 
 
-def classify_m3_compute_mode(
+def classify_m3_compute_mode(  # noqa: PLR0911  # guard-style early returns per mode branch
     session: Session,
     country_code: str,
     observation_date: date,
@@ -174,8 +177,31 @@ def classify_m3_compute_mode(
         .first()
     )
     if expinf_row is None:
-        flags.append("M3_EXPINF_MISSING")
-        return "DEGRADED", tuple(flags)
+        # Sprint Q.1.1 — survey fallback. The canonical EXPINF IndexValue
+        # is absent; consult the ``exp_inflation_survey`` table populated
+        # by the Sprint Q.1 ECB SDW SPF writer. A recent high-confidence
+        # survey row uplifts the country from DEGRADED to FULL with the
+        # survey flags propagated.
+        survey_row = (
+            session.query(ExpInflationSurveyRow)
+            .filter(
+                ExpInflationSurveyRow.country_code == country,
+                ExpInflationSurveyRow.date <= observation_date,
+            )
+            .order_by(ExpInflationSurveyRow.date.desc())
+            .first()
+        )
+        if survey_row is None:
+            flags.append("M3_EXPINF_MISSING")
+            return "DEGRADED", tuple(flags)
+        if survey_row.confidence < MIN_EXPINF_CONFIDENCE:
+            flags.append("M3_EXPINF_CONFIDENCE_SUBTHRESHOLD")
+            return "DEGRADED", tuple(flags)
+        survey_flags = [f for f in (survey_row.flags or "").split(",") if f]
+        flags.extend(survey_flags)
+        flags.append(M3_EXPINF_FROM_SURVEY_FLAG)
+        flags.append("M3_FULL_LIVE")
+        return "FULL", tuple(flags)
     if expinf_row.confidence < MIN_EXPINF_CONFIDENCE:
         flags.append("M3_EXPINF_CONFIDENCE_SUBTHRESHOLD")
         return "DEGRADED", tuple(flags)
