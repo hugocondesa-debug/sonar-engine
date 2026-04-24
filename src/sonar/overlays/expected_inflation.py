@@ -39,6 +39,7 @@ __all__ = [
     "compute_5y5y",
     "compute_bei_from_yields",
     "compute_bei_us",
+    "compute_survey_spf",
     "compute_survey_us",
 ]
 
@@ -201,6 +202,64 @@ def compute_survey_us(
     )
 
 
+def compute_survey_spf(
+    country_code: str,
+    survey_horizons: dict[str, float],
+    *,
+    observation_date: date_type,
+    survey_release_date: date_type,
+    is_area_proxy: bool = False,
+    survey_name: str = "ECB_SPF_HICP",
+) -> ExpInfSurvey:
+    """EA SURVEY method — ECB SPF HICP point-forecast composition.
+
+    Consumes the ECB SPF horizons exposed by :meth:`sonar.connectors.
+    ecb_sdw.EcbSdwConnector.fetch_survey_expected_inflation`:
+
+    * ``1Y`` / ``2Y`` — rolling 1y / 2y-ahead inflation expectations.
+    * ``LTE`` — SPF "long-term" (≈ 5y ahead) anchor proxy. Mapped to
+      the canonical ``5Y``, ``10Y`` and ``5y5y`` tenors so downstream
+      :func:`build_canonical` + M3 DB-backed readers can evaluate
+      anchor deviation.
+
+    ``is_area_proxy`` tags non-``EA`` callers (DE/FR/IT/ES/PT/NL) so
+    each per-country emit declares the ``SPF_AREA_PROXY`` flag; Sprint
+    Q.1 ships the EA aggregate as the shared survey leg pending
+    per-country national-survey CALs. The ``SPF_LT_AS_ANCHOR`` flag
+    is always emitted when ``LTE`` is present — analyst transparency
+    that the 5y5y value is the SPF long-term horizon (not a
+    BEI-derived forward).
+    """
+    interpolated: dict[str, float] = {}
+    if "1Y" in survey_horizons:
+        interpolated["1Y"] = survey_horizons["1Y"]
+    if "2Y" in survey_horizons:
+        interpolated["2Y"] = survey_horizons["2Y"]
+
+    flags: list[str] = []
+    if "LTE" in survey_horizons:
+        lt_value = survey_horizons["LTE"]
+        interpolated.setdefault("5Y", lt_value)
+        interpolated.setdefault("10Y", lt_value)
+        interpolated.setdefault("5y5y", lt_value)
+        interpolated.setdefault("30Y", lt_value)
+        flags.append("SPF_LT_AS_ANCHOR")
+
+    if is_area_proxy:
+        flags.append("SPF_AREA_PROXY")
+
+    return ExpInfSurvey(
+        country_code=country_code,
+        observation_date=observation_date,
+        survey_name=survey_name,
+        survey_release_date=survey_release_date,
+        horizons=dict(survey_horizons),
+        interpolated_tenors=interpolated,
+        confidence=1.0,
+        flags=tuple(flags),
+    )
+
+
 def anchor_status(deviation_bps_abs: int) -> str:
     """Map |deviation_bps| → band per ANCHOR_BANDS_BPS thresholds."""
     if deviation_bps_abs < ANCHOR_BANDS_BPS["well_anchored"]:
@@ -229,7 +288,7 @@ def _hierarchy_pick(
     return None, None
 
 
-def build_canonical(
+def build_canonical(  # noqa: PLR0912 — Sprint Q.1 added flag propagation branch; method is a canonical composer, branches are inherent not refactor-bait
     *,
     country_code: str,
     observation_date: date_type,
@@ -269,6 +328,18 @@ def build_canonical(
         status = anchor_status(abs(deviation_bps))
     else:
         flags.append("ANCHOR_UNCOMPUTABLE")
+
+    # Propagate method-level transparency flags (Sprint Q.1 added
+    # ``SPF_LT_AS_ANCHOR`` + ``SPF_AREA_PROXY`` on the EA survey leg so
+    # the M3 classifier + analysts can see which horizon proxy + which
+    # geographic proxy is in play). Keeps canonical.flags the single
+    # truth-surface for downstream consumers.
+    for src in (bei, survey):
+        if src is None:
+            continue
+        for src_flag in src.flags:
+            if src_flag not in flags:
+                flags.append(src_flag)
 
     bei_vs_survey: int | None = None
     if bei is not None and survey is not None:

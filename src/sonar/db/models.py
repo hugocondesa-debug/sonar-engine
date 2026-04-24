@@ -952,6 +952,43 @@ class E4Sentiment(Base):
     )
 
 
+class ExpInflationSurveyRow(Base):
+    """Row per migration ``004_exp_inflation_schema`` — SPF / survey-sourced
+    expected-inflation observation. Sprint Q.1 first writer (CAL-EXPINF-EA-
+    ECB-SPF): one row per (country, observation_date, survey_name,
+    methodology_version); horizons + interpolated tenors persisted as JSON.
+    """
+
+    __tablename__ = "exp_inflation_survey"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    exp_inf_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+    survey_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    survey_release_date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    horizons_json: Mapped[str] = mapped_column(Text, nullable=False)
+    interpolated_tenors_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_exp_survey_confidence"),
+        UniqueConstraint(
+            "country_code",
+            "date",
+            "survey_name",
+            "methodology_version",
+            name="uq_exp_survey_cdsm",
+        ),
+        Index("idx_exp_survey_cd", "country_code", "date"),
+    )
+
+
 class M1EffectiveRatesResult(Base):
     """Row per spec ``M1-effective-rates.md`` §8 — monetary effective rates index."""
 
