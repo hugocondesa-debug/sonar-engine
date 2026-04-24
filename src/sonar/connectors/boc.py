@@ -40,6 +40,7 @@ BoC Valet native → FRED stale-flagged).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -64,10 +65,15 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 __all__ = [
+    "BOC_CES_LONG_TERM",
+    "BOC_CES_MID_TERM",
+    "BOC_CES_SERIES_BY_HORIZON",
+    "BOC_CES_SHORT_TERM",
     "BOC_GOC_10Y",
     "BOC_OVERNIGHT_TARGET",
     "BOC_VALET_BASE_URL",
     "BoCConnector",
+    "CESInflationExpectation",
 ]
 
 # Series-ID catalogue (BoC Valet canonical; validated empirically during
@@ -75,6 +81,22 @@ __all__ = [
 # reference the series without magic strings.
 BOC_OVERNIGHT_TARGET: Final[str] = "V39079"
 BOC_GOC_10Y: Final[str] = "BD.CDN.10YR.DQ.YLD"
+
+# Canadian Survey of Consumer Expectations (CES) aggregate series —
+# Sprint Q.3 pre-flight probe (2026-04-24,
+# ``docs/backlog/probe-results/sprint-q-3-jp-ca-survey-probe.md`` §2.2).
+# These carry the headline all-respondent mean inflation expectation
+# at canonical horizons; demographic subgroups (``CES_C1{A..H}_*``)
+# are intentionally out of scope.
+BOC_CES_SHORT_TERM: Final[str] = "CES_C1_SHORT_TERM"  # 1-year-ahead
+BOC_CES_MID_TERM: Final[str] = "CES_C1_MID_TERM"  # 2-year-ahead
+BOC_CES_LONG_TERM: Final[str] = "CES_C1_LONG_TERM"  # 5-year-ahead
+
+BOC_CES_SERIES_BY_HORIZON: Final[dict[str, str]] = {
+    "1Y": BOC_CES_SHORT_TERM,
+    "2Y": BOC_CES_MID_TERM,
+    "5Y": BOC_CES_LONG_TERM,
+}
 
 BOC_VALET_BASE_URL: Final[str] = "https://www.bankofcanada.ca/valet"
 
@@ -208,6 +230,121 @@ class BoCConnector:
         """10Y benchmark Government of Canada bond yield — series :data:`BOC_GOC_10Y`."""
         return await self.fetch_series(BOC_GOC_10Y, start, end)
 
+    async def fetch_ces_inflation_expectations(
+        self,
+        start: date,
+        end: date,
+    ) -> list[CESInflationExpectation]:
+        """Return per-quarter CES inflation expectations over the window.
+
+        Fetches the three aggregate CES series
+        (:data:`BOC_CES_SHORT_TERM` / :data:`BOC_CES_MID_TERM` /
+        :data:`BOC_CES_LONG_TERM`) and collates them by quarterly
+        release date. Each returned :class:`CESInflationExpectation`
+        carries the horizons present in at least one series for that
+        quarter; the caller decides whether a partial release (e.g.
+        1Y only) is usable.
+
+        Raises :class:`DataUnavailableError` when **all three** series
+        fail — mirrors the existing ``fetch_series`` contract so the
+        monetary cascade sees one soft-fail signal. Partial raises
+        (one or two series 404/empty) degrade gracefully.
+        """
+        horizons_by_date: dict[date, dict[str, float]] = {}
+        misses: list[str] = []
+        for tenor, series_id in BOC_CES_SERIES_BY_HORIZON.items():
+            try:
+                payload = await self._fetch_ces_raw(series_id, start, end)
+            except DataUnavailableError as exc:
+                misses.append(f"{tenor}={series_id!r}: {exc}")
+                continue
+            for row in payload.get("observations", []) or []:
+                raw_date = row.get("d")
+                cell = row.get(series_id)
+                if not raw_date or not isinstance(cell, dict):
+                    continue
+                raw_value = cell.get("v")
+                if raw_value is None or raw_value == "":
+                    continue
+                try:
+                    obs_date = (
+                        datetime.strptime(str(raw_date), "%Y-%m-%d").replace(tzinfo=UTC).date()
+                    )
+                    value_pct = float(raw_value)
+                except (TypeError, ValueError):
+                    continue
+                horizons_by_date.setdefault(obs_date, {})[tenor] = value_pct
+
+        if not horizons_by_date:
+            msg = f"BoC CES inflation expectations: no usable observations (misses={misses})"
+            raise DataUnavailableError(msg)
+
+        return sorted(
+            (
+                CESInflationExpectation(
+                    release_date=d,
+                    horizons_pct=dict(h),
+                )
+                for d, h in horizons_by_date.items()
+            ),
+            key=lambda c: c.release_date,
+        )
+
+    async def _fetch_ces_raw(
+        self,
+        series_id: str,
+        start: date,
+        end: date,
+    ) -> dict[str, Any]:
+        """Inner raw-fetch for a CES series; caches + raises DataUnavailableError.
+
+        Kept as a private helper so ``fetch_ces_inflation_expectations``
+        can tolerate per-series misses (one horizon 404 still lets the
+        other two populate the release). Contrast ``fetch_series`` which
+        parses payloads into ``Observation`` with ``country_code='CA'``
+        and ``yield_bps`` — the CES path consumes the raw JSON directly
+        because the values are inflation percents, not yields.
+        """
+        cache_key = f"{self.CACHE_NAMESPACE}:ces:{series_id}:{start.isoformat()}:{end.isoformat()}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug("boc.ces_cache_hit", series=series_id)
+            return cast("dict[str, Any]", cached)
+
+        try:
+            payload = await self._fetch_raw(series_id, start, end)
+        except (httpx.HTTPError, RetryError) as exc:
+            msg = f"BoC Valet CES series={series_id!r} HTTP error: {exc}"
+            raise DataUnavailableError(msg) from exc
+
+        if not payload.get("observations"):
+            msg = f"BoC Valet CES series={series_id!r}: empty observations"
+            raise DataUnavailableError(msg)
+
+        self.cache.set(cache_key, payload, ttl=DEFAULT_TTL_SECONDS)
+        log.info(
+            "boc.ces_fetched",
+            series=series_id,
+            n=len(payload.get("observations", [])),
+        )
+        return payload
+
     async def aclose(self) -> None:
         await self.client.aclose()
         self.cache.close()
+
+
+@dataclass(frozen=True, slots=True)
+class CESInflationExpectation:
+    """One CES release: aggregate inflation-expectation horizons in %.
+
+    Keys of :attr:`horizons_pct` are canonical tenor labels
+    (``"1Y"`` / ``"2Y"`` / ``"5Y"``); values are the **% per annum**
+    headline (all-respondent mean) published by BoC. A release may
+    carry a partial set if one of the constituent series was
+    unreachable — callers that require all three horizons guard
+    accordingly.
+    """
+
+    release_date: date
+    horizons_pct: dict[str, float]
