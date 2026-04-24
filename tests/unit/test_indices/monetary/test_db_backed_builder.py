@@ -13,9 +13,16 @@ from sqlalchemy.orm import Session
 # SQLite PRAGMA foreign_keys=ON is registered (parity with
 # tests/unit/test_db/conftest.py).
 import sonar.db.session  # noqa: F401
-from sonar.db.models import Base, IndexValue, NSSYieldCurveForwards, NSSYieldCurveSpot
+from sonar.db.models import (
+    Base,
+    ExpInflationSurveyRow,
+    IndexValue,
+    NSSYieldCurveForwards,
+    NSSYieldCurveSpot,
+)
 from sonar.indices.monetary.db_backed_builder import (
     EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_SURVEY_FLAG,
     MonetaryDbBackedInputsBuilder,
     build_m3_inputs_from_db,
 )
@@ -339,3 +346,168 @@ def test_legacy_row_without_split_preserves_existing_behaviour(session: Session)
     assert out is not None
     assert out.bei_10y_bps == pytest.approx(240.0)
     assert out.survey_10y_bps is None
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1.1 — survey table fallback
+# ---------------------------------------------------------------------------
+
+
+def _survey_row(
+    obs_date: date,
+    *,
+    country: str = "EA",
+    be_5y5y: float = 0.0202,
+    be_10y: float | None = 0.0202,
+    flags: str | None = "SPF_LT_AS_ANCHOR",
+    confidence: float = 1.0,
+    survey_name: str = "ECB_SPF_HICP",
+) -> ExpInflationSurveyRow:
+    """Factory: survey row matching the Sprint Q.1 writer shape."""
+    tenors: dict[str, float] = {"5y5y": be_5y5y, "5Y": be_5y5y, "1Y": 0.0197, "2Y": 0.0205}
+    if be_10y is not None:
+        tenors["10Y"] = be_10y
+        tenors["30Y"] = be_10y
+    return ExpInflationSurveyRow(
+        exp_inf_id=f"{country}-{obs_date.isoformat()}-spf",
+        country_code=country,
+        date=obs_date,
+        methodology_version="EXPINF_SURVEY_v1.0",
+        confidence=confidence,
+        flags=flags,
+        survey_name=survey_name,
+        survey_release_date=obs_date,
+        horizons_json=json.dumps({"1Y": 0.0197, "2Y": 0.0205, "LTE": be_5y5y}),
+        interpolated_tenors_json=json.dumps(tenors),
+    )
+
+
+def test_survey_fallback_canonical_primary(session: Session) -> None:
+    """Sprint Q.1.1: canonical IndexValue takes priority over survey row."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    # Populate BOTH canonical + survey for EA
+    session.add(_expinf_row(ANCHOR, country="EA", be_5y5y=0.0245, be_10y=0.024))
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.02))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR)
+    assert out is not None
+    # Canonical 5y5y=245bps wins, not survey 200bps.
+    assert out.breakeven_5y5y_bps == pytest.approx(245.0)
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags
+
+
+def test_survey_fallback_activates_when_canonical_empty(session: Session) -> None:
+    """Sprint Q.1.1: survey row serves M3Inputs when IndexValue absent."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.0202, be_10y=0.0202))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR)
+    assert out is not None
+    # 0.0202 decimal → 202bps
+    assert out.breakeven_5y5y_bps == pytest.approx(202.0)
+    # Survey path: 10Y populates survey_10y_bps (not bei_10y_bps)
+    assert out.survey_10y_bps == pytest.approx(202.0)
+    assert out.bei_10y_bps is None
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+    assert "SPF_LT_AS_ANCHOR" in out.expinf_flags
+    assert out.expinf_confidence == pytest.approx(1.0)
+
+
+def test_survey_fallback_preserves_area_proxy_flag(session: Session) -> None:
+    """Sprint Q.1.1: AREA_PROXY flag from survey row is propagated verbatim."""
+    _forwards_with_spot(session, ANCHOR, country="DE")
+    session.add(
+        _survey_row(
+            ANCHOR,
+            country="DE",
+            flags="SPF_LT_AS_ANCHOR,SPF_AREA_PROXY",
+        )
+    )
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "DE", ANCHOR)
+    assert out is not None
+    assert "SPF_LT_AS_ANCHOR" in out.expinf_flags
+    assert "SPF_AREA_PROXY" in out.expinf_flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in out.expinf_flags
+
+
+def test_survey_fallback_picks_most_recent_on_or_before(session: Session) -> None:
+    """Sprint Q.1.1: sparse survey releases → pick most recent ≤ observation_date."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    # Two survey rows: one from 60d earlier, one at anchor.
+    session.add(_survey_row(ANCHOR - timedelta(days=60), country="EA", be_5y5y=0.019))
+    session.add(_survey_row(ANCHOR, country="EA", be_5y5y=0.021))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "EA", ANCHOR)
+    assert out is not None
+    # Most recent (anchor date, 0.021) wins.
+    assert out.breakeven_5y5y_bps == pytest.approx(210.0)
+
+
+def test_survey_fallback_no_data_returns_none(session: Session) -> None:
+    """Sprint Q.1.1: neither canonical nor survey → None (M3_EXPINF_MISSING path)."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    session.commit()
+    assert build_m3_inputs_from_db(session, "EA", ANCHOR) is None
+
+
+def test_survey_fallback_missing_5y5y_tenor_returns_none(session: Session) -> None:
+    """Sprint Q.1.1: survey row without 5y5y key is unusable → None."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    session.add(
+        ExpInflationSurveyRow(
+            exp_inf_id="ea-no-5y5y",
+            country_code="EA",
+            date=ANCHOR,
+            methodology_version="EXPINF_SURVEY_v1.0",
+            confidence=1.0,
+            flags="SPF_LT_AS_ANCHOR",
+            survey_name="ECB_SPF_HICP",
+            survey_release_date=ANCHOR,
+            horizons_json=json.dumps({}),
+            interpolated_tenors_json=json.dumps({"10Y": 0.02}),
+        )
+    )
+    session.commit()
+    assert build_m3_inputs_from_db(session, "EA", ANCHOR) is None
+
+
+def test_survey_fallback_malformed_json_returns_none(session: Session) -> None:
+    """Sprint Q.1.1: malformed interpolated_tenors_json → unusable → None."""
+    _forwards_with_spot(session, ANCHOR, country="EA")
+    session.add(
+        ExpInflationSurveyRow(
+            exp_inf_id="ea-bad-json",
+            country_code="EA",
+            date=ANCHOR,
+            methodology_version="EXPINF_SURVEY_v1.0",
+            confidence=1.0,
+            flags="SPF_LT_AS_ANCHOR",
+            survey_name="ECB_SPF_HICP",
+            survey_release_date=ANCHOR,
+            horizons_json=json.dumps({}),
+            interpolated_tenors_json="{not valid json",
+        )
+    )
+    session.commit()
+    assert build_m3_inputs_from_db(session, "EA", ANCHOR) is None
+
+
+def test_survey_fallback_us_regression_unchanged(session: Session) -> None:
+    """Sprint Q.1.1: US canonical path identical pre/post fallback addition."""
+    _forwards_with_spot(session, ANCHOR, country="US")
+    session.add(_expinf_row(ANCHOR, country="US"))
+    # Seed a survey row too — canonical must still win with no FROM_SURVEY flag.
+    session.add(_survey_row(ANCHOR, country="US", be_5y5y=0.019))
+    session.commit()
+
+    out = build_m3_inputs_from_db(session, "US", ANCHOR)
+    assert out is not None
+    # Canonical 245bps, not survey 190bps.
+    assert out.breakeven_5y5y_bps == pytest.approx(245.0)
+    assert out.bei_10y_bps == pytest.approx(240.0)
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in out.expinf_flags

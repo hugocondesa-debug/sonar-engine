@@ -44,9 +44,16 @@ from sqlalchemy.orm import Session
 
 # Import sonar.db.session so the PRAGMA FK listener registers.
 import sonar.db.session  # noqa: F401
-from sonar.db.models import Base, IndexValue, NSSYieldCurveForwards, NSSYieldCurveSpot
+from sonar.db.models import (
+    Base,
+    ExpInflationSurveyRow,
+    IndexValue,
+    NSSYieldCurveForwards,
+    NSSYieldCurveSpot,
+)
 from sonar.indices.monetary.db_backed_builder import (
     EXPINF_INDEX_CODE,
+    M3_EXPINF_FROM_SURVEY_FLAG,
     MonetaryDbBackedInputsBuilder,
 )
 from sonar.indices.monetary.m3_country_policies import (
@@ -405,6 +412,145 @@ async def test_run_one_m3_compute_mode_not_implemented_for_pt(
     assert "monetary_pipeline.m3_compute_mode" in captured.out
     assert "country=PT" in captured.out
     assert "mode=NOT_IMPLEMENTED" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Sprint Q.1.1 — classifier survey-fallback uplift
+# ---------------------------------------------------------------------------
+
+
+def _seed_survey(
+    session: Session,
+    *,
+    country: str,
+    obs: date = ANCHOR,
+    flags: str | None = "SPF_LT_AS_ANCHOR",
+    confidence: float = 1.0,
+    be_5y5y: float = 0.0202,
+) -> None:
+    """Seed an ``exp_inflation_survey`` row mirroring the Sprint Q.1 writer."""
+    session.add(
+        ExpInflationSurveyRow(
+            exp_inf_id=f"{country}-{obs.isoformat()}-spf",
+            country_code=country,
+            date=obs,
+            methodology_version="EXPINF_SURVEY_v1.0",
+            confidence=confidence,
+            flags=flags,
+            survey_name="ECB_SPF_HICP",
+            survey_release_date=obs,
+            horizons_json=json.dumps({"LTE": be_5y5y}),
+            interpolated_tenors_json=json.dumps({"5y5y": be_5y5y, "10Y": be_5y5y, "5Y": be_5y5y}),
+        )
+    )
+
+
+def test_classifier_survey_fallback_uplifts_ea_to_full(session: Session) -> None:
+    """Sprint Q.1.1: EA canonical empty + survey row present → FULL + propagated flags."""
+    _seed_forwards(session, country="EA")
+    _seed_survey(session, country="EA", flags="SPF_LT_AS_ANCHOR")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "EA", ANCHOR)
+    assert mode == "FULL"
+    assert "EA_M3_T1_TIER" in flags
+    assert "SPF_LT_AS_ANCHOR" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+    assert "M3_FULL_LIVE" in flags
+    assert "M3_EXPINF_MISSING" not in flags
+
+
+def test_classifier_survey_fallback_propagates_area_proxy(session: Session) -> None:
+    """Sprint Q.1.1: DE/FR/IT/ES survey rows carry SPF_AREA_PROXY → propagated to emit."""
+    _seed_forwards(session, country="DE")
+    _seed_survey(session, country="DE", flags="SPF_LT_AS_ANCHOR,SPF_AREA_PROXY")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "DE", ANCHOR)
+    assert mode == "FULL"
+    assert "SPF_LT_AS_ANCHOR" in flags
+    assert "SPF_AREA_PROXY" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+
+
+def test_classifier_survey_fallback_preserves_sparsity_flag_for_it(session: Session) -> None:
+    """Sprint Q.1.1: IT sparsity flag (BEI_BTP_EI_SPARSE) remains alongside survey uplift."""
+    _seed_forwards(session, country="IT")
+    _seed_survey(session, country="IT", flags="SPF_LT_AS_ANCHOR,SPF_AREA_PROXY")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "IT", ANCHOR)
+    assert mode == "FULL"
+    assert "IT_M3_T1_TIER" in flags
+    # Sparsity reason still emitted — structural BEI thinness not masked by survey uplift.
+    assert "IT_M3_BEI_BTP_EI_SPARSE_EXPECTED" in flags
+    assert "SPF_AREA_PROXY" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
+
+
+def test_classifier_survey_fallback_subthreshold_confidence_degrades(session: Session) -> None:
+    """Sprint Q.1.1: survey row with confidence < threshold → DEGRADED subthreshold."""
+    _seed_forwards(session, country="EA")
+    _seed_survey(session, country="EA", confidence=MIN_EXPINF_CONFIDENCE - 0.05)
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "EA", ANCHOR)
+    assert mode == "DEGRADED"
+    assert "M3_EXPINF_CONFIDENCE_SUBTHRESHOLD" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_canonical_priority_over_survey(session: Session) -> None:
+    """Sprint Q.1.1: canonical IndexValue present → survey ignored, no FROM_SURVEY flag."""
+    _seed_forwards(session, country="EA")
+    _seed_expinf(session, country="EA", confidence=0.85)
+    _seed_survey(session, country="EA", flags="SPF_LT_AS_ANCHOR")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "EA", ANCHOR)
+    assert mode == "FULL"
+    assert "M3_FULL_LIVE" in flags
+    # Canonical wins; survey fallback bypassed.
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+    assert "SPF_LT_AS_ANCHOR" not in flags
+
+
+def test_classifier_us_regression_unchanged_by_survey_path(session: Session) -> None:
+    """Sprint Q.1.1: US canonical path unchanged even when survey row coexists."""
+    _seed_forwards(session, country="US")
+    _seed_expinf(session, country="US", confidence=0.85)
+    _seed_survey(session, country="US", flags="SPF_LT_AS_ANCHOR")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "US", ANCHOR)
+    assert mode == "FULL"
+    assert "US_M3_T1_TIER" in flags
+    assert "M3_FULL_LIVE" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_no_canonical_no_survey_still_degraded(session: Session) -> None:
+    """Sprint Q.1.1: GB / JP / CA (no canonical, no survey) → DEGRADED unchanged."""
+    _seed_forwards(session, country="GB")
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "GB", ANCHOR)
+    assert mode == "DEGRADED"
+    assert "M3_EXPINF_MISSING" in flags
+    assert M3_EXPINF_FROM_SURVEY_FLAG not in flags
+
+
+def test_classifier_survey_fallback_picks_most_recent_row(session: Session) -> None:
+    """Sprint Q.1.1: sparse survey schedule → classifier picks most recent ≤ date."""
+    _seed_forwards(session, country="EA")
+    # Seed a stale row (60d old) plus current row.
+    _seed_survey(session, country="EA", obs=date(2026, 2, 15))
+    _seed_survey(session, country="EA", obs=ANCHOR)
+    session.commit()
+
+    mode, flags = classify_m3_compute_mode(session, "EA", ANCHOR)
+    assert mode == "FULL"
+    assert M3_EXPINF_FROM_SURVEY_FLAG in flags
 
 
 async def test_m3_async_lifecycle_compatible(session: Session) -> None:
