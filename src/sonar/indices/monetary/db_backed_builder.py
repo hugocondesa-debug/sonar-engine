@@ -374,6 +374,25 @@ def build_m3_inputs_from_db(  # noqa: PLR0911  # guard-style early returns per v
     )
 
 
+def _latest_survey_on_or_before(
+    survey_rows: list[ExpInflationSurveyRow],
+    target_date: date,
+) -> ExpInflationSurveyRow | None:
+    """Return the latest survey row with ``date <= target_date``.
+
+    Precondition: ``survey_rows`` sorted ascending by ``date``. Linear
+    scan with early break — acceptable for the sparse quarterly SPF
+    release cadence (≤20 rows per 5Y window vs ~1250 daily forwards).
+    """
+    matched: ExpInflationSurveyRow | None = None
+    for row in survey_rows:
+        if row.date <= target_date:
+            matched = row
+        else:
+            break
+    return matched
+
+
 def _load_histories(
     session: Session,
     country_code: str,
@@ -389,6 +408,16 @@ def _load_histories(
     ``|breakeven_5y5y_bps - bc_target_bps|``; when no target is
     available the list stays empty so downstream compute flags
     ``ANCHOR_UNCOMPUTABLE`` rather than producing a degenerate z-score.
+
+    Sprint Q.1.2 — survey fallback: when the canonical
+    ``IndexValue(EXPINF_CANONICAL)`` table is empty for the
+    ``(country, window)`` (EA cohort case), fall back to the
+    ``exp_inflation_survey`` table populated by the Sprint Q.1 SPF
+    writer. Each forwards date is paired with the latest survey row
+    on-or-before it (forward-fill against the sparse quarterly
+    release cadence). Canonical path takes priority whenever at least
+    one canonical row is present — US and other canonical-served
+    countries remain bit-identical to the pre-Q.1.2 behaviour.
     """
     forwards = (
         session.query(NSSYieldCurveForwards)
@@ -413,6 +442,19 @@ def _load_histories(
     )
     expinf_by_date = {row.date: row for row in expinf_rows}
 
+    survey_rows: list[ExpInflationSurveyRow] = []
+    if not expinf_rows and bc_target_bps is not None:
+        survey_rows = (
+            session.query(ExpInflationSurveyRow)
+            .filter(
+                ExpInflationSurveyRow.country_code == country_code,
+                ExpInflationSurveyRow.date >= start,
+                ExpInflationSurveyRow.date <= end,
+            )
+            .order_by(ExpInflationSurveyRow.date.asc())
+            .all()
+        )
+
     nominal_hist: list[float] = []
     anchor_hist: list[float] = []
     for fwd in forwards:
@@ -427,11 +469,16 @@ def _load_histories(
 
         if bc_target_bps is None:
             continue
+
+        be_5y5y: float | None = None
         expinf_row = expinf_by_date.get(fwd.date)
-        if expinf_row is None:
-            continue
-        expinf_tenors = _expinf_tenors_bps(expinf_row)
-        be_5y5y = expinf_tenors.get("5y5y")
+        if expinf_row is not None:
+            be_5y5y = _expinf_tenors_bps(expinf_row).get("5y5y")
+        elif survey_rows:
+            matched_survey = _latest_survey_on_or_before(survey_rows, fwd.date)
+            if matched_survey is not None:
+                be_5y5y = _survey_tenors_bps(matched_survey).get("5y5y")
+
         if be_5y5y is None:
             continue
         anchor_hist.append(abs(be_5y5y - bc_target_bps))
