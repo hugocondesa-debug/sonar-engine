@@ -15,10 +15,13 @@ queries the DB session at evaluation time; M2/M4 classifiers are pure
 functions over already-emitted flag tuples.
 
 Sprint O scope (Week 10 Day 3 late): T1 9-country cohort
-(US/DE/EA/GB/JP/CA/IT/ES/FR). PT (existing canonical path via EA SPF
-fallback, pre-Sprint-O) and NL (blocked on Sprint M curves ship) are
-**not** in :data:`M3_T1_COUNTRIES` — they classify as ``NOT_IMPLEMENTED``
-until their respective follow-up sprints merge.
+(US/DE/EA/GB/JP/CA/IT/ES/FR). Sprint Q.4b (Week 11 Day 1) extends the
+set with PT via the SPF_AREA_PROXY cascade shipped in Sprint Q.1 (the
+ECB SDW SPF writer populates an ``exp_inflation_survey`` row for PT
+flagged ``SPF_AREA_PROXY``, and the Sprint Q.1.1 classifier survey
+fallback uplifts PT to ``FULL`` automatically). NL stays out (blocked
+on Sprint M curves ship) and classifies as ``NOT_IMPLEMENTED`` until
+its follow-up sprint merges.
 
 Audit cross-ref: ``docs/backlog/audits/sprint-o-m3-exp-inflation-audit.md``
 """
@@ -60,11 +63,14 @@ __all__ = [
 ]
 
 
-# Sprint O T1 9-country cohort — C2 shipped US/DE/EA/GB/JP/CA; C3
-# extends the set with IT/ES/FR (EA periphery members reached by
-# Sprint H + I curves backfill). PT stays out (existing canonical path
-# pre-dates Sprint O); NL stays out (blocked on Sprint M curves probe).
-M3_T1_COUNTRIES: frozenset[str] = frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR"})
+# Sprint O T1 cohort — C2 shipped US/DE/EA/GB/JP/CA; C3 added IT/ES/FR
+# (EA periphery members reached by Sprint H + I curves backfill). Sprint
+# Q.4b adds PT via the Sprint Q.1 SPF_AREA_PROXY cascade (no new
+# connector; classifier survey fallback handles the uplift). NL stays
+# out (blocked on Sprint M curves probe).
+M3_T1_COUNTRIES: frozenset[str] = frozenset(
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT"}
+)
 
 
 # Countries where DEGRADED is the *expected* long-run mode even after
@@ -144,10 +150,9 @@ def classify_m3_compute_mode(  # noqa: PLR0911  # guard-style early returns per 
       ``M3_EXPINF_CONFIDENCE_SUBTHRESHOLD``).
 
     * ``NOT_IMPLEMENTED`` — country outside :data:`M3_T1_COUNTRIES`.
-      Covers PT (pre-Sprint-O canonical path kept separate to avoid
-      double-classification churn), NL (blocked on Sprint M curves),
-      and the 6 Week-11+ sparse T1 probes (AU/NZ/CH/SE/NO/DK). Flags
-      empty — no tier membership, nothing useful to attach.
+      Covers NL (blocked on Sprint M curves) and the 6 Week-11+ sparse
+      T1 probes (AU/NZ/CH/SE/NO/DK). Flags empty — no tier membership,
+      nothing useful to attach.
 
     The session argument is required because M3 mode is a runtime
     property of the DB snapshot, not of the inputs-builder emit flags

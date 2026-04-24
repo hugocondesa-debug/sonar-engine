@@ -111,7 +111,7 @@ __all__ = [
 #   EA                          M3 DEGRADED (Sprint Q.1), M4 FULL (Sprint J)
 #   GB / JP / CA                M3 DEGRADED, M4 scaffold
 #   IT / ES / FR                M3 DEGRADED, M4 FULL (Sprint J)
-#   PT                          M3 NOT_IMPLEMENTED, M4 FULL (Sprint J)
+#   PT                          M3 FULL (Sprint Q.4b via SPF_AREA_PROXY), M4 FULL (Sprint J)
 #   NL                          curves absent → M-layers NOT_IMPLEMENTED graceful
 #   AU                          M-layers NOT_IMPLEMENTED graceful
 T1_COUNTRIES: tuple[str, ...] = (
