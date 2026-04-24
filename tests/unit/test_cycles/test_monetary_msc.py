@@ -457,3 +457,152 @@ class TestComputeMsc:
         result = compute_msc(db_session, "US", date(2024, 12, 31))
         expected = (0.30 * 60 + 0.15 * 50 + 0.25 * 40 + 0.20 * 30) / 0.90
         assert result.score_0_100 == pytest.approx(expected, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Sprint P (Week 11 Day 1) — MSC EA L4 first cross-country composite
+# ---------------------------------------------------------------------------
+
+
+class TestMscEaCrossCountry:
+    """Sprint P: MSC builder dispatched against EA sub-indices without any
+    US-specific hardcoding. Pairs with the US suite above to prove the
+    builder is a pure cross-country function.
+    """
+
+    def test_ea_full_composite_four_inputs(self, db_session: Session) -> None:
+        """Sprint P Tier A: EA MSC with M1+M2+M3+M4 present → 4/5 inputs,
+        Policy 1 re-weight, composite in 0-100, regime label emitted.
+        """
+        obs = date(2026, 4, 23)
+        _seed_m1(db_session, country_code="EA", observation_date=obs, score=65.8)
+        _seed_m2(db_session, country_code="EA", observation_date=obs, score=50.0)
+        _seed_m3(
+            db_session,
+            country_code="EA",
+            observation_date=obs,
+            value_0_100=50.0,
+            confidence=0.65,
+        )
+        _seed_m4(db_session, country_code="EA", observation_date=obs, score=0.0)
+        db_session.commit()
+
+        result = compute_msc(db_session, "EA", obs)
+
+        assert result.country_code == "EA"
+        assert result.date == obs
+        assert result.inputs_available == 4
+        assert result.cs_score_0_100 is None
+        assert 0 <= result.score_0_100 <= 100
+        # Re-weighted sum (M1=65.8, M2=50, M3=50, M4=0, CS missing) over 0.90
+        # = (0.30·65.8 + 0.15·50 + 0.25·50 + 0.20·0) / 0.90 ≈ 44.20.
+        expected = (0.30 * 65.8 + 0.15 * 50 + 0.25 * 50 + 0.20 * 0) / 0.90
+        assert result.score_0_100 == pytest.approx(expected, abs=0.05)
+        assert result.regime_6band == "NEUTRAL_ACCOMMODATIVE"
+        assert result.regime_3band == "NEUTRAL"
+        assert "COMM_SIGNAL_MISSING" in result.flags
+        assert result.methodology_version == METHODOLOGY_VERSION
+
+    def test_ea_m3_flags_propagate(self, db_session: Session) -> None:
+        """Sprint P Tier B #4: EA MSC inherits M3 survey-fallback flags.
+
+        Sprint Q.1.x M3 DB-backed builder emits
+        ``M3_EXPINF_FROM_SURVEY`` + ``SPF_LT_AS_ANCHOR`` when the ECB_SPF
+        fallback path activates. The MSC aggregator must propagate those
+        into the composite flag bundle so downstream consumers see the
+        proxy lineage.
+        """
+        obs = date(2026, 4, 23)
+        _seed_m1(db_session, country_code="EA", observation_date=obs)
+        _seed_m2(db_session, country_code="EA", observation_date=obs)
+        # M3 row carries both survey-fallback flags, matching Sprint Q.1.x
+        # emission for EA.
+        db_session.add(
+            IndexValue(
+                index_code="M3_MARKET_EXPECTATIONS",
+                country_code="EA",
+                date=obs,
+                methodology_version="M3_MARKET_EXPECTATIONS_ANCHOR_v0.1",
+                raw_value=0.3,
+                zscore_clamped=0.3,
+                value_0_100=50.0,
+                confidence=0.65,
+                flags="M3_EXPINF_FROM_SURVEY,SPF_LT_AS_ANCHOR",
+            )
+        )
+        _seed_m4(db_session, country_code="EA", observation_date=obs)
+        db_session.commit()
+
+        result = compute_msc(db_session, "EA", obs)
+
+        assert "M3_EXPINF_FROM_SURVEY" in result.flags
+        assert "SPF_LT_AS_ANCHOR" in result.flags
+
+    def test_ea_missing_m3_triggers_reweight(self, db_session: Session) -> None:
+        """Sprint P edge case: EA with M3 absent (index_values empty) still
+        composes via 3/4 inputs + Policy 1 re-weight. Guards against the
+        baseline worktree state where Sprint Q.1.x persist hadn't run.
+        """
+        obs = date(2026, 4, 23)
+        _seed_m1(db_session, country_code="EA", observation_date=obs)
+        _seed_m2(db_session, country_code="EA", observation_date=obs)
+        _seed_m4(db_session, country_code="EA", observation_date=obs)
+        db_session.commit()
+
+        result = compute_msc(db_session, "EA", obs)
+
+        assert result.inputs_available == 3
+        assert "M3_MISSING" in result.flags
+        assert result.m3_score_0_100 is None
+        assert result.m3_weight_effective == 0.0
+
+    def test_country_isolation_us_vs_ea(self, db_session: Session) -> None:
+        """Sprint P: compute_msc filters sub-indices by ``country_code``.
+        EA compute must not pick up US rows for the same date, and vice
+        versa. Guards against a regression where country filtering was
+        accidentally dropped from the per-layer lookups.
+        """
+        obs = date(2026, 4, 23)
+        # US seed — high M1 so a leak would bleed the score upward.
+        _seed_m1(db_session, country_code="US", observation_date=obs, score=85.0)
+        _seed_m2(db_session, country_code="US", observation_date=obs, score=80.0)
+        _seed_m3(db_session, country_code="US", observation_date=obs, value_0_100=78.0)
+        _seed_m4(db_session, country_code="US", observation_date=obs, score=75.0)
+        # EA seed — low scores so leak-detection is unambiguous.
+        _seed_m1(db_session, country_code="EA", observation_date=obs, score=20.0)
+        _seed_m2(db_session, country_code="EA", observation_date=obs, score=25.0)
+        _seed_m3(db_session, country_code="EA", observation_date=obs, value_0_100=22.0)
+        _seed_m4(db_session, country_code="EA", observation_date=obs, score=28.0)
+        db_session.commit()
+
+        us = compute_msc(db_session, "US", obs)
+        ea = compute_msc(db_session, "EA", obs)
+
+        assert us.country_code == "US"
+        assert ea.country_code == "EA"
+        # Composite scores must reflect each country's own inputs.
+        us_expected = (0.30 * 85 + 0.15 * 80 + 0.25 * 78 + 0.20 * 75) / 0.90
+        ea_expected = (0.30 * 20 + 0.15 * 25 + 0.25 * 22 + 0.20 * 28) / 0.90
+        assert us.score_0_100 == pytest.approx(us_expected, abs=0.05)
+        assert ea.score_0_100 == pytest.approx(ea_expected, abs=0.05)
+        # Sanity: US must be TIGHT-ish, EA ACCOMMODATIVE-ish — zero cross-talk.
+        assert us.regime_3band == "TIGHT"
+        assert ea.regime_3band == "ACCOMMODATIVE"
+
+    def test_us_regression_unchanged(self, db_session: Session) -> None:
+        """Sprint P Tier A #5: US MSC builder output unchanged by the EA
+        cross-country expansion. Pins the canonical-weighted sum we rely
+        on so accidental refactors to ``compute_msc`` surface here.
+        """
+        _seed_m1(db_session, score=60.0)  # US default country_code.
+        _seed_m2(db_session, score=50.0)
+        _seed_m3(db_session, value_0_100=40.0)
+        _seed_m4(db_session, score=30.0)
+        db_session.commit()
+
+        result = compute_msc(db_session, "US", date(2024, 12, 31))
+
+        # Canonical baseline — identical to test_score_is_canonical_weighted_sum.
+        expected = (0.30 * 60 + 0.15 * 50 + 0.25 * 40 + 0.20 * 30) / 0.90
+        assert result.score_0_100 == pytest.approx(expected, abs=0.01)
+        assert result.country_code == "US"
