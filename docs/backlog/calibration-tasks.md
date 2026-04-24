@@ -2711,16 +2711,42 @@ as sub-bullets below when it differs materially from peer countries.
   by EXPINF overlay today).
 - **Dependency:** none beyond Sprint Q closure.
 
-### CAL-EXPINF-EA-ECB-SPF — EA survey expected-inflation via ECB SDW SPF (Phase 2)
+### CAL-EXPINF-EA-ECB-SPF — EA survey expected-inflation via ECB SDW SPF ✅ CLOSED
 
-- **Priority:** MEDIUM — EA-wide survey anchor covers EA aggregate +
-  all EA-member periphery countries. Single connector ship unblocks
-  DE/EA/FR/IT/ES/PT/NL M3 SURVEY leg simultaneously.
-- **Scope:** ECB SDW SPF endpoint (Survey of Professional Forecasters,
-  quarterly EA HICP forecasts). Explicit Phase-2 deferral in
-  `src/sonar/connectors/ecb_sdw.py:373` + `src/sonar/connectors/te.py:1982`.
-  Loader adds EA branch composing `ExpInfSurvey` from SPF horizons.
-- **Dependency:** none.
+- **Status:** Sprint Q.1 (2026-04-24) — CLOSED.
+- **Outcome:** Shipped `EcbSdwConnector.fetch_survey_expected_inflation`
+  (SDMX-CSV, 7-dim key `Q.U2.HICP.POINT.{horizon}.Q.AVG`) +
+  `ExpInflationSurveyObservation` dataclass +
+  `exp_inflation_writers.persist_survey_row` (idempotent SQLite
+  upsert on `uq_exp_survey_cdsm`) + `compute_survey_spf` overlay
+  helper + EA-cohort branch in
+  `exp_inflation_loader.load_live_exp_inflation_kwargs` + factory
+  wire-in through `LiveConnectorSuite.ecb_sdw` +
+  `src/sonar/db/models.ExpInflationSurveyRow` ORM surface.
+- **Method:** SPF publishes `REF_AREA=U2` only (no per-country series)
+  — shipped as EA-aggregate proxy to EA members (DE/FR/IT/ES/PT/NL)
+  carrying the `SPF_AREA_PROXY` flag. The SPF long-term (`LT`)
+  horizon is mapped to the canonical `5Y`/`10Y`/`5y5y`/`30Y` tenors
+  (`SPF_LT_AS_ANCHOR` flag); `1Y`/`2Y` derived from rolling target
+  years (`survey_year + 1` / `+2`). Probe + decision documented in
+  `docs/backlog/probe-results/sprint-q-1-ecb-spf-probe.md`.
+- **Data coverage:** SPF quarterly; Sprint Q.1 backfill populated
+  30 `exp_inflation_survey` rows (EA + DE + FR + IT + ES + PT × 5
+  observation dates spanning 2026-02-15 → 2026-04-24).
+- **M3 cascade:** Projected 6 countries M3 DEGRADED → FULL (pending
+  downstream `daily_overlays --backend=live` run to persist
+  `EXPINF_CANONICAL` in `index_values` for the EA cohort).
+- **Related:** ADR-0011 Principle 1 (idempotent writer — INSERT OR
+  IGNORE on unique key), Sprint Q parent (EXPINF live-assembler
+  wiring, US).
+- **Sub-CALs opened:**
+  - `CAL-EXPINF-PER-COUNTRY-LINKERS-FOLLOWUP` — per-country BEI
+    upgrades for DE/FR/IT/ES/PT/NL replacing the AREA_PROXY with
+    national linker-based breakevens (Week 12+).
+  - `CAL-ECB-SPF-MDN-VARIANT` — MDN source variant returned 404 at
+    probe; AVG used. Low priority cross-check CAL.
+  - `CAL-ECB-SPF-HISTOGRAM` — expose SPF distribution buckets for
+    tail-risk / deflation-probability use cases (Phase 2+).
 
 ### CAL-EXPINF-GB-BOE-ILG-SPF — GB BEI via BoE inflation-linked gilts + BoE SPF (Phase 2)
 
@@ -2763,6 +2789,41 @@ as sub-bullets below when it differs materially from peer countries.
   `BoCConnector` extension with BoC Survey of Expectations inflation
   forecasts. Loader adds JP + CA branches composing `ExpInfSurvey`.
 - **Dependency:** none.
+
+### CAL-EXPINF-PER-COUNTRY-LINKERS-FOLLOWUP — per-country BEI replacing SPF_AREA_PROXY (Week 12+)
+
+- **Priority:** MEDIUM — Sprint Q.1 ships DE/FR/IT/ES/PT/NL as
+  EA-aggregate `SPF_AREA_PROXY`. Per-country upgrade via linker-based
+  BEI gives each member its own inflation path, eliminates the proxy
+  flag, improves M3 anchor precision.
+- **Scope:** co-sequenced with `CAL-EXPINF-DE-BUNDESBANK-LINKER`,
+  `CAL-EXPINF-FR-BDF-OATI-LINKER`, `CAL-EXPINF-EA-PERIPHERY-LINKERS`.
+  Per-country linker connectors land; loader routes per-country BEI +
+  the EA SPF as the shared SURVEY leg.
+- **Dependency:** each of the per-country linker CALs above.
+
+### CAL-ECB-SPF-MDN-VARIANT — SPF median source cross-check (Low / deferred)
+
+- **Priority:** LOW — AVG source produces the Sprint Q.1 ship; MDN
+  (median) is a pure cross-check overlay without behaviour change.
+- **Scope:** Revisit Sprint Q.1 probe finding that
+  `Q.U2.HICP.POINT.*.Q.MDN` returned HTTP 404 on the probe (likely a
+  schema-generation lag or different key shape); fetch MDN variant
+  when available + emit divergence flag when `|AVG - MDN| > 10 bps`.
+- **Dependency:** CAL-EXPINF-EA-ECB-SPF (closed Sprint Q.1).
+
+### CAL-ECB-SPF-HISTOGRAM — SPF distribution buckets for tail-risk signals (Phase 2+)
+
+- **Priority:** LOW — Phase 2+ L5 meta-regime input. SPF emits full
+  histogram buckets (100+ `FN_X_N_Y` codes in `CL_FCT_BREAKDOWN`) per
+  target year — usable for deflation-probability / skew signals that
+  inform the L5 regime classifier.
+- **Scope:** extend `ExpInflationSurveyObservation` with optional
+  histogram payload; expose a `fetch_spf_histogram` method on
+  `EcbSdwConnector`; write a dedicated histogram table + downstream
+  L5 consumer.
+- **Dependency:** CAL-EXPINF-EA-ECB-SPF (closed Sprint Q.1) + L5
+  regime spec (Phase 2+).
 
 ### CAL-M3-DEGRADED-MODE-UPLIFT — Tracking umbrella for DEGRADED→FULL transitions (Phase 2)
 
