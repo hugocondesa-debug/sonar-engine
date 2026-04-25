@@ -63,6 +63,12 @@ COL_REAL_DIVIDEND = "Real Dividend"
 COL_REAL_EARNINGS = "Real Earnings"
 COL_CAPE = "CAPE"
 
+# 2024+ release renamed the inflation-adjusted columns. Parser tries the
+# legacy labels first (preserves cassette fixtures), then these aliases.
+_REAL_PRICE_ALIASES = (COL_REAL_PRICE, "Price")
+_REAL_DIVIDEND_ALIASES = (COL_REAL_DIVIDEND, "Dividend")
+_REAL_EARNINGS_ALIASES = (COL_REAL_EARNINGS, "Earnings")
+
 
 @dataclass(frozen=True, slots=True)
 class ShillerSnapshot:
@@ -152,7 +158,25 @@ def _parse_snapshot(body: bytes, observation_date: date_type) -> ShillerSnapshot
     if not candidates:
         msg = f"Shiller ie_data has no rows at or before {observation_date.isoformat()}"
         raise ValueError(msg)
-    _ym, idx, _ = max(candidates, key=lambda c: c[0])
+    # Recent Shiller releases append CAPE-only rows for months where the
+    # earnings/dividend columns are still being finalized — pandas reads
+    # those as NaN. The DCF/EY/Gordon methods need a non-NaN
+    # ``earnings_nominal``, so prefer the most-recent at-or-before row
+    # whose nominal earnings is finite, falling back to the absolute
+    # latest row only when nothing else is usable.
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    chosen: tuple[int, int, int] | None = None
+    for ym, idx, raw_year in candidates:
+        e_val = df.iloc[idx].get(COL_EARNINGS, float("nan"))
+        try:
+            if pd.notna(e_val):
+                chosen = (ym, idx, raw_year)
+                break
+        except (TypeError, ValueError):
+            continue
+    if chosen is None:
+        chosen = candidates[0]
+    _ym, idx, _ = chosen
     row = df.iloc[idx]
     year, month = _ym // 100, _ym % 100
 
@@ -163,7 +187,18 @@ def _parse_snapshot(body: bytes, observation_date: date_type) -> ShillerSnapshot
         earnings_nominal=float(row[COL_EARNINGS]),
         cpi=float(row[COL_CPI]),
         long_rate_pct=float(row[COL_LONG_RATE]),
-        real_price=float(row[COL_REAL_PRICE]),
-        real_earnings_10y_avg=float(row[COL_REAL_EARNINGS]),
+        real_price=_resolve_col(row, df.columns, _REAL_PRICE_ALIASES),
+        real_earnings_10y_avg=_resolve_col(row, df.columns, _REAL_EARNINGS_ALIASES),
         cape_ratio=float(row[COL_CAPE]),
     )
+
+
+def _resolve_col(row: pd.Series, columns: pd.Index, aliases: tuple[str, ...]) -> float:
+    """Return ``float(row[name])`` for the first ``name`` of ``aliases``
+    present in ``columns``. Raises ``KeyError`` when none resolves.
+    """
+    for name in aliases:
+        if name in columns:
+            return float(row[name])
+    msg = f"Shiller ie_data missing all aliases: {aliases!r}"
+    raise KeyError(msg)

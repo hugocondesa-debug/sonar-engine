@@ -480,12 +480,18 @@ def persist_erp_fit_result(
     ]
     canonical_row = _to_erp_canonical_row(result)
 
+    # Order matters when the runtime DB enforces foreign keys (production
+    # SQLite has ``PRAGMA foreign_keys=ON`` per session.py): method-row
+    # ``erp_id`` references ``erp_canonical.erp_id``, so the canonical
+    # parent has to be flushed before the four sibling rows attempt
+    # insert. The whole sequence runs inside a single transaction —
+    # commit at the end either persists all five rows or rolls all back.
     try:
+        session.add(canonical_row)
+        session.flush()
         for row in method_rows:
             if row is not None:
                 session.add(row)
-        session.flush()
-        session.add(canonical_row)
         session.commit()
     except IntegrityError as e:
         session.rollback()
