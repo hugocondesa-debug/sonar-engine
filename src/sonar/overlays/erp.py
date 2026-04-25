@@ -38,7 +38,7 @@ import numpy as np
 import structlog
 from scipy import optimize
 
-from sonar.overlays.exceptions import ConvergenceError, InsufficientDataError
+from sonar.overlays.exceptions import InsufficientDataError
 
 if TYPE_CHECKING:
     from datetime import date
@@ -164,18 +164,24 @@ class ERPFitResult:
 # -----------------------------------------------------------------------------
 
 
-def _compute_dcf(inputs: ERPInput) -> ERPMethodResult | None:
+def _compute_dcf_with_status(
+    inputs: ERPInput,
+) -> tuple[ERPMethodResult | None, tuple[str, ...]]:
     """Solve for required return ``r`` via scipy.optimize.newton.
 
-    Returns ``None`` when the root-find does not converge in bounds
-    (caller treats as method-miss and flags NSS_FAIL per spec §6).
+    Returns ``(result, failure_flags)``. ``failure_flags`` is
+    ``("NSS_FAIL",)`` when Newton did not converge or the root fell
+    outside :data:`DCF_BOUNDS` (per spec §6 row "DCF Newton não
+    convergiu — flag NSS_FAIL (reemit)"). Empty tuple when DCF
+    succeeded or when payout was unavailable (zero-payout is a
+    data-miss, not a Newton failure — caller emits OVERLAY_MISS via
+    upstream signal, not NSS_FAIL here).
     """
     g = inputs.consensus_growth_5y
     g_t = inputs.risk_free_nominal
     payout = inputs.dividend_yield_pct + (inputs.buyback_yield_pct or 0.0)
     if payout <= 0.0:
-        # Without payout the DCF collapses; surface as method-miss.
-        return None
+        return (None, ())
     e0 = inputs.trailing_earnings
     p = inputs.index_level
     x0 = inputs.risk_free_nominal + 0.05
@@ -198,17 +204,34 @@ def _compute_dcf(inputs: ERPInput) -> ERPMethodResult | None:
         root = optimize.newton(residual, x0=x0, maxiter=100, tol=1e-6)
     except (RuntimeError, OverflowError, ValueError) as exc:
         log.warning("erp.dcf.newton_failed", error=str(exc))
-        return None
+        return (None, ("NSS_FAIL",))
     if not np.isfinite(root) or not DCF_BOUNDS[0] <= root <= DCF_BOUNDS[1]:
         log.warning("erp.dcf.root_out_of_bounds", root=root)
-        return None
+        return (None, ("NSS_FAIL",))
     erp = root - inputs.risk_free_nominal
-    return _build_method_result(
-        "DCF",
-        METHODOLOGY_VERSION_DCF,
-        erp_decimal=erp,
-        upstream_flags=inputs.upstream_flags,
+    return (
+        _build_method_result(
+            "DCF",
+            METHODOLOGY_VERSION_DCF,
+            erp_decimal=erp,
+            upstream_flags=inputs.upstream_flags,
+        ),
+        (),
     )
+
+
+def _compute_dcf(inputs: ERPInput) -> ERPMethodResult | None:
+    """Solve for required return ``r`` via scipy.optimize.newton.
+
+    Returns ``None`` when the root-find does not converge in bounds.
+    Back-compat surface: discards the NSS_FAIL signal returned by
+    :func:`_compute_dcf_with_status` so existing direct callers
+    (tests/unit/test_overlays/test_erp.py) remain green. New callers
+    inside the ERP orchestrator should use ``_compute_dcf_with_status``
+    so the flag can propagate to the canonical row per spec §6.
+    """
+    result, _ = _compute_dcf_with_status(inputs)
+    return result
 
 
 def _compute_gordon(inputs: ERPInput) -> ERPMethodResult:
@@ -404,11 +427,7 @@ def fit_erp_us(
         )
         raise InsufficientDataError(msg)
 
-    dcf: ERPMethodResult | None
-    try:
-        dcf = _compute_dcf(inputs)
-    except ConvergenceError:  # not actually raised but defended for symmetry
-        dcf = None
+    dcf, dcf_failure_flags = _compute_dcf_with_status(inputs)
     gordon = _compute_gordon(inputs)
     ey = _compute_ey(inputs)
     cape = _compute_cape(inputs)
@@ -422,9 +441,11 @@ def fit_erp_us(
 
     xval_deviation_bps = _compute_xval_deviation_bps(dcf, damodaran_erp_decimal)
 
+    # Spec §6: DCF Newton non-convergence reemits NSS_FAIL on the
+    # canonical row (method row is skipped per "skip DCF" instruction).
     canonical = _compute_canonical(
         (dcf, gordon, ey, cape),
-        upstream_flags=inputs.upstream_flags,
+        upstream_flags=inputs.upstream_flags + dcf_failure_flags,
         forward_eps_divergence_pct=forward_eps_divergence_pct,
         xval_deviation_bps=xval_deviation_bps,
     )
