@@ -521,6 +521,42 @@ class ERPCanonical(Base):
     )
 
 
+class ERPExternalReferenceRow(Base):
+    """External-reference ERP from third-party providers (e.g. Damodaran).
+
+    Adjacent to computed ``erp_canonical``; spec ``overlays/erp-daily.md``
+    §11 separation of concerns ("compute, don't consume") preserved —
+    canonical stays computed, this table holds editorial / benchmarking
+    references.
+
+    Sprint 3.1: Damodaran monthly US (2008-09 onwards).
+    Future: extensible via ``source`` column to Bloomberg / GS / Reuters.
+    """
+
+    __tablename__ = "erp_external_reference"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    market_index: Mapped[str] = mapped_column(String(16), nullable=False)
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    date: Mapped[date_t] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    erp_bps: Mapped[int] = mapped_column(Integer, nullable=False)
+    publication_date: Mapped[date_t | None] = mapped_column(Date, nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    methodology_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    flags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="ck_erp_external_conf"),
+        UniqueConstraint("market_index", "date", "source", name="uq_erp_external_mds"),
+        Index("idx_erp_external_md", "market_index", "date", "source"),
+    )
+
+
 # === ERP models end ===
 
 

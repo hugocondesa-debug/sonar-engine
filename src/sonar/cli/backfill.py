@@ -13,6 +13,12 @@ Sprint 3 (Week 11) adds ``erp-daily`` — US 60-business-day backfill
 for the 4-method ERP overlay (DCF + Gordon + EY + CAPE + canonical).
 See :mod:`sonar.overlays.erp_daily.backfill` for input plumbing.
 
+Sprint 3.1 (Week 11) adds ``erp-external`` — Damodaran monthly US
+implied-ERP backfill (Sep 2008 onwards). Adjacent to the computed
+``erp_canonical`` (Sprint 3); spec ``overlays/erp-daily.md`` §11
+"compute, don't consume" preserved. See
+:mod:`sonar.overlays.erp_external.backfill` for the orchestrator.
+
 Future sprints register additional sub-commands under the same
 ``sonar backfill <name>`` namespace.
 """
@@ -34,6 +40,10 @@ from sonar.db.session import SessionLocal
 from sonar.overlays.erp_daily.backfill import (
     DEFAULT_LOOKBACK_BD as ERP_DEFAULT_LOOKBACK_BD,
     backfill_erp_us,
+)
+from sonar.overlays.erp_external.backfill import (
+    DAMODARAN_MONTHLY_START,
+    backfill_damodaran_monthly,
 )
 from sonar.overlays.expected_inflation.backfill import (
     T1_COUNTRIES,
@@ -262,3 +272,86 @@ def erp_daily(
     typer.echo(f"  skipped (existing):        {summary.skipped_existing}")
     typer.echo(f"  skipped (no inputs):       {summary.skipped_no_inputs}")
     typer.echo(f"  errors:                    {summary.errors}")
+
+
+@app.command("erp-external")
+def erp_external(
+    source: str = typer.Option(
+        "damodaran",
+        "--source",
+        help="External source. Sprint 3.1 ships only 'damodaran'.",
+    ),
+    start: str = typer.Option(
+        DAMODARAN_MONTHLY_START.isoformat(),
+        "--start",
+        help=(
+            "ISO start month (YYYY-MM-DD). Clamped forward to the "
+            f"Damodaran archive start ({DAMODARAN_MONTHLY_START.isoformat()}) "
+            "when older."
+        ),
+    ),
+    end: str = typer.Option(
+        ...,
+        "--end",
+        help=(
+            "ISO end month (YYYY-MM-DD). Damodaran has ~2-month publication "
+            "lag; months unavailable upstream are counted as 'unavailable'."
+        ),
+    ),
+    cache_dir: Path = typer.Option(  # noqa: B008 — Typer convention
+        Path(".cache/erp_external"),
+        "--cache-dir",
+        help="Connector disk cache (per-connector subdir).",
+    ),
+) -> None:
+    """Sprint 3.1: Damodaran monthly US ERP external-reference backfill.
+
+    Persists ``erp_external_reference`` rows with ``source='damodaran_monthly'``
+    for each calendar month in ``[start, end]`` (idempotent via
+    ``UNIQUE (market_index, date, source)``).
+
+    Adjacent to the computed ``erp_canonical`` (Sprint 3); does NOT
+    modify ``erp_canonical`` rows. Spec ``overlays/erp-daily.md`` §11
+    "compute, don't consume" preserved.
+    """
+    if source != "damodaran":
+        typer.echo(
+            f"Unsupported source: {source!r}. Sprint 3.1 ships only 'damodaran'.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_IO)
+
+    try:
+        start_date = date.fromisoformat(start)
+        end_date = date.fromisoformat(end)
+    except ValueError as exc:
+        typer.echo(f"Invalid date: {exc}", err=True)
+        raise typer.Exit(EXIT_IO) from exc
+
+    if end_date < start_date:
+        msg = f"end ({end}) precedes start ({start})"
+        raise typer.BadParameter(msg)
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    typer.echo(
+        f"erp-external backfill: source={source} start={start_date.isoformat()} "
+        f"end={end_date.isoformat()}"
+    )
+
+    with SessionLocal() as session:
+        result = asyncio.run(
+            backfill_damodaran_monthly(
+                session,
+                cache_dir=cache_dir,
+                start=start_date,
+                end=end_date,
+            )
+        )
+
+    typer.echo(f"erp-external backfill window: {start_date.isoformat()}..{end_date.isoformat()}")
+    typer.echo(f"  persisted:            {result.persisted}")
+    typer.echo(f"  skipped_existing:     {result.skipped_existing}")
+    typer.echo(f"  skipped_unavailable:  {result.skipped_unavailable}")
+    typer.echo(f"  skipped_insufficient: {result.skipped_insufficient}")
+    typer.echo(f"  errors:               {result.errors}")
