@@ -36,6 +36,7 @@ import structlog
 import typer
 
 from sonar.config import settings
+from sonar.connectors.te import TEConnector
 from sonar.db.session import SessionLocal
 from sonar.overlays.erp_daily.backfill import (
     DEFAULT_LOOKBACK_BD as ERP_DEFAULT_LOOKBACK_BD,
@@ -54,6 +55,13 @@ from sonar.overlays.nss_curves_backfill import (
     DEFAULT_LOOKBACK_BD,
     T1_SPOT_BACKFILL_COUNTRIES,
     backfill_nss_curves,
+)
+from sonar.overlays.rating_spread_backfill import (
+    TIER1_COUNTRIES as RATING_TIER1_COUNTRIES,
+    backfill_calibration_april_2026,
+    backfill_consolidate,
+    backfill_te_current_snapshot,
+    backfill_te_historical,
 )
 
 log = structlog.get_logger()
@@ -355,3 +363,119 @@ def erp_external(
     typer.echo(f"  skipped_unavailable:  {result.skipped_unavailable}")
     typer.echo(f"  skipped_insufficient: {result.skipped_insufficient}")
     typer.echo(f"  errors:               {result.errors}")
+
+
+@app.command("rating-spread")
+def rating_spread(
+    include_historical: bool = typer.Option(
+        False,  # noqa: FBT003 — Typer flag
+        "--include-historical",
+        help=(
+            "Also fetch the per-country historical archive "
+            "(/ratings/historical/{country}). Slower; ~30-60s for the "
+            "Tier 1 cohort with the connector cache cold."
+        ),
+    ),
+    countries: str = typer.Option(
+        "",
+        "--countries",
+        help=(
+            "Comma-separated ISO 3166-1 alpha-2 codes to back-fill. Default = "
+            "Tier 1 cohort (US,DE,FR,IT,ES,PT,GB,JP,CA,AU)."
+        ),
+    ),
+    cache_dir: Path = typer.Option(  # noqa: B008 — Typer convention
+        Path(".cache/rating_spread"),
+        "--cache-dir",
+        help="Connector disk cache (per-connector subdir).",
+    ),
+) -> None:
+    """Sprint 4: TE-driven rating-spread backfill (Tier 1 sovereigns).
+
+    Pipeline:
+
+    1. Seed ``ratings_spread_calibration`` from ``APRIL_2026_CALIBRATION``
+       (22 rows; idempotent).
+    2. Fetch ``/ratings`` snapshot, persist agency_raw rows for the
+       requested cohort (current snapshot — observation date = today UTC).
+    3. (Optional) Fetch ``/ratings/historical/{country}`` for each
+       cohort country, persist all archived actions.
+    4. Run :func:`backfill_consolidate` over every distinct
+       ``(country, date, rating_type)`` tuple in agency_raw and
+       harmonise sibling ``rating_id`` to the consolidated UUID.
+
+    Idempotent at every step via UNIQUE constraints — safe to re-run.
+    """
+    cohort: tuple[str, ...]
+    if countries.strip():
+        cohort = tuple(c.strip().upper() for c in countries.split(",") if c.strip())
+        unknown = [c for c in cohort if c not in RATING_TIER1_COUNTRIES]
+        if unknown:
+            typer.echo(
+                f"Unknown country code(s) (not in Sprint 4 Tier 1 cohort): "
+                f"{','.join(unknown)}. Allowed: "
+                f"{','.join(RATING_TIER1_COUNTRIES)}.",
+                err=True,
+            )
+            raise typer.Exit(EXIT_IO)
+    else:
+        cohort = RATING_TIER1_COUNTRIES
+
+    te_api_key = os.environ.get("TE_API_KEY") or settings.te_api_key
+    if not te_api_key:
+        typer.echo(
+            "TE_API_KEY not set — required for /ratings + /ratings/historical fetch.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_IO)
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    typer.echo(
+        f"rating-spread backfill: cohort={','.join(cohort)} include_historical={include_historical}"
+    )
+
+    async def _run() -> int:
+        te = TEConnector(api_key=te_api_key, cache_dir=str(cache_dir / "te"))
+        try:
+            with SessionLocal() as session:
+                cal_persisted = backfill_calibration_april_2026(session)
+                typer.echo(f"  calibration seed: persisted={cal_persisted} (notch 0-21)")
+
+                snap = await backfill_te_current_snapshot(
+                    session,
+                    te_connector=te,
+                    countries=cohort,
+                )
+                typer.echo(
+                    f"  agency_raw current: persisted={snap.agency_raw_persisted} "
+                    f"skipped_existing={snap.agency_raw_skipped_existing} "
+                    f"skipped_invalid={snap.agency_raw_skipped_invalid} "
+                    f"countries={snap.countries_processed} "
+                    f"unmappable={snap.countries_unmappable}"
+                )
+
+                if include_historical:
+                    hist = await backfill_te_historical(
+                        session,
+                        te_connector=te,
+                        countries=cohort,
+                    )
+                    typer.echo(
+                        f"  agency_raw historical: persisted={hist.agency_raw_persisted} "
+                        f"skipped_existing={hist.agency_raw_skipped_existing} "
+                        f"skipped_invalid={hist.agency_raw_skipped_invalid} "
+                        f"actions_fetched={hist.historical_actions_fetched}"
+                    )
+
+                cons = backfill_consolidate(session)
+                typer.echo(
+                    f"  consolidated: persisted={cons.consolidated_persisted} "
+                    f"skipped_existing={cons.consolidated_skipped_existing} "
+                    f"skipped_insufficient={cons.consolidated_skipped_insufficient}"
+                )
+        finally:
+            await te.aclose()
+        return EXIT_OK
+
+    sys.exit(asyncio.run(_run()))

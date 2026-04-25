@@ -541,6 +541,47 @@ class TEInflationForecast:
     forecast_last_update: datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TERatingCurrent:
+    """Current sovereign rating snapshot row from ``/ratings`` endpoint.
+
+    TE returns a wide row per country with one column pair per agency
+    (rating + outlook). Empty strings indicate the agency does not
+    rate this sovereign. The ``te_*`` columns expose TE's proprietary
+    0-100 score; consumers ignore them for SONAR consolidation
+    (spec §2 lists the 4 named agencies only).
+    """
+
+    country: str  # TE-canonical name (e.g. "Portugal", "United States")
+    te_score: int | None  # TE proprietary 0-100 — ignored for SONAR
+    te_outlook: str
+    sp_rating: str  # raw S&P token ("AA+", "BB-", "CCC") or empty
+    sp_outlook: str
+    moodys_rating: str  # raw Moody's token ("Aa1", "Baa3") or empty
+    moodys_outlook: str
+    fitch_rating: str  # raw Fitch token (S&P-style) or empty
+    fitch_outlook: str
+    dbrs_rating: str  # raw DBRS token ("AA (high)", "BBB (low)") or empty
+    dbrs_outlook: str
+
+
+@dataclass(frozen=True, slots=True)
+class TERatingHistoricalAction:
+    """Single historical rating action from ``/ratings/historical/{country}``.
+
+    One row per agency action, descending by date in TE's response.
+    Agency strings are TE-native (``"S&P"``, ``"Moody's"``, ``"Fitch"``,
+    ``"DBRS"``) — caller normalises to SONAR codes (``SP``/``MOODYS``/
+    ``FITCH``/``DBRS``).
+    """
+
+    country: str  # TE-canonical name
+    action_date: date
+    agency: str  # TE-native ("S&P" | "Moody's" | "Fitch" | "DBRS")
+    rating_raw: str
+    outlook: str  # may include "Watch" suffix; parser splits
+
+
 # SONAR 2-letter country code → TE 10Y Bloomberg symbol. GB is
 # canonical (ADR-0007); UK alias preserved for backward compat.
 TE_10Y_SYMBOLS: dict[str, str] = {
@@ -2264,6 +2305,130 @@ class TEConnector:
         self.cache.set(cache_key, out, ttl=DEFAULT_TTL_SECONDS)
         log.info("te.m4_vol.fetched", symbol=symbol, country=country_upper, n=len(out))
         return out
+
+    # -------------------------------------------------------------------
+    # Sovereign ratings (Sprint 4 — L2 rating-spread backfill)
+    # -------------------------------------------------------------------
+
+    async def fetch_sovereign_ratings_current(self) -> list[TERatingCurrent]:
+        """Fetch current sovereign ratings snapshot for all TE-covered countries.
+
+        Endpoint: ``GET /ratings``. Empirical 2026-04-25 returns ~160
+        rows; one wide row per country with rating + outlook for each
+        of S&P / Moody's / Fitch / DBRS plus TE's proprietary score.
+
+        Cached 24h (ratings move slowly; daily refresh sufficient).
+        """
+        cache_key = "te:ratings:current"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug("te.ratings.current.cache_hit")
+            return cast("list[TERatingCurrent]", cached)
+
+        url = f"{self.BASE_URL}/ratings"
+        params = {"c": self.api_key, "f": "json"}
+        r = await self.client.get(url, params=params)
+        r.raise_for_status()
+        payload = r.json() or []
+
+        results: list[TERatingCurrent] = []
+        for item in payload:
+            te_raw = item.get("TE")
+            try:
+                te_score = int(te_raw) if te_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                te_score = None
+            results.append(
+                TERatingCurrent(
+                    country=str(item.get("Country", "")),
+                    te_score=te_score,
+                    te_outlook=str(item.get("TE_Outlook", "") or ""),
+                    sp_rating=str(item.get("SP", "") or ""),
+                    sp_outlook=str(item.get("SP_Outlook", "") or ""),
+                    moodys_rating=str(item.get("Moodys", "") or ""),
+                    moodys_outlook=str(item.get("Moodys_Outlook", "") or ""),
+                    fitch_rating=str(item.get("Fitch", "") or ""),
+                    fitch_outlook=str(item.get("Fitch_Outlook", "") or ""),
+                    dbrs_rating=str(item.get("DBRS", "") or ""),
+                    dbrs_outlook=str(item.get("DBRS_Outlook", "") or ""),
+                )
+            )
+
+        self.cache.set(cache_key, results, ttl=DEFAULT_TTL_SECONDS)  # 24h
+        self._call_count += 1
+        log.info("te.ratings.current.fetched", count=len(results))
+        return results
+
+    async def fetch_sovereign_ratings_historical(
+        self, country: str
+    ) -> list[TERatingHistoricalAction]:
+        """Fetch historical rating actions for a single country.
+
+        Endpoint: ``GET /ratings/historical/{country}`` where ``country``
+        is TE-canonical lowercase (e.g. ``"portugal"``, ``"united states"``).
+        TE returns one row per agency action, typically descending by
+        date.
+
+        404 → returns empty list (some TE-listed countries have no
+        historical archive). Other HTTP errors propagate via
+        ``raise_for_status()``.
+
+        Cached 7 days per country (historical archive is immutable
+        modulo new actions appended at the head).
+        """
+        country_slug = country.strip().lower()
+        cache_key = f"te:ratings:historical:{country_slug}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            log.debug("te.ratings.historical.cache_hit", country=country_slug)
+            return cast("list[TERatingHistoricalAction]", cached)
+
+        url = f"{self.BASE_URL}/ratings/historical/{country_slug}"
+        params = {"c": self.api_key, "f": "json"}
+        r = await self.client.get(url, params=params)
+        if r.status_code == 404:
+            log.info("te.ratings.historical.no_data", country=country_slug)
+            self.cache.set(cache_key, [], ttl=7 * DEFAULT_TTL_SECONDS)
+            return []
+        r.raise_for_status()
+        payload = r.json() or []
+
+        results: list[TERatingHistoricalAction] = []
+        for item in payload:
+            raw_date = item.get("Date")
+            if not raw_date:
+                continue
+            try:
+                # TE uses MM/DD/YYYY for the ratings endpoint (verified
+                # 2026-04-25); this differs from /markets/historical
+                # which uses DD/MM/YYYY.
+                m, d, y = str(raw_date).split("/")
+                action_date = datetime(int(y), int(m), int(d), tzinfo=UTC).date()
+            except (TypeError, ValueError):
+                log.warning(
+                    "te.ratings.historical.parse_error",
+                    country=country_slug,
+                    raw_date=raw_date,
+                )
+                continue
+            results.append(
+                TERatingHistoricalAction(
+                    country=str(item.get("Country", country)),
+                    action_date=action_date,
+                    agency=str(item.get("Agency", "") or ""),
+                    rating_raw=str(item.get("Rating", "") or ""),
+                    outlook=str(item.get("Outlook", "") or ""),
+                )
+            )
+
+        self.cache.set(cache_key, results, ttl=7 * DEFAULT_TTL_SECONDS)  # 7d
+        self._call_count += 1
+        log.info(
+            "te.ratings.historical.fetched",
+            country=country_slug,
+            actions=len(results),
+        )
+        return results
 
     # -------------------------------------------------------------------
     # Telemetry
