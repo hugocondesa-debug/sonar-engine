@@ -238,3 +238,54 @@ CREATE INDEX idx_ycr_fitid ON yield_curves_real (fit_id);
 - Does not expose raw NSS parameters as a consumption API — only the four curve families (spot/zero/forward/real). `β_i`, `λ_i` are diagnostic, not public contract.
 - Does not fit inflation-linked curves in markets without linker issuance — those countries go through the *derived* path (nominal − E[π]).
 - Does not replace BC-published curves where mandated by regulation/reporting — SONAR output is analytic, not authoritative for accounting.
+
+## 12. Country scope (T1 cohort)
+
+Per-country shipping status para o NSS overlay no T1 cohort (16 países). Tracker complementa `country_tiers.yaml` flags `curves_live` / `curves_path_2_pending` e cross-referencia o ledger ADR-0009 v2.3.
+
+### 12.1 Shipped (11/16 T1, post Sprint T 2026-04-23)
+
+| ISO | Connector | Path | Tenores | Sprint | RMSE @ canary |
+|---|---|---|---|---|---|
+| US | `connectors/fred` | FRED DGS/DFII | 11 | Phase 0 | <5 bps |
+| DE | `connectors/bundesbank` | BBSIS Svensson | ~10 | CAL-138 | <5 bps |
+| EA | `connectors/ecb_sdw` | YC EA-AAA Svensson | 11 | CAL-138 | <5 bps |
+| GB | `connectors/te` | `/markets/historical` `GUKG` | 12 | CAL-138 | ≤4 bps |
+| JP | `connectors/te` | `/markets/historical` `GJGB` | 9 | CAL-138 | ≤4 bps |
+| CA | `connectors/te` | `/markets/historical` `GCAN` | 6 (NS-reduced) | CAL-138 | ≤5 bps |
+| IT | `connectors/te` | `/markets/historical` `GBTPGR` | 12 | H | 5.23 bps |
+| ES | `connectors/te` | `/markets/historical` `GSPG` | 9 | H | 4.41 bps |
+| FR | `connectors/te` | `/markets/historical` `GFRN` | 10 | I | 2.005 bps |
+| PT | `connectors/te` | `/markets/historical` `GSPT` | 10 | M | 7.24-7.53 bps |
+| AU | `connectors/te` | `/markets/historical` `GACGB` | 8 | T | live canary |
+
+### 12.2 Deferred (5/16 T1, post Sprint T-Retry 2026-04-24)
+
+TE Path 1 HALT-0 confirmed (S2 cohort per ADR-0009 v2.2 classifier — < `MIN_OBSERVATIONS_FOR_SVENSSON=6` tenores via TE `/markets/bond` authoritative listing). Path 2 (national-CB cascade) tracked per per-country CAL.
+
+| ISO | TE tenores | CAL | Path 2 candidato | Sprint probe |
+|---|---|---|---|---|
+| NL | 4 (3M, 6M, 2Y, 10Y) | `CAL-CURVES-NL-DNB-PROBE` | DNB `statline.dnb.nl` | M (2026-04-23) |
+| NZ | 5 (3M, 6M, 1Y, 2Y, 10Y) | `CAL-CURVES-NZ-PATH-2` | RBNZ `www.rbnz.govt.nz/statistics` (table B2) | T + T-Retry (2026-04-23/24) |
+| CH | 2 (2Y, 10Y) | `CAL-CURVES-CH-PATH-2` | SNB `data.snb.ch` (potential native Svensson) | T + T-Retry |
+| SE | 2 (2Y, 10Y) | `CAL-CURVES-SE-PATH-2` | Riksbank `www.riksbank.se/en-gb/statistics/` | T + T-Retry |
+| NO | 3 (6M, 52W, 10Y) | `CAL-CURVES-NO-PATH-2` | Norges Bank `www.norges-bank.no/en/topics/Statistics/` | T + T-Retry |
+| DK | 2 (2Y, 10Y) | `CAL-CURVES-DK-PATH-2` | Nationalbanken `nationalbanken.statbank.dk` (cascade existente extensível) | T + T-Retry |
+
+Pipeline behaviour: `daily_curves --country <X>` para os 5 deferreds emite `InsufficientDataError` com pointer ao CAL respectivo (`_DEFERRAL_CAL_MAP` em `pipelines/daily_curves.py`); `--all-t1` itera apenas os 11 shipped e ignora os 5 deferred sem warning.
+
+### 12.3 Path resolution policy (ADR-0009 v2.3)
+
+Per amendment Sprint H (formalizado v2 Sprint H + reforçado v2.3 Sprint T-Retry):
+
+1. **Path 1 — TE generic cascade**: probe sempre primeiro via `/markets/bond?Country=<C>` authoritative listing + per-tenor `/markets/historical` sweep (multi-prefix × multi-suffix grid). Threshold: ≥6 tenores cobrindo `MIN_OBSERVATIONS_FOR_SVENSSON` ⇒ S1 PASS, ship via `TE_YIELD_CURVE_SYMBOLS`.
+2. **Path 2 — National-CB direct**: apenas após Path 1 empiricamente exhausto. Ledger v2 fecho Sprint T-Retry: 5 inversões S1 (IT/ES/FR/PT/AU) vs 6 não-inversões S2 (NL/NZ/CH/SE/NO/DK).
+3. **Path 3 — Aggregator fallback**: ECB SDW para EA aggregate (não per-country); Bundesbank + FRED reservados a DE + US respectivamente como native primários.
+
+Ledger histórico de probes detalhado em `docs/adr/ADR-0009-national-cb-connectors-ea-periphery.md` (addendums Sprints D/G/H/I/M/T/T-Retry).
+
+### 12.4 Coverage metrics
+
+- T1 shipped post-Sprint-5A: **11/16** (68.75 %).
+- Path 2 cohort pending (Week 11+): 6 países (NL + 5 sparse-T1 non-EA); 5 com CAL OPEN, 1 com `CAL-CURVES-NL-DNB-PROBE` separately tracked.
+- Cross-validation tier 1 target (`<5 bps RMSE`) atingido por 9/11 shipped (excepções: PT 7.24-7.53 bps + CA NS-reduced ~5 bps borderline).
