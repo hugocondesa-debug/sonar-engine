@@ -33,6 +33,9 @@ from sonar.connectors.norgesbank import (
     NORGESBANK_BASE_URL,
     NORGESBANK_GBON_10Y_FLOW,
     NORGESBANK_GBON_10Y_KEY,
+    NORGESBANK_GBON_FLOW,
+    NORGESBANK_GBON_TENOR_KEYS,
+    NORGESBANK_GBON_TENOR_YEARS,
     NORGESBANK_POLICY_RATE_FLOW,
     NORGESBANK_POLICY_RATE_KEY,
     NorgesBankConnector,
@@ -56,6 +59,33 @@ def test_dataflow_catalogue_canonical() -> None:
     assert NORGESBANK_POLICY_RATE_KEY == "B.KPRA.SD.R"
     assert NORGESBANK_GBON_10Y_FLOW == "GOVT_GENERIC_RATES"
     assert NORGESBANK_GBON_10Y_KEY == "B.10Y.GBON"
+    # Sprint 7B canonical alias — same string as 10Y_FLOW; kept distinct
+    # for vocabulary clarity (the dataflow is shared across all tenors).
+    assert NORGESBANK_GBON_FLOW == "GOVT_GENERIC_RATES"
+
+
+def test_gbon_tenor_catalogue_sprint_7b() -> None:
+    """Regression guard — Sprint 7B tenor map must stay stable.
+
+    Sprint 7B Commit 2 full-flow probe (2026-04-26) confirmed seven live
+    tenor codes (3M/6M/12M/3Y/5Y/7Y/10Y); the 2Y is empirically absent
+    and must NOT appear in the supported map (consumer code rejects it
+    with a clear DataUnavailableError pointing at this list).
+    """
+    assert set(NORGESBANK_GBON_TENOR_KEYS) == {"3M", "6M", "12M", "3Y", "5Y", "7Y", "10Y"}
+    assert "2Y" not in NORGESBANK_GBON_TENOR_KEYS
+    # Each key has the canonical B.{TENOR}.GBON shape.
+    for tenor, key in NORGESBANK_GBON_TENOR_KEYS.items():
+        assert key == f"B.{tenor}.GBON"
+    # Tenor-years map covers the same keys + uses standard year fractions.
+    assert set(NORGESBANK_GBON_TENOR_YEARS) == set(NORGESBANK_GBON_TENOR_KEYS)
+    assert NORGESBANK_GBON_TENOR_YEARS["3M"] == 0.25
+    assert NORGESBANK_GBON_TENOR_YEARS["6M"] == 0.5
+    assert NORGESBANK_GBON_TENOR_YEARS["12M"] == 1.0
+    assert NORGESBANK_GBON_TENOR_YEARS["3Y"] == 3.0
+    assert NORGESBANK_GBON_TENOR_YEARS["5Y"] == 5.0
+    assert NORGESBANK_GBON_TENOR_YEARS["7Y"] == 7.0
+    assert NORGESBANK_GBON_TENOR_YEARS["10Y"] == 10.0
 
 
 def test_base_url_canonical() -> None:
@@ -348,6 +378,78 @@ class TestNorgesBankConnectorFetchSeries:
             await norgesbank_connector.aclose()
 
 
+class TestFetchGovtYield:
+    """Sprint 7B — generic ``fetch_govt_yield(tenor)`` over GOVT_GENERIC_RATES."""
+
+    @pytest.mark.parametrize(
+        ("tenor", "expected_key", "expected_years"),
+        [
+            ("3M", "B.3M.GBON", 0.25),
+            ("6M", "B.6M.GBON", 0.5),
+            ("12M", "B.12M.GBON", 1.0),
+            ("3Y", "B.3Y.GBON", 3.0),
+            ("5Y", "B.5Y.GBON", 5.0),
+            ("7Y", "B.7Y.GBON", 7.0),
+            ("10Y", "B.10Y.GBON", 10.0),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_each_tenor_routes_and_stamps_correctly(
+        self,
+        tenor: str,
+        expected_key: str,
+        expected_years: float,
+        httpx_mock: HTTPXMock,
+        norgesbank_connector: NorgesBankConnector,
+    ) -> None:
+        """Each Sprint 7B tenor routes to B.{TENOR}.GBON and stamps tenor_years."""
+        httpx_mock.add_response(
+            method="GET",
+            json=_sdmx_json_payload(
+                dates=["2024-12-19"], values=["3.65"], flow="GOVT_GENERIC_RATES"
+            ),
+        )
+        try:
+            obs = await norgesbank_connector.fetch_govt_yield(
+                tenor, date(2024, 12, 1), date(2024, 12, 31)
+            )
+            assert len(obs) == 1
+            assert obs[0].source_series_id == f"GOVT_GENERIC_RATES/{expected_key}"
+            assert obs[0].tenor_years == expected_years
+            assert obs[0].source == "NORGESBANK"
+            assert obs[0].country_code == "NO"
+            # 3.65 % → 365 bps via int(round(pct * 100)).
+            assert obs[0].yield_bps == 365
+        finally:
+            await norgesbank_connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_unsupported_tenor_raises_unavailable(
+        self, norgesbank_connector: NorgesBankConnector
+    ) -> None:
+        """``"2Y"`` is empirically absent from this dataflow → reject before HTTP."""
+        try:
+            with pytest.raises(DataUnavailableError, match="must be one of"):
+                await norgesbank_connector.fetch_govt_yield(
+                    "2Y", date(2024, 1, 1), date(2024, 12, 31)
+                )
+        finally:
+            await norgesbank_connector.aclose()
+
+    @pytest.mark.asyncio
+    async def test_garbage_tenor_raises_unavailable(
+        self, norgesbank_connector: NorgesBankConnector
+    ) -> None:
+        """Any tenor outside the canonical map (e.g. ``"FOO"``) is rejected up-front."""
+        try:
+            with pytest.raises(DataUnavailableError, match="must be one of"):
+                await norgesbank_connector.fetch_govt_yield(
+                    "FOO", date(2024, 1, 1), date(2024, 12, 31)
+                )
+        finally:
+            await norgesbank_connector.aclose()
+
+
 class TestNorgesBankConnectorWrappers:
     @pytest.mark.asyncio
     async def test_fetch_policy_rate_uses_ir_dataflow(
@@ -432,5 +534,34 @@ async def test_live_canary_norgesbank_gbon_10y(tmp_path: Path) -> None:
         # NO 10Y gov-bond stayed within [150, 600] bps across the last decade.
         for o in obs:
             assert 150 <= o.yield_bps <= 600
+    finally:
+        await conn.aclose()
+
+
+@pytest.mark.slow
+async def test_live_canary_norgesbank_govt_yield_5y(tmp_path: Path) -> None:
+    """Sprint 7B canary — 5Y generic gov-bond yield last 60 days.
+
+    Single representative mid-curve tenor (Hugo direction Sprint 7B
+    Path C). 5Y was confirmed live in Commit 2 full-flow probe
+    2026-04-26. Canary asserts the new ``fetch_govt_yield`` API
+    routes correctly + yields are within a sensible band for the
+    2024-26 NO rate cycle (loosely 1.5-5.0 %).
+    """
+    conn = NorgesBankConnector(cache_dir=str(tmp_path / "norgesbank"))
+    try:
+        today = datetime.now(tz=UTC).date()
+        start = today - timedelta(days=60)
+        try:
+            obs = await conn.fetch_govt_yield("5Y", start, today)
+        except (httpx.HTTPError, DataUnavailableError) as exc:
+            pytest.skip(f"Norges Bank DataAPI unreachable: {exc}")
+        assert len(obs) >= 20
+        assert obs[0].tenor_years == 5.0
+        assert obs[0].source_series_id == "GOVT_GENERIC_RATES/B.5Y.GBON"
+        assert obs[0].source == "NORGESBANK"
+        assert obs[0].country_code == "NO"
+        for o in obs:
+            assert 100 <= o.yield_bps <= 600  # 1.0-6.0 % band; loose
     finally:
         await conn.aclose()

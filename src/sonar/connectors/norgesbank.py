@@ -12,7 +12,7 @@ shape is a deliberate choice by Norges Bank and matches the ECB SDW
 philosophy (vs. the BoC / RBA / SNB shape which is JSON REST or CSV).
 
 Canonical dataflows + series keys (all observed live during the Sprint
-X-NO probe):
+X-NO probe + Sprint 7B Commit 2 mid-curve probe 2026-04-26):
 
 * **``IR`` / ``B.KPRA.SD.R``** — Key policy rate (sight deposit rate).
   Daily cadence back to 1991-01-01; 1586 observations between
@@ -20,11 +20,18 @@ X-NO probe):
   the key dimensions are ``FREQ=B`` (Business), ``INSTRUMENT_TYPE=KPRA``
   (Key policy rate), ``TENOR=SD`` (policy rate), ``UNIT_MEASURE=R``
   (Rate).
-* **``GOVT_GENERIC_RATES`` / ``B.10Y.GBON``** — 10Y generic government
-  bond yield (constant-maturity). Daily cadence back to ~2000 as a
-  derived "generic yield" on the closest-maturity bond for each date.
-  Landing point for M4 FCI NO 10Y input (CAL-NO-M4-FCI — deferred
-  Sprint X-NO).
+* **``GOVT_GENERIC_RATES`` / ``B.{TENOR}.GBON``** — Generic government
+  bond yields (constant-maturity). Daily cadence. Sprint 7B Commit 2
+  full-flow listing (2026-04-26) confirmed seven live tenor codes:
+  ``3M``, ``6M``, ``12M``, ``3Y``, ``5Y``, ``7Y``, ``10Y``. **The 2Y
+  is empirically absent** from this dataflow (Probe 1+2 returned 404
+  on both literal ``B.2Y.GBON`` and zero-padded ``B.02Y.GBON`` keys);
+  15Y/20Y/30Y also absent. The 10Y series is the M4 FCI NO landing
+  point (CAL-NO-M4-FCI — deferred Sprint X-NO); the 6 mid-curve tenors
+  are Sprint 7B Path C cohort (NSS curves Path 2 native cascade).
+  Per-tenor mapping in :data:`NORGESBANK_GBON_TENOR_KEYS` /
+  :data:`NORGESBANK_GBON_TENOR_YEARS`; generic accessor
+  :meth:`NorgesBankConnector.fetch_govt_yield`.
 
 SDMX-JSON shape (both dataflows):
 
@@ -94,6 +101,9 @@ __all__ = [
     "NORGESBANK_BASE_URL",
     "NORGESBANK_GBON_10Y_FLOW",
     "NORGESBANK_GBON_10Y_KEY",
+    "NORGESBANK_GBON_FLOW",
+    "NORGESBANK_GBON_TENOR_KEYS",
+    "NORGESBANK_GBON_TENOR_YEARS",
     "NORGESBANK_POLICY_RATE_FLOW",
     "NORGESBANK_POLICY_RATE_KEY",
     "NORGESBANK_USER_AGENT",
@@ -101,11 +111,50 @@ __all__ = [
 ]
 
 # Dataflow + series-key catalogue (Norges Bank canonical; validated
-# empirically during Sprint X-NO pre-flight, 2026-04-22).
+# empirically during Sprint X-NO pre-flight 2026-04-22 + Sprint 7B
+# Commit 2 mid-curve probe 2026-04-26).
 NORGESBANK_POLICY_RATE_FLOW: Final[str] = "IR"
 NORGESBANK_POLICY_RATE_KEY: Final[str] = "B.KPRA.SD.R"
-NORGESBANK_GBON_10Y_FLOW: Final[str] = "GOVT_GENERIC_RATES"
-NORGESBANK_GBON_10Y_KEY: Final[str] = "B.10Y.GBON"
+
+# Government bond yields share a single dataflow; ``NORGESBANK_GBON_FLOW``
+# is the canonical name. ``NORGESBANK_GBON_10Y_FLOW`` is preserved as an
+# alias for backwards compatibility (Sprint X-NO callers + regression
+# guard tests).
+NORGESBANK_GBON_FLOW: Final[str] = "GOVT_GENERIC_RATES"
+NORGESBANK_GBON_10Y_FLOW: Final[str] = NORGESBANK_GBON_FLOW
+
+# Per-tenor SDMX series keys observed live in Sprint 7B Commit 2 full-
+# flow listing (2026-04-26). The 2Y is empirically absent — both
+# ``B.2Y.GBON`` literal and ``B.02Y.GBON`` zero-padded returned 404
+# against this dataflow. 15Y/20Y/30Y also absent. ``fetch_govt_yield``
+# rejects any tenor not in this map.
+NORGESBANK_GBON_TENOR_KEYS: Final[dict[str, str]] = {
+    "3M": "B.3M.GBON",
+    "6M": "B.6M.GBON",
+    "12M": "B.12M.GBON",
+    "3Y": "B.3Y.GBON",
+    "5Y": "B.5Y.GBON",
+    "7Y": "B.7Y.GBON",
+    "10Y": "B.10Y.GBON",
+}
+
+# Numeric tenor stamp on returned ``Observation``s. 12M = 1.0 year
+# (Norges Bank labels the 1Y tenor as ``12M`` whereas TE labels its
+# closest equivalent ``NORYIELD52W:GOV`` ≈ 52 weeks ≈ 1 year — they
+# resolve to the same canonical ``tenor_years=1.0`` post-deduplication
+# in the daily-curves dispatch).
+NORGESBANK_GBON_TENOR_YEARS: Final[dict[str, float]] = {
+    "3M": 0.25,
+    "6M": 0.5,
+    "12M": 1.0,
+    "3Y": 3.0,
+    "5Y": 5.0,
+    "7Y": 7.0,
+    "10Y": 10.0,
+}
+
+# Backwards-compatible 10Y alias (Sprint X-NO regression guard).
+NORGESBANK_GBON_10Y_KEY: Final[str] = NORGESBANK_GBON_TENOR_KEYS["10Y"]
 
 NORGESBANK_BASE_URL: Final[str] = "https://data.norges-bank.no/api/data"
 
@@ -337,20 +386,47 @@ class NorgesBankConnector:
             end,
         )
 
-    async def fetch_gbon_10y(self, start: date, end: date) -> list[Observation]:
-        """10Y generic Norwegian government bond yield — flow :data:`NORGESBANK_GBON_10Y_FLOW`.
+    async def fetch_govt_yield(
+        self,
+        tenor: str,
+        start: date,
+        end: date,
+    ) -> list[Observation]:
+        """Generic constant-maturity NOK govt-bond yield — flow :data:`NORGESBANK_GBON_FLOW`.
 
-        Constant-maturity 10-year benchmark. Landing point for M4 FCI NO
-        10Y input (CAL-NO-M4-FCI). Tenor is overridden to 10.0 years on
-        the returned Observations (vs the 0.01 default
-        :func:`fetch_series` stamps for short-rate use).
+        Routes to the appropriate ``B.{TENOR}.GBON`` series key per
+        :data:`NORGESBANK_GBON_TENOR_KEYS`. Stamps numeric
+        ``tenor_years`` on returned Observations per
+        :data:`NORGESBANK_GBON_TENOR_YEARS`.
+
+        Supported tenors (Sprint 7B Commit 2 empirical, 2026-04-26):
+        ``3M`` / ``6M`` / ``12M`` / ``3Y`` / ``5Y`` / ``7Y`` / ``10Y``.
+        Calling with any unsupported value (notably ``"2Y"``, which is
+        empirically absent from this dataflow) raises
+        :class:`DataUnavailableError` with the supported-tenor list.
         """
+        if tenor not in NORGESBANK_GBON_TENOR_KEYS:
+            msg = (
+                f"Norges Bank GOVT_GENERIC_RATES tenor must be one of "
+                f"{sorted(NORGESBANK_GBON_TENOR_KEYS)}; got {tenor!r}"
+            )
+            raise DataUnavailableError(msg)
+        key = NORGESBANK_GBON_TENOR_KEYS[tenor]
+        tenor_years = NORGESBANK_GBON_TENOR_YEARS[tenor]
         obs = await self.fetch_series(
-            f"{NORGESBANK_GBON_10Y_FLOW}/{NORGESBANK_GBON_10Y_KEY}",
+            f"{NORGESBANK_GBON_FLOW}/{key}",
             start,
             end,
         )
-        return [o.model_copy(update={"tenor_years": 10.0}) for o in obs]
+        return [o.model_copy(update={"tenor_years": tenor_years}) for o in obs]
+
+    async def fetch_gbon_10y(self, start: date, end: date) -> list[Observation]:
+        """10Y generic Norwegian government bond yield — thin wrapper over :meth:`fetch_govt_yield`.
+
+        Preserved for Sprint X-NO callers + M4 FCI NO 10Y plumbing
+        (CAL-NO-M4-FCI). Equivalent to ``fetch_govt_yield("10Y", ...)``.
+        """
+        return await self.fetch_govt_yield("10Y", start, end)
 
     async def aclose(self) -> None:
         await self.client.aclose()
