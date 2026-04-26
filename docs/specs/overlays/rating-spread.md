@@ -303,3 +303,101 @@ Scope boundaries. O que este overlay **não** faz:
 - Does not integrate minor agencies (Scope, R&I, JCR) — 4 majors only em v2.
 - Does not re-rate em response a market moves — ratings são institutional opinions; market-implied ratings (Merton DD) são escopo separado em `integration/diagnostics`.
 - Does not use TE (Trading Economics) ratings como primary ou fallback — rejected em D0 audit (2026-04-18) porque TE `/ratings/historical/{country}` endpoint retornou latest 2022-09-09 (~4Y stale). Per v0.2 bump: `damodaran_annual_historical` substitui TE para pre-2023 backfill; agency scrape forward para ≥ 2023.
+
+## 12. Country scope (T1 cohort)
+
+Per-country shipping status para o rating-spread overlay no T1 cohort.
+Tracker complementa `country_tiers.yaml` flag `rating_spread_live` e
+cross-referencia o ledger Sprint 4 + Sprint 6 (closure
+CAL-RATING-COHORT-EXPANSION 2026-04-26).
+
+> **Nota sobre TE empirical refresh** (post-D0 2026-04-18): D0 audit
+> rejected TE ratings como stale (latest 2022-09). Reality 2026-04-25
+> via Sprint 4 empirical probe revelou que TE Premium `/ratings` +
+> `/ratings/historical/{country}` endpoints estão **current** (latest
+> action 2026-03-06 Portugal) — D0 finding outdated. Sprint 4 ships
+> TE-driven backfill como Path 1 stop-gap pre `connectors/sp_ratings`
+> + peers (Phase 2+ scope). Spec §2 source priority unchanged:
+> TE = NOT primary (per D0 dated finding); pero shipped data layer
+> reusada até agency scrape connectors landem.
+
+### 12.1 Shipped (15 países, post Sprint 6 2026-04-26)
+
+| ISO | Country | Sprint shipped | `ratings_agency_raw` | `ratings_consolidated` |
+|---|---|---|---|---|
+| US  | United States  | Sprint 4 (2026-04-25) |  32 |  28 |
+| DE  | Germany        | Sprint 4              |  19 |  13 |
+| FR  | France         | Sprint 4              |  46 |  40 |
+| IT  | Italy          | Sprint 4              |  81 |  74 |
+| ES  | Spain          | Sprint 4              |  81 |  73 |
+| PT  | Portugal       | Sprint 4              | 104 |  96 |
+| GB  | United Kingdom | Sprint 4              |  44 |  37 |
+| JP  | Japan          | Sprint 4              |  54 |  48 |
+| CA  | Canada         | Sprint 4              |  34 |  28 |
+| AU  | Australia      | Sprint 4              |  35 |  29 |
+| NL  | Netherlands    | Sprint 6 (2026-04-26) |  19 |  16 |
+| NZ  | New Zealand    | Sprint 6              |  41 |  37 |
+| CH  | Switzerland    | Sprint 6              |  12 |   9 |
+| SE  | Sweden         | Sprint 6              |  32 |  29 |
+| NO  | Norway         | Sprint 6              |  14 |  12 |
+
+Counts measured 2026-04-26 post-Sprint-6 backfill; rows in
+`ratings_agency_raw` (snapshot + historical actions) and
+`ratings_consolidated` (per-(country, date, rating_type) tuple).
+Consolidated < raw because multi-agency rating events on the same
+action_date collapse into a single consolidated row. Sprint 6 países
+have shallower archives (CH 12, NO 14, NL 19) reflecting AAA-region
+stable sovereigns with few rating events vs. Sprint 4 EA periphery
+high-volatility cohort (PT 104, IT 81, ES 81).
+
+### 12.2 Deferred (DK; Phase 5+)
+
+DK rating-spread expansion **deferred Phase 5+** per ADR-0010 strict
+T1-ONLY enforcement through Phase 4. DK is classified T2 in
+`country_tiers.yaml:91`; ADR-0010 forbids T2 surface in Phase 1-4.
+
+EA aggregate is **excluded by design** (currency unions don't issue
+sovereign debt rated by S&P/Moody's/Fitch/DBRS) — not a deferral, a
+non-requirement (see §11).
+
+CAL-RATING-DK-PHASE5 candidate filed in Sprint 6 retrospective §9 —
+re-evaluate when ADR-0010 lifts T2 lock (Phase 5+) or when DK is
+promoted T2→T1 in `country_tiers.yaml`.
+
+### 12.3 Source-resolution policy
+
+Source priority unchanged from spec §2 v0.2 (D0 finding preserved
+as historical record):
+
+1. **Path 1 — Agency scrape connectors** (forward, event-driven 4h
+   poll): `connectors/sp_ratings` + `connectors/moodys_ratings` +
+   `connectors/fitch_ratings` + `connectors/dbrs_ratings` —
+   **Phase 2+ scope, not yet shipped**.
+2. **Path 2 — Damodaran annual historical** (`damodaran_annual_historical`):
+   pre-2023 baseline (annual granularity) — Phase 2+ scope.
+3. **Path 1-stop-gap — TE Premium** (Sprint 4 empirical refresh):
+   shipped pre-Phase 2 as the de-facto data layer for both current
+   snapshot + multi-decade historical (TE archive depth verified
+   1949-02-05 → 2026-04-26 across the 15-país cohort).
+
+Source priority encoded in `src/sonar/overlays/rating_spread_backfill.py`
+(`backfill_te_current_snapshot` + `backfill_te_historical`). Replacement
+by Path 1 agency-scrape connectors is gated on Phase 2+ schedule (no
+sprint scoped yet — see `docs/backlog/calibration-tasks.md`
+forward-looking section).
+
+### 12.4 Coverage metrics
+
+- T1 shipped post-Sprint-6: **15 sovereign países** (Sprint 4 cohort
+  10 + Sprint 6 expansion 5).
+- DK deferred Phase 5+ (1 país); EA aggregate non-requirement.
+- TE invalid token rate: 4 / 121 fetched (3.3 %) on Sprint 6 cohort
+  (NZ Moody's `Aa`/`Aa`/`Baa` truncated; NO Moody's `\tAaa`
+  whitespace) — consistent with Sprint 4 baseline (~0.5 %, 5/971).
+  Both runs: log + skip + flag, not HALT.
+- `ratings_agency_raw` total: **648 rows** (Sprint 4 baseline 491 +
+  Sprint 6 contribution 118 + incremental TE 7d-cache misses).
+- `ratings_consolidated` total: **569 rows** (Sprint 4 baseline 466
+  + Sprint 6 contribution 103).
+- Calibration table: 22 rows (notch 0-21, calibration_date 2026-04-01,
+  unchanged since Sprint 4).
