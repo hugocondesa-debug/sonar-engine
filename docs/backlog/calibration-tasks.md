@@ -3586,3 +3586,15 @@ as sub-bullets below when it differs materially from peer countries.
 - **Impact if unresolved:** Expected Inflation Phase 2 T1 coverage % uncertain — blocks honest L2 100% milestone declaration. Downstream nominal-real conversions for cross-country MSC/FCS may quietly fall through to NULL flags.
 - **Estimate:** 1-2 sprints CC (audit + DERIVED expansion ~1 sprint; SURVEY connector sprint potentially +1).
 - **Related:** CAL-042 (per-tenor PT-EA differential, Phase 2 deferral); CAL-043 (boe_dmp/boj_tankan connector validation, Week 4+ deferral); ADR-0009 v2 (TE Path 1 mandatory probe discipline).
+
+### CAL-TEST-CYCLES-FIXTURE-SEED-REGRESSION — Test fixture seed failing for US monetary subindices
+- **Priority:** LOW — does not affect production pipeline; pre-existing fixture issue inherited by Sprint 7B Commit 1.
+- **Trigger:** Sprint 7B Commit 1 pre-push gate 2026-04-26 surfaced 2 failing tests inherited from parent SHA c890033: `tests/integration/test_cycles_composites.py::TestOrchestratorSmoke::test_us_smoke_end_to_end` + `tests/unit/test_cycles/test_financial_fcs.py::TestComputeFcsHappy::test_us_full_stack`. Failure signal: `cycles.msc.skipped country=US error="Composite requires >= 3 sub-indices; got 0 (missing: ['CS', 'M1', 'M2', 'M3', 'M4'])"` — seed function inserts zero rows visible to composite reader.
+- **Required work:**
+  1. Audit `_seed_all` (`tests/integration/test_cycles_composites.py`) and `_seed_f_rows` (`tests/unit/test_cycles/test_financial_fcs.py`) seed functions.
+  2. Verify schema names used (canonical: `monetary_m1_effective_rates` / `monetary_m2_taylor_gaps` / `monetary_m4_fci` / `financial_cycle_scores` / `credit_cycle_scores`; M3 absent — consistent with L3 M3 4/16 backlog state).
+  3. Fix seed function row insertions to populate in-memory test session correctly.
+  4. Validate composite readers (`compute_all_cycles`, `compute_fcs`) read from same schema names as seed functions write.
+- **Impact if unresolved:** Pre-push gate continues to surface 2 failures; future sprints continue to defer push or invoke option 2 (push + file CAL) each time. Test reliability degraded.
+- **Estimate:** 2-3h dedicated test-hygiene sprint.
+- **Related:** Sprint 7B Commit 1 (this sprint, defer-and-track); Week 10 schema consolidation potential origin.
