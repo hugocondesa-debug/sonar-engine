@@ -2666,6 +2666,65 @@ as sub-bullets below when it differs materially from peer countries.
   `CAL-CH-M3`, `CAL-SE-M3`, `CAL-NO-M3`, `CAL-DK-M3`
   (8 items → 1).
 
+### CAL-RATING-COHORT-EXPANSION — Rating-spread T1 cohort 10→15 países ✅ CLOSED
+
+- **Status:** CLOSED 2026-04-26 via Week 11 Sprint 6 (branch
+  `sprint-6-l2-rating-spread-cohort-expansion`). Opened informally by
+  Sprint 4 (commit `f2cc4ef`, 2026-04-25) as future-sprint marker
+  embedded in `src/sonar/overlays/rating_spread_backfill.py:14` and
+  `tests/unit/test_overlays/test_rating_spread_te.py:241` —
+  uncatalogued in this file at Sprint 4 close.
+- **Scope shipped:**
+  - `TIER1_COUNTRIES` tuple extended 10 → 15 in
+    `src/sonar/overlays/rating_spread_backfill.py` (append NL, NZ,
+    CH, SE, NO).
+  - `TE_COUNTRY_OVERRIDES_TIER1` dict extended 10 → 15 (5 TE-name →
+    ISO α-2 entries; verified empirically against TE Premium
+    `/ratings` snapshot 2026-04-26).
+  - `country_tiers.yaml` `rating_spread_live: true` flag added for
+    NL+NZ+CH+SE+NO (Sprint 4 cohort flag back-fill = future
+    janitorial task; TIER1_COUNTRIES is single source of truth).
+  - `docs/specs/overlays/rating-spread.md` §12 country-scope appendix
+    added (Shipped / Deferred / Source-resolution / Coverage metrics).
+  - Sprint 6 amendment 2026-04-26 reduced cohort 6 → 5 (DK removed
+    per ADR-0010 strict T1-ONLY through Phase 4; DK is T2 in
+    `country_tiers.yaml:91`).
+- **Tier B verification (engine DB post-backfill 2026-04-26):**
+  - `ratings_agency_raw` 648 (Sprint 4 baseline 491 + Sprint 6
+    contribution +118 + ~39 incremental TE 7d-cache misses).
+  - `ratings_consolidated` 569 (Sprint 4 baseline 466 + Sprint 6
+    +103).
+  - `ratings_spread_calibration` 22 (unchanged).
+  - 4 agencies present (SP=216, FITCH=175, MOODYS=157, DBRS=100).
+  - Notch range [8.75, 21.25] within ck_rc_notch [-1.0, 22.0].
+  - 15/15 sovereign T1 países represented; all 5 new país in
+    consolidated table (CH=9, NL=16, NO=12, NZ=37, SE=29).
+  - 4 invalid tokens (Sprint 4 pattern: NZ Moody's `Aa`/`Aa`/`Baa`
+    truncated; NO Moody's `\tAaa` whitespace prefix) — log + skip +
+    flag, not HALT.
+  - TE quota delta: 6 calls (~0.12 pp); post-Sprint baseline ~40-41 %.
+- **Numerical shortfall vs brief §6 thresholds (data-ceiling, not
+  execution gap):**
+  - agency_raw 648 vs brief target ≥660 (−12 short).
+  - consolidated 569 vs brief target ≥580 (−11 short).
+  - Root cause: TE archive depth ceiling for sparse high-grade
+    Nordic-Alpine sovereigns (CH 8 historical actions; NO 11; NL 15)
+    — these países have stable AAA-region ratings with very few
+    rating events. Brief target was estimated from Sprint 4 PT/IT/ES
+    (96/81/81 actions = high-volatility EA periphery cohort).
+    See Sprint 6 retrospective §5 + §9 for full analysis.
+- **Forward-looking residuals (NOT this sprint):**
+  - DK rating-spread expansion deferred Phase 5+ — captured as
+    CAL-RATING-DK-PHASE5 candidate in Sprint 6 retrospective §9
+    (option B retro filing per Hugo decision; no separate CAL entry
+    here).
+  - Brief target heuristic methodology refinement for sparse/stable
+    cohorts (CAL-RATING-COHORT-TARGET-CALIBRATION candidate, low
+    priority) — captured in Sprint 6 retrospective §9.
+  - Sprint 4 cohort `rating_spread_live: true` yaml flag back-fill
+    (US/DE/FR/IT/ES/PT/GB/JP/CA/AU) = future janitorial task; not a
+    blocker.
+
 ### CAL-EXPINF-LIVE-ASSEMBLER-WIRING — US EXPINF live wiring → M3 FULL ✅ CLOSED
 
 - **Status:** CLOSED 2026-04-23 via Week 11 Sprint Q (branch
