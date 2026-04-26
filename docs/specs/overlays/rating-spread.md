@@ -230,7 +230,7 @@ CREATE TABLE ratings_consolidated (
     country_code             TEXT    NOT NULL,
     date                     DATE    NOT NULL,
     rating_type              TEXT    NOT NULL CHECK (rating_type IN ('FC','LC')),
-    consolidated_sonar_notch REAL    NOT NULL CHECK (consolidated_sonar_notch BETWEEN 0 AND 21),
+    consolidated_sonar_notch REAL    NOT NULL CHECK (consolidated_sonar_notch BETWEEN -1.0 AND 22.0),
     notch_fractional         REAL    NOT NULL,
     agencies_count           INTEGER NOT NULL CHECK (agencies_count BETWEEN 0 AND 4),
     agencies_json            TEXT    NOT NULL,            -- {"SP":15,"MOODYS":15,...}
