@@ -48,8 +48,8 @@ tiers:
     - { iso_code: GB, country: United Kingdom, aliases: [UK] }
     - { iso_code: JP, country: Japan }
     - { iso_code: CA, country: Canada }
-    - { iso_code: AU, country: Australia }
-    - { iso_code: NZ, country: New Zealand }
+    - { iso_code: AU, country: Australia, curves_live: true }
+    - { iso_code: NZ, country: New Zealand, curves_path_2_pending: true }
     - { iso_code: CH, country: Switzerland }
     - { iso_code: NO, country: Norway }
     - { iso_code: SE, country: Sweden }
