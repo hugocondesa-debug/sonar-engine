@@ -905,6 +905,107 @@ IT/ES/FR/PT + AU). Zero T1 delta. Value shipped: methodology gap closed +
 pattern library v2.3 formalmente codificada + Path 2 cohort sprint
 empiricamente unblocked.
 
+## Addendum Sprint 5B (2026-04-26) — Europa Nórdica/Alpina TE Path 1 3ª confirmação (CH/SE/NO/DK)
+
+Sprint 5B (Week 11 Day 3) executou re-probe de confirmação para o
+subset Europa Nórdica/Alpina (CH + SE + NO + DK) do T1 sparse cohort,
+em paralelo com Sprint 5A APAC (AU + NZ; CC separado). Brief §2
+mandatório TE Path 1 probe matrix per country pré-implementation;
+brief §5 Liberal HALT discipline cap (≤2 cohort-wide → continue;
+≥3 → sprint-wide HALT).
+
+### Resultado empírico Sprint 5B (2026-04-26)
+
+| Country | Sprint T (2026-04-23) | Sprint T-Retry (2026-04-24) | Sprint 5B (2026-04-26) | Delta vs Retry | S1 upgrade? |
+|---|---|---|---|---|---|
+| CH | 2 (2Y, 10Y) | 2 (2Y, 10Y) | **2** (2Y, 10Y) | 0 | ❌ |
+| SE | 2 (2Y, 10Y) | 2 (2Y, 10Y) | **2** (2Y, 10Y) | 0 | ❌ |
+| NO | 3 (6M, 52W, 10Y) | 3 (6M, 52W, 10Y) | **3** (6M, 52W, 10Y) | 0 | ❌ |
+| DK | 2 (2Y, 10Y) | 2 (2Y, 10Y) | **2** (2Y, 10Y) | 0 | ❌ |
+
+S1 upgrade rate Sprint 5B: **0/4 = 0 %** (perfeitamente alinhado com
+v2.3 expected-state-after-multi-prefix-exhaustion). Símbolo set, obs
+counts (+5 a +9 vs. T-Retry, correspondente a ~3 trading days
+appended), latest dates (24/04/2026 — 2 days stale @ probe time)
+todos consistentes com daily-cadence stable feed.
+
+### Liberal HALT cap activation
+
+Brief §5 Liberal HALT cap (≥3 HALT-0 cohort-wide → sprint-wide HALT)
+**activated** por Sprint 5B sozinho (4 ≥ 3) independentemente do
+resultado paralelo 5A. Sprint-wide HALT is the autonomous decision
+sob CC autonomy per CLAUDE.md §11 (Hugo é juiz; specs canónicos;
+nunca inventar).
+
+### v3 amendment NÃO formalizado
+
+Brief §5 condiciona ADR-0009 v3 amendment a "if systemic TE issue".
+v2.3 (Sprint T-Retry, 2026-04-24) já codifica formalmente o
+systemic issue:
+
+- v2.3.1 — `/markets/bond` autoridade canónica.
+- v2.3.2 — multi-prefix families canonical (não excepção).
+- v2.3.3 — ISO 4217 currency code ≠ TE prefix (falsificada).
+
+Sprint 5B é **3rd consecutive empirical confirmation** sob v2.3 model
+— reinforça o ADR existente, não introduz nova regra material. Bump
+v2.3 → v3.0 sem alteração de regra é methodology versioning theatre
+contra CLAUDE.md §4 frozen-contracts discipline. Hugo é juiz se v3
+bump justificado pós-Path-2 cohort sprint Week 11+.
+
+### Ledger v2 actualizado ao fecho Sprint 5B
+
+**Inversões TE Path 1**: IT + ES + FR + PT + AU → **5** (unchanged).
+
+**Não-inversões S2 HALT-0 (Path 2 warranted)**: NL (Sprint M) + NZ +
+CH + SE + NO + DK (Sprint T → Sprint T-Retry → **Sprint 5B
+re-confirmed × 3**) → **6 não-inversões** (unchanged).
+
+Ledger ratio pós-5B: 5 inversões : 6 não-inversões. Estado idêntico
+ao pós-T-Retry; Sprint 5B só adiciona 3rd-stamp empírico para 4 dos
+6 países S2.
+
+### Pattern library — observação heurística (não codificada)
+
+State stability observed across 3 consecutive probes (3-day window
+2026-04-23/24/26): zero structural delta para CH/SE/NO/DK.
+Implicação: para sparse-T1 países onde TE Path 1 falha por
+structural mid-tenor gap (não por intermittent feed issues), a
+re-confirmação converge trivialmente após o 1º multi-prefix probe.
+
+**Heurística candidata (futura v2.4 considerada se ≥1 caso
+adicional)**: após ≥2 confirmações S2 HALT-0 em probes consecutivos
+sob v2.3 multi-prefix discipline, eliminar re-probe mandatory cycle
+e proceder directamente para Path 2 cohort sprint. Sprint 5B é o
+1º exemplo onde a 3ª probe seria desnecessária se esta heurística
+estivesse codificada (custo: ~10 TE calls + ~30 min CC time
+evitáveis). Não codificado aqui — único exemplo, não generalizável.
+
+### Follow-ups (Sprint 5B addendum)
+
+1. **`CAL-CURVES-{CH,SE,NO,DK}-PATH-2`** recebem Sprint 5B
+   re-confirmation stamp (3rd) em `docs/backlog/calibration-tasks.md`
+   (C2 commit complementar).
+2. **Path 2 cohort sprint Week 11+** continua over-justified
+   empiricamente — 3 confirmações sob v2.3 discipline para 4 países
+   é evidência exausta. Recomendação: priorizar DK (1-2h, reusable
+   `NationalbankenConnector` Sprint Y-DK), CH (2-3h, reusable
+   `SnbConnector` Sprint V-CH), SE (2-3h, reusable
+   `RiksbankConnector` Sprint W-SE), NO (2-3h, reusable
+   `NorgesbankConnector` Sprint X-NO).
+3. **Sprint 5A APAC paralelo decision** (AU + NZ): assumindo NZ
+   permanece S2 HALT-0 sob v2.3 (Sprint T-Retry confirmou), 5A pode
+   shipar AU se ainda não estiver no main + stamp NZ. CC separado.
+4. **NL paralelo**: `CAL-CURVES-NL-DNB-PROBE` continua OPEN com
+   Sprint M stamp; complemento Path 2 cohort sprint.
+
+### Post-Sprint 5B coverage state
+
+**T1 curves coverage 11/16** (unchanged vs. post-Sprint-T-Retry).
+Zero T1 delta. Value shipped: 3rd-confirmation stamp (CH/SE/NO/DK
+state stability under v2.3 over 3-day window) + ADR-0009 ledger
+update + sprint-wide HALT formal precedent.
+
 ## Referências
 
 - `docs/planning/week10-sprint-d-fr-bdf-brief.md` §9 fallback

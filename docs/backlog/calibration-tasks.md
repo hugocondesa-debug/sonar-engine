@@ -3391,11 +3391,12 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 2-3h CC probe + scaffold.
 - **Related:** ``CAL-CURVES-NL-DNB-PROBE`` (same Shape S2 pattern, Sprint M precedent); ``ADR-0009`` v2.2 (Sprint T addendum).
 
-### CAL-CURVES-CH-PATH-2 — CH sovereign yield curve via SNB Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #3 — Sprint T-Retry 2026-04-24 re-confirmed)**
+### CAL-CURVES-CH-PATH-2 — CH sovereign yield curve via SNB Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #3 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
 
 - **Priority:** LOW-MEDIUM — CHF haven-currency status makes CH curve valuable for cross-asset risk but TE coverage refutes "sovereign-market-size ⇒ TE coverage" prior.
 - **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GSWISS2:GOV`` n=584 2Y, ``GSWISS10:IND`` n=583 10Y). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. Hypothesis "CHF haven bid drives TE depth" refuted.
 - **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GSWISS / GCHF / GSWI / SWG / CHGB / SWISSGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Switzerland"` authoritative listing — **zero delta**. Only `GSWISS2:GOV` + `GSWISS10:IND` exist in TE regardless of probe depth. `GCHF` ISO-currency-code prefix candidate empirically falsified (per ADR-0009 v2.3 §7.5.3). S2 HALT-0 **re-confirmed**; Path 2 SNB cascade empirically justified. See `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` §3.2.
+- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` filtered + per-tenor `/markets/historical` daily-live verification — symbol set unchanged (2 tenors), obs counts +2 vs. T-Retry (n=586/585 → ~3 trading days appended), latest 24/04/2026 (≤7 day staleness window). Zero delta vs. v2.3 baseline. State frozen across 3 consecutive probes in 3-day window. Liberal HALT cap (≥3 cohort-wide) triggered by Sprint 5B alone (4 países HALT-0); ADR-0009 §5B addendum stamps reinforcement (no v3 amendment — v2.3 already canonical). See `docs/backlog/probe-results/sprint-5b-europe-sparse-confirmation-probe.md` §4.
 - **Current behavior:** ``daily_curves --country CH`` raises ``InsufficientDataError`` citing ``CAL-CURVES-CH-PATH-2``; ``--all-t1`` skips CH.
 - **Candidate Path 2 data paths (re-probe required):**
   1. **SNB data portal (data.snb.ch)** — primary candidate; SNB publishes sight-deposit rate via the already-wired ``SnbConnector`` (Sprint V-CH monetary), so auth + parsing infra is partially reusable. Yield-curve spectrum unknown pre-probe — need to explore the fixed-income data cube.
@@ -3405,11 +3406,12 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 2-3h CC probe + scaffold.
 - **Related:** ``CAL-CURVES-NL-DNB-PROBE`` / ``CAL-CURVES-NZ-PATH-2`` (same Shape S2 pattern); Sprint V-CH ``SnbConnector`` (reusable auth infra).
 
-### CAL-CURVES-SE-PATH-2 — SE sovereign yield curve via Riksbank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #4 — Sprint T-Retry 2026-04-24 re-confirmed)**
+### CAL-CURVES-SE-PATH-2 — SE sovereign yield curve via Riksbank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #4 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
 
 - **Priority:** LOW-MEDIUM — SEK Nordic market; per-country cost-of-capital cleanliness.
 - **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GSGB2YR:GOV`` n=580 2Y, ``GSGB10YR:GOV`` n=589 10Y, both uniformly ``:GOV`` suffix). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0.
 - **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GSGB / GSEK / GSWE / SWDGB / SEGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Sweden"` authoritative listing — **zero delta**. Only `GSGB2YR:GOV` + `GSGB10YR:GOV` exist in TE. `GSEK` ISO-currency-code prefix candidate empirically falsified (per ADR-0009 v2.3 §7.5.3). S2 HALT-0 **re-confirmed**; Path 2 Riksbank cascade empirically justified. See `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` §3.3.
+- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` filtered + per-tenor `/markets/historical` daily-live verification — symbol set unchanged (2 tenors), obs counts +2 vs. T-Retry (n=582/591 → ~3 trading days appended), latest 24/04/2026 (≤7 day staleness window). Zero delta vs. v2.3 baseline. State frozen across 3 consecutive probes in 3-day window. Liberal HALT cap (≥3 cohort-wide) triggered by Sprint 5B alone; ADR-0009 §5B addendum stamps reinforcement (no v3 amendment). See `docs/backlog/probe-results/sprint-5b-europe-sparse-confirmation-probe.md` §4.
 - **Current behavior:** ``daily_curves --country SE`` raises ``InsufficientDataError`` citing ``CAL-CURVES-SE-PATH-2``; ``--all-t1`` skips SE.
 - **Candidate Path 2 data paths (re-probe required):**
   1. **Riksbank statistics portal (www.riksbank.se/en-gb/statistics/)** — primary; Riksbank publishes SGB benchmark rates daily. Auth / parsing infra partially reusable via Sprint W-SE ``RiksbankConnector``.
@@ -3418,11 +3420,12 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 2-3h CC probe + scaffold.
 - **Related:** ``CAL-CURVES-NO-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint W-SE ``RiksbankConnector`` (reusable infra).
 
-### CAL-CURVES-NO-PATH-2 — NO sovereign yield curve via Norges Bank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #5 — Sprint T-Retry 2026-04-24 re-confirmed)**
+### CAL-CURVES-NO-PATH-2 — NO sovereign yield curve via Norges Bank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #5 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
 
 - **Priority:** LOW — NOK sovereign wealth offset → smaller public debt market; lowest priority of sparse T1 Path 2 cohort.
 - **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 3 tenors (``NORYIELD6M:GOV`` n=585 6M, ``NORYIELD52W:GOV`` n=587 1Y-equivalent, ``GNOR10YR:GOV`` n=582 10Y). 3 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. **Quirk**: NO spans two distinct prefix families simultaneously within TE — ``GNOR`` (Bloomberg-style, 10Y only) + ``NORYIELD`` (Norwegian convention, short-end). First T1 country to exhibit dual-prefix family coverage in TE — pattern-library signal (ADR-0009 v2.3 amendment candidate §9.2).
 - **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GNOR / NORYIELD / NOGB / NOKGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Norway"` authoritative listing — **zero delta**. Multi-prefix dual-family discipline (`GNOR` + `NORYIELD`) re-validated; only 3 tenors exist across both families in TE. Additional prefix candidates (`NOGB`, `NOKGB`) empirically falsified. S2 HALT-0 **re-confirmed**; Path 2 Norges Bank cascade empirically justified. Multi-prefix canonical rule now codified in ADR-0009 v2.3 §7.5.2. See `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` §3.4.
+- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` filtered + per-tenor `/markets/historical` daily-live verification — symbol set unchanged (3 tenors across `GNOR` + `NORYIELD` dual-prefix), obs counts +2 vs. T-Retry (n=584/589/587 → ~3 trading days appended), latest 24/04/2026 (≤7 day staleness window). Zero delta vs. v2.3 baseline. Dual-prefix multi-family v2.3 §7.5.2 re-validated. Liberal HALT cap (≥3 cohort-wide) triggered by Sprint 5B alone; ADR-0009 §5B addendum stamps reinforcement (no v3 amendment). See `docs/backlog/probe-results/sprint-5b-europe-sparse-confirmation-probe.md` §4.
 - **Current behavior:** ``daily_curves --country NO`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NO-PATH-2``; ``--all-t1`` skips NO.
 - **Candidate Path 2 data paths (re-probe required):**
   1. **Norges Bank statistics (www.norges-bank.no/en/topics/Statistics/)** — primary; Norges Bank publishes NGB yields daily. Auth / parsing infra partially reusable via Sprint X-NO ``NorgesbankConnector``.
@@ -3430,11 +3433,12 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 2-3h CC probe + scaffold.
 - **Related:** ``CAL-CURVES-SE-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint X-NO ``NorgesbankConnector`` (reusable infra).
 
-### CAL-CURVES-DK-PATH-2 — DK sovereign yield curve via Nationalbanken Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #6 — Sprint T-Retry 2026-04-24 re-confirmed)**
+### CAL-CURVES-DK-PATH-2 — DK sovereign yield curve via Nationalbanken Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #6 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
 
 - **Priority:** LOW-MEDIUM — DKK EUR-peg → DK curve tracks Bund + small premium, but per-country ERP/cost-of-capital pipelines still need it.
 - **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 2 tenors (``GDGB2YR:GOV`` n=592 2Y, ``GDGB10YR:GOV`` n=598 10Y). 2 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0.
 - **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GDGB / GDKK / GDEN / DKGB / DKKGB / DANGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Denmark"` authoritative listing — **zero delta**. Only `GDGB2YR:GOV` + `GDGB10YR:GOV` exist in TE. `GDKK` ISO-currency-code prefix candidate empirically falsified (per ADR-0009 v2.3 §7.5.3). S2 HALT-0 **re-confirmed**; Path 2 Nationalbanken cascade empirically justified (existing `NationalbankenConnector` infra reusable — lowest Path 2 cohort cost). See `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` §3.5.
+- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` filtered + per-tenor `/markets/historical` daily-live verification — symbol set unchanged (2 tenors), obs counts +2 vs. T-Retry (n=594/600 → ~3 trading days appended), latest 24/04/2026 (≤7 day staleness window). Zero delta vs. v2.3 baseline. State frozen across 3 consecutive probes in 3-day window. Liberal HALT cap (≥3 cohort-wide) triggered by Sprint 5B alone; ADR-0009 §5B addendum stamps reinforcement (no v3 amendment). DK retains lowest Path 2 cost (1-2h CC) given `NationalbankenConnector` infra. See `docs/backlog/probe-results/sprint-5b-europe-sparse-confirmation-probe.md` §4.
 - **Current behavior:** ``daily_curves --country DK`` raises ``InsufficientDataError`` citing ``CAL-CURVES-DK-PATH-2``; ``--all-t1`` skips DK.
 - **Candidate Path 2 data paths (re-probe required):**
   1. **Danmarks Nationalbanken Statsbank (nationalbanken.statbank.dk)** — primary; Nationalbanken publishes DGB yields daily. Auth / parsing infra largely reusable via Sprint Y-DK ``NationalbankenConnector`` (which already handles CD-rate vs discount-rate divergence during negative-rate era — ver retro §4).
