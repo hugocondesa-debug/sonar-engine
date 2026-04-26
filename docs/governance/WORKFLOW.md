@@ -227,9 +227,82 @@ Meta redundante com CAL-138 retro disciplina: incidentes
 documentados com root cause + recovery time permitem curvas de
 aprendizagem comparáveis cross-sprint.
 
+## SESSION_STATE update mandate (post-Sprint A 2026-04-26)
+
+Hybrid governance pattern shipped Sprint A: `docs/SESSION_STATE.md`
+é o canonical **machine-readable factual state** da engine,
+sincronizado pelo CC autonomamente post-sprint. Companion ao
+`SESSION_CONTEXT.md` mantido em claude.ai Project knowledge (narrative
++ decisions, copy/paste-driven by Hugo upon retro close).
+
+### Mandate
+
+Cada sprint **deve** actualizar `docs/SESSION_STATE.md` como parte do
+retrospective commit (ou commit dedicado se mais limpo). O update
+obrigatório cobre:
+
+- Phase status + completion estimate
+- Last sprint shipped (ID, branch, SHA range, outcome 1-line)
+- Coverage table updates (overlays + indices + cycles para qualquer
+  delta de cobertura T1)
+- Active CALs surface changes (filings novos + closures)
+- Test infrastructure status (pre-push gate, flakes activos)
+- TE quota delta
+- Active worktrees + tmux (se in-flight)
+- Next sprint candidates (refresh based on backlog priority post-sprint)
+
+Quando uma sprint não toca certas dimensões (ex: governance-only
+sprint sem coverage delta), preservar o conteúdo existente para
+essa secção em vez de remover ou esvaziar.
+
+### Field schema canonical
+
+| Secção | Conteúdo | Forma |
+|---|---|---|
+| Phase | Current / completion estimate / target | bullets |
+| Last sprint shipped | ID / branch / SHA range / outcome 1-line | bullets |
+| Coverage by overlay/layer | T1 % + countries live + gaps | table (L0-L4 rows) |
+| Path 2 cohort | Países deferred + CAL ref | bullets |
+| Active high-priority CALs | CAL-id + 1-line context | bullets |
+| Test infrastructure | Pre-push gate status + active flakes + recent CAL closures | bullets |
+| TE quota | Tier + consumption % + sprint delta | bullets |
+| Pipelines production | systemd timers + live pipelines | bullets |
+| Active worktrees + tmux | Path + sprint | bullets (clear if none) |
+| Next sprint candidates | Backlog priority refresh | bullets |
+
+### Update discipline
+
+- **Quem actualiza**: CC (autonomously post-sprint retro).
+- **Quando**: parte do retrospective commit OU commit dedicado dentro
+  do sprint final cluster.
+- **Como**: editar `docs/SESSION_STATE.md`; bump da linha
+  `*Last updated: <ISO-8601> by Sprint <id>.*` no top.
+- **Diff scope**: apenas secções com delta real; preservar baseline
+  para dimensões não tocadas.
+
+### Rationale
+
+SESSION_STATE.md elimina baseline drift observado Week 11 (Sprint 5A
+redundancy, Sprint 6 DK tier error, Sprint 7B 2Y binary inversion
+patterns). Pré-Sprint A, factual state vivia apenas em
+`SESSION_CONTEXT.md` (claude.ai Project knowledge) — não acessível ao
+CC em runtime → cada sprint começava com baseline rebuild parcial via
+re-leitura de `docs/status/`, `git log`, e specs scan. Hybrid pattern:
+
+- **GitHub-side** (`SESSION_STATE.md`) — machine-readable, factual,
+  CC-updatable. Carrega state que CC consulta no início da sprint.
+- **claude.ai-side** (`SESSION_CONTEXT.md`) — narrative, decisions,
+  meta-pattern observations. Hugo updates upon copy/paste-ready text
+  do chat retros.
+
+Sem partilha narrativa CC↔Hugo via SESSION_STATE.md (esse role
+permanece com SESSION_CONTEXT.md). SESSION_STATE.md é factual e
+machine-readable por desenho.
+
 ## Referências
 
 - [`../../CLAUDE.md`](../../CLAUDE.md) §5 Git rules (canonical não-negociáveis).
+- [`../SESSION_STATE.md`](../SESSION_STATE.md) — machine-readable factual state (auto-updated per mandate above).
 - [`DECISIONS.md`](DECISIONS.md) — quando commit vs quando ADR.
 - [`DOCUMENTATION.md`](DOCUMENTATION.md) — onde vive cada tipo de informação.
 - [`../adr/README.md`](../adr/README.md) — critério ADR vs commit normal.
