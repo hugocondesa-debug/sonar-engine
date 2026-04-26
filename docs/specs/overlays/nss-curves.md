@@ -25,7 +25,7 @@ Fit Nelson-Siegel-Svensson (6-param) to observed sovereign yields per country-da
 | T1 DE/EA-AAA | `connectors/bundesbank` (Svensson) | `connectors/ecb_sdw` | Bundesbank <5 bps |
 | T1 UK | `connectors/boe_yieldcurves` (Anderson-Sleath) | — | BoE <10 bps |
 | T1 JP | `connectors/mof_japan` | — | MoF <10 bps |
-| T1 FR/IT/ES/NL/CA/AU/CH/NO/SE/NZ | own CB / Treasury | `ecb_sdw` (EA members) / `fred` (mirrors) | <15 bps |
+| T1 FR/IT/ES/NL/CA/AU/CH/NO/SE/NZ | own CB / Treasury (NO via `connectors/norgesbank` Sprint 7B) | `ecb_sdw` (EA members) / `fred` (mirrors) | <15 bps |
 | T1 PT | `connectors/igcp` | `ecb_sdw` (PT 10Y mirror) | ECB SDW <15 bps |
 | T2 EMs (CN/IN/BR/MX/TR/ZA/KR/...) | `connectors/te` `/country/{c}/indicators` sovereign yields per tenor (Pattern 4 primary) | native CB where available (BCB/RBI/CBRT/...) | wider CI; target <30 bps vs TE sanity |
 | T3+ | `connectors/te` breadth quando disponível; ≥6 tenores required senão raise `InsufficientDataError` | — | no target (EM coverage caveat) |
@@ -243,7 +243,7 @@ CREATE INDEX idx_ycr_fitid ON yield_curves_real (fit_id);
 
 Per-country shipping status para o NSS overlay no T1 cohort (16 países). Tracker complementa `country_tiers.yaml` flags `curves_live` / `curves_path_2_pending` e cross-referencia o ledger ADR-0009 v2.3.
 
-### 12.1 Shipped (11/16 T1, post Sprint T 2026-04-23)
+### 12.1 Shipped (12/16 T1, post Sprint 7B 2026-04-26)
 
 | ISO | Connector | Path | Tenores | Sprint | RMSE @ canary |
 |---|---|---|---|---|---|
@@ -258,8 +258,9 @@ Per-country shipping status para o NSS overlay no T1 cohort (16 países). Tracke
 | FR | `connectors/te` | `/markets/historical` `GFRN` | 10 | I | 2.005 bps |
 | PT | `connectors/te` | `/markets/historical` `GSPT` | 10 | M | 7.24-7.53 bps |
 | AU | `connectors/te` | `/markets/historical` `GACGB` | 8 | T | live canary |
+| NO | `connectors/norgesbank` | Norges Bank DataAPI `GOVT_GENERIC_RATES` (GBON 3Y/5Y/7Y/10Y + TBIL 3M/6M/12M) | 7 (NS-reduced) | 7B | 3.689 bps |
 
-### 12.2 Deferred (5/16 T1, post Sprint T-Retry 2026-04-24)
+### 12.2 Deferred (4/16 T1, post Sprint 7B 2026-04-26)
 
 TE Path 1 HALT-0 confirmed (S2 cohort per ADR-0009 v2.2 classifier — < `MIN_OBSERVATIONS_FOR_SVENSSON=6` tenores via TE `/markets/bond` authoritative listing). Path 2 (national-CB cascade) tracked per per-country CAL.
 
@@ -269,23 +270,22 @@ TE Path 1 HALT-0 confirmed (S2 cohort per ADR-0009 v2.2 classifier — < `MIN_OB
 | NZ | 5 (3M, 6M, 1Y, 2Y, 10Y) | `CAL-CURVES-NZ-PATH-2` | RBNZ `www.rbnz.govt.nz/statistics` (table B2) | T + T-Retry (2026-04-23/24) |
 | CH | 2 (2Y, 10Y) | `CAL-CURVES-CH-PATH-2` | SNB `data.snb.ch` (potential native Svensson) | T + T-Retry |
 | SE | 2 (2Y, 10Y) | `CAL-CURVES-SE-PATH-2` | Riksbank `www.riksbank.se/en-gb/statistics/` | T + T-Retry |
-| NO | 3 (6M, 52W, 10Y) | `CAL-CURVES-NO-PATH-2` | Norges Bank `www.norges-bank.no/en/topics/Statistics/` | T + T-Retry |
 | DK | 2 (2Y, 10Y) | `CAL-CURVES-DK-PATH-2` | Nationalbanken `nationalbanken.statbank.dk` (cascade existente extensível) | T + T-Retry |
 
-Pipeline behaviour: `daily_curves --country <X>` para os 5 deferreds emite `InsufficientDataError` com pointer ao CAL respectivo (`_DEFERRAL_CAL_MAP` em `pipelines/daily_curves.py`); `--all-t1` itera apenas os 11 shipped e ignora os 5 deferred sem warning.
+Pipeline behaviour: `daily_curves --country <X>` para os 4 deferreds emite `InsufficientDataError` com pointer ao CAL respectivo (`_DEFERRAL_CAL_MAP` em `pipelines/daily_curves.py`); `--all-t1` itera apenas os 12 shipped e ignora os 4 deferred sem warning.
 
 ### 12.3 Path resolution policy (ADR-0009 v2.3)
 
 Per amendment Sprint H (formalizado v2 Sprint H + reforçado v2.3 Sprint T-Retry):
 
 1. **Path 1 — TE generic cascade**: probe sempre primeiro via `/markets/bond?Country=<C>` authoritative listing + per-tenor `/markets/historical` sweep (multi-prefix × multi-suffix grid). Threshold: ≥6 tenores cobrindo `MIN_OBSERVATIONS_FOR_SVENSSON` ⇒ S1 PASS, ship via `TE_YIELD_CURVE_SYMBOLS`.
-2. **Path 2 — National-CB direct**: apenas após Path 1 empiricamente exhausto. Ledger v2 fecho Sprint T-Retry: 5 inversões S1 (IT/ES/FR/PT/AU) vs 6 não-inversões S2 (NL/NZ/CH/SE/NO/DK).
+2. **Path 2 — National-CB direct**: apenas após Path 1 empiricamente exhausto. Ledger v2 fecho Sprint T-Retry: 5 inversões S1 (IT/ES/FR/PT/AU) vs 6 não-inversões S2 (NL/NZ/CH/SE/NO/DK). Sprint 7B 2026-04-26 fecha NO via Path 2 (Norges Bank DataAPI `GOVT_GENERIC_RATES`, 7 tenores via dual INSTRUMENT_TYPE GBON+TBIL; primeira ship Path 2 native cohort sob ADR-0009 v2.3) — ledger pós-7B: 5 S1 + 1 S2-recovered + 5 S2-still-deferred.
 3. **Path 3 — Aggregator fallback**: ECB SDW para EA aggregate (não per-country); Bundesbank + FRED reservados a DE + US respectivamente como native primários.
 
 Ledger histórico de probes detalhado em `docs/adr/ADR-0009-national-cb-connectors-ea-periphery.md` (addendums Sprints D/G/H/I/M/T/T-Retry).
 
 ### 12.4 Coverage metrics
 
-- T1 shipped post-Sprint-5A: **11/16** (68.75 %).
-- Path 2 cohort pending (Week 11+): 6 países (NL + 5 sparse-T1 non-EA); 5 com CAL OPEN, 1 com `CAL-CURVES-NL-DNB-PROBE` separately tracked.
-- Cross-validation tier 1 target (`<5 bps RMSE`) atingido por 9/11 shipped (excepções: PT 7.24-7.53 bps + CA NS-reduced ~5 bps borderline).
+- T1 shipped post-Sprint-7B: **12/16** (75 %).
+- Path 2 cohort pending (Week 11+): 5 países (NL + NZ/CH/SE/DK sparse-T1 non-EA); 4 com `CAL-CURVES-{NZ,CH,SE,DK}-PATH-2` OPEN, 1 com `CAL-CURVES-NL-DNB-PROBE` separately tracked. NO graduated post-Sprint-7B Path C pivot (Norges Bank Path 2 native cascade — first non-EA non-TE country to ship via native-CB direct under ADR-0009 v2.3).
+- Cross-validation tier 1 target (`<5 bps RMSE`) atingido por 10/12 shipped (excepções: PT 7.24-7.53 bps + CA NS-reduced ~5 bps borderline; NO @ 3.689 bps clears tier 1 despite NS-reduced fit).

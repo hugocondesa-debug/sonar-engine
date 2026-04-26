@@ -3479,18 +3479,27 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 2-3h CC probe + scaffold.
 - **Related:** ``CAL-CURVES-NO-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint W-SE ``RiksbankConnector`` (reusable infra).
 
-### CAL-CURVES-NO-PATH-2 — NO sovereign yield curve via Norges Bank Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #5 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
+### CAL-CURVES-NO-PATH-2 — NO sovereign yield curve via Norges Bank Path 2 cascade — **CLOSED · DONE-FULL (Sprint 7B 2026-04-26, Path C pivot)**
 
-- **Priority:** LOW — NOK sovereign wealth offset → smaller public debt market; lowest priority of sparse T1 Path 2 cohort.
-- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 3 tenors (``NORYIELD6M:GOV`` n=585 6M, ``NORYIELD52W:GOV`` n=587 1Y-equivalent, ``GNOR10YR:GOV`` n=582 10Y). 3 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. **Quirk**: NO spans two distinct prefix families simultaneously within TE — ``GNOR`` (Bloomberg-style, 10Y only) + ``NORYIELD`` (Norwegian convention, short-end). First T1 country to exhibit dual-prefix family coverage in TE — pattern-library signal (ADR-0009 v2.3 amendment candidate §9.2).
-- **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GNOR / NORYIELD / NOGB / NOKGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Norway"` authoritative listing — **zero delta**. Multi-prefix dual-family discipline (`GNOR` + `NORYIELD`) re-validated; only 3 tenors exist across both families in TE. Additional prefix candidates (`NOGB`, `NOKGB`) empirically falsified. S2 HALT-0 **re-confirmed**; Path 2 Norges Bank cascade empirically justified. Multi-prefix canonical rule now codified in ADR-0009 v2.3 §7.5.2. See `docs/backlog/probe-results/sprint-t-retry-multi-prefix-probe.md` §3.4.
-- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` filtered + per-tenor `/markets/historical` daily-live verification — symbol set unchanged (3 tenors across `GNOR` + `NORYIELD` dual-prefix), obs counts +2 vs. T-Retry (n=584/589/587 → ~3 trading days appended), latest 24/04/2026 (≤7 day staleness window). Zero delta vs. v2.3 baseline. Dual-prefix multi-family v2.3 §7.5.2 re-validated. Liberal HALT cap (≥3 cohort-wide) triggered by Sprint 5B alone; ADR-0009 §5B addendum stamps reinforcement (no v3 amendment). See `docs/backlog/probe-results/sprint-5b-europe-sparse-confirmation-probe.md` §4.
-- **Current behavior:** ``daily_curves --country NO`` raises ``InsufficientDataError`` citing ``CAL-CURVES-NO-PATH-2``; ``--all-t1`` skips NO.
-- **Candidate Path 2 data paths (re-probe required):**
-  1. **Norges Bank statistics (www.norges-bank.no/en/topics/Statistics/)** — primary; Norges Bank publishes NGB yields daily. Auth / parsing infra partially reusable via Sprint X-NO ``NorgesbankConnector``.
-  2. **Oslo Børs fixed income** — issuer-side market depth.
-- **Estimate:** 2-3h CC probe + scaffold.
-- **Related:** ``CAL-CURVES-SE-PATH-2`` / ``CAL-CURVES-DK-PATH-2`` (Nordic cohort); Sprint X-NO ``NorgesbankConnector`` (reusable infra).
+- **Priority:** LOW — closed.
+- **Trigger:** Sprint T 2026-04-23 per-tenor TE Path 1 probe returned only 3 tenors (``NORYIELD6M:GOV`` n=585 6M, ``NORYIELD52W:GOV`` n=587 1Y-equivalent, ``GNOR10YR:GOV`` n=582 10Y). 3 < ``MIN_OBSERVATIONS_FOR_SVENSSON=6`` → S2 HALT-0. **Quirk**: NO spans two distinct prefix families simultaneously within TE — ``GNOR`` (Bloomberg-style, 10Y only) + ``NORYIELD`` (Norwegian convention, short-end). First T1 country to exhibit dual-prefix family coverage in TE.
+- **Sprint T-Retry 2026-04-24 re-confirmation:** Multi-prefix Path 1 probe (prefixes `GNOR / NORYIELD / NOGB / NOKGB` × 31 tenors × 3 suffixes) + `/markets/bond?Country="Norway"` authoritative listing — **zero delta**. Multi-prefix dual-family discipline re-validated; 3 tenors only via TE. Multi-prefix canonical rule codified in ADR-0009 v2.3 §7.5.2.
+- **Sprint 5B 2026-04-26 re-confirmation (3rd):** `/markets/bond` + per-tenor `/markets/historical` — zero delta vs. v2.3 baseline. State frozen across 3 consecutive probes.
+- **Sprint 7B 2026-04-26 closure (Path C pivot):**
+  - **Commit 2 probe matrix**: `B.2Y.GBON` literal → 404; `B.02Y.GBON` zero-padded → 404; full-flow listing `/GOVT_GENERIC_RATES` → **200, 7 TENOR codes** (`['3Y', '3M', '6M', '12M', '10Y', '5Y', '7Y']`). 2Y empirically absent.
+  - **Commit 4 per-key resolution**: dataflow exposes 2 INSTRUMENT_TYPE values — `GBON` (govt bonds, 3Y/5Y/7Y/10Y) + `TBIL` (treasury bills, 3M/6M/12M). Sprint 7B Commit 3 GBON-only assumption corrected in Commit 4.
+  - **Hugo Path C pivot decision (2026-04-26)**: ship NO via Norges Bank Path 2 single-source (TE redundant since Norges Bank covers all TE tenors plus 4 more); 7 ≥ MIN_OBSERVATIONS=6 → NS-reduced fit (CA precedent), no Sprint 7A floor revision dependency.
+  - **Live canary metrics 2024-12-30**: 7 tenors / RMSE 3.689 bps (clears tier 1 <5 bps target despite NS-reduced) / confidence 0.75 / source_connector `norgesbank`.
+  - **Coverage delta**: TE 3 tenors → Norges Bank Path 2 native cascade 7 tenors. T1 curves coverage 11/16 → **12/16** (75 %).
+- **Code surface shipped Sprint 7B:**
+  - `src/sonar/connectors/norgesbank.py`: `fetch_govt_yield(tenor)` + `fetch_yield_curve_nominal/_linker` domain wrappers; `NORGESBANK_GBON_TENOR_KEYS` (7 entries, GBON+TBIL split); `NORGESBANK_GBON_TENOR_YEARS` + `NORGESBANK_GBON_TENOR_TO_CANONICAL_LABEL` (`12M` → `1Y` canonical).
+  - `src/sonar/pipelines/daily_curves.py`: NO branch in `_fetch_nominals_linkers`; `T1_CURVES_COUNTRIES` + `CURVE_SUPPORTED_COUNTRIES` 11 → 12; NO removed from `_DEFERRAL_CAL_MAP`; `NorgesBankConnector` instantiated in `_orchestrate_countries`.
+  - `src/sonar/pipelines/daily_monetary_indices.py` + `daily_cost_of_capital.py`: `_CURVES_SHIPPED_COUNTRIES` drift-guarded sets 11 → 12.
+  - `src/sonar/overlays/nss_curves_backfill.py`: `T1_SPOT_BACKFILL_COUNTRIES` 10 → 11.
+- **Lessons (codified for retro / pattern-library):**
+  - Brief binary architecture (Path A 2Y available / Path B exhausted) was insufficient when probe surfaced an orthogonal opportunity (mid-curve TENORs absent from TE). Pattern: ADR-0009 v2.3.1 full-flow listing discipline saved a T2-downgrade false-positive.
+  - Full-flow listing returns the TENOR dimension; for resource-key URL composition, **also resolve INSTRUMENT_TYPE dimension** (NO has GBON+TBIL split; Commit 3 missed it, Commit 4 caught it via per-key probe). Candidate ADR-0009 v2.3.4 amendment.
+- **Related:** Sprint X-NO ``NorgesbankConnector`` (reusable infra — extended in Sprint 7B); CAL-NO-M4-FCI (M4 FCI NO 10Y, deferred — unaffected, 10Y key unchanged); CAL-EXPINF-T1-AUDIT (NO BEI/SURVEY for DERIVED real curve, deferred).
 
 ### CAL-CURVES-DK-PATH-2 — DK sovereign yield curve via Nationalbanken Path 2 cascade — **OPEN (Week 11 Path 2; Sprint T non-inversion #6 — Sprint T-Retry 2026-04-24 + Sprint 5B 2026-04-26 re-confirmed × 3)**
 
