@@ -149,6 +149,7 @@ from sonar.config import settings
 from sonar.connectors.bundesbank import BundesbankConnector
 from sonar.connectors.ecb_sdw import EcbSdwConnector
 from sonar.connectors.fred import FredConnector
+from sonar.connectors.norgesbank import NorgesBankConnector
 from sonar.connectors.te import TE_YIELD_CURVE_SYMBOLS, TEConnector
 from sonar.db.models import ExpInflationCanonicalRow, NSSYieldCurveSpot
 from sonar.db.persistence import DuplicatePersistError, persist_nss_fit_result
@@ -288,13 +289,16 @@ T1_CURVES_COUNTRIES: tuple[str, ...] = (
     "FR",
     "PT",
     "AU",
+    "NO",
 )
 
-# Countries wired to a curve-fit path at Sprint T close. A country
-# outside this set passed to ``--country`` raises InsufficientDataError
-# with a pointer to the tracking CAL item.
+# Countries wired to a curve-fit path at Sprint 7B close (NO added via
+# Path C pivot — Norges Bank GOVT_GENERIC_RATES 7-tenor cascade after
+# 2Y empirical absence inverted the brief §6 binary architecture). A
+# country outside this set passed to ``--country`` raises
+# InsufficientDataError with a pointer to the tracking CAL item.
 CURVE_SUPPORTED_COUNTRIES: frozenset[str] = frozenset(
-    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"}
+    {"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU", "NO"}
 )
 
 # Periphery + sparse-T1 pointers surfaced in error messages so operators
@@ -315,7 +319,6 @@ _DEFERRAL_CAL_MAP: dict[str, str] = {
     "NZ": "CAL-CURVES-NZ-PATH-2",
     "CH": "CAL-CURVES-CH-PATH-2",
     "SE": "CAL-CURVES-SE-PATH-2",
-    "NO": "CAL-CURVES-NO-PATH-2",
     "DK": "CAL-CURVES-DK-PATH-2",
 }
 
@@ -324,10 +327,11 @@ async def _fetch_nominals_linkers(
     country: str,
     observation_date: date,
     *,
-    fred: FredConnector | None,
-    bundesbank: BundesbankConnector | None,
-    ecb_sdw: EcbSdwConnector | None,
-    te: TEConnector | None,
+    fred: FredConnector | None = None,
+    bundesbank: BundesbankConnector | None = None,
+    ecb_sdw: EcbSdwConnector | None = None,
+    te: TEConnector | None = None,
+    norgesbank: NorgesBankConnector | None = None,
 ) -> tuple[dict[str, Observation], dict[str, Observation], str]:
     """Connector dispatch — returns ``(nominals, linkers, source_connector)``.
 
@@ -369,6 +373,24 @@ async def _fetch_nominals_linkers(
             country="EA", observation_date=observation_date
         )
         return nominals, linkers, "ecb_sdw"
+    if country_upper == "NO":
+        # Sprint 7B Path C — Norges Bank GOVT_GENERIC_RATES native cascade.
+        # TE Path 1 for NO (6M / 52W / 10Y) is fully redundant: Norges
+        # Bank Path 2 covers the same tenors plus 4 more (3M / 3Y / 5Y /
+        # 7Y) and Hugo direction (2026-04-26) is "Path 2 native > TE
+        # aggregator" for shared tenors, so NO ships single-source
+        # Norges Bank. The 2Y is empirically absent (Sprint 7B Commit 2
+        # full-flow probe); 7-tenor coverage clears MIN_OBSERVATIONS=6.
+        if norgesbank is None:
+            msg = "NO yield curve requires NorgesBankConnector"
+            raise InsufficientDataError(msg)
+        nominals = await norgesbank.fetch_yield_curve_nominal(
+            country="NO", observation_date=observation_date
+        )
+        linkers = await norgesbank.fetch_yield_curve_linker(
+            country="NO", observation_date=observation_date
+        )
+        return nominals, linkers, "norgesbank"
     if country_upper in TE_YIELD_CURVE_SYMBOLS:
         if te is None:
             msg = f"{country_upper} yield curve requires TEConnector"
@@ -400,6 +422,7 @@ async def run_country(
     bundesbank: BundesbankConnector | None = None,
     ecb_sdw: EcbSdwConnector | None = None,
     te: TEConnector | None = None,
+    norgesbank: NorgesBankConnector | None = None,
 ) -> NSSFitResult:
     """Single-(country, date) end-to-end: fetch → fit → derive → persist.
 
@@ -416,6 +439,7 @@ async def run_country(
         bundesbank=bundesbank,
         ecb_sdw=ecb_sdw,
         te=te,
+        norgesbank=norgesbank,
     )
 
     labels = sorted(nominals.keys(), key=_label_to_years)
@@ -517,6 +541,7 @@ async def _orchestrate_countries(
         if have_te
         else None
     )
+    norgesbank = NorgesBankConnector(cache_dir=str(cache_dir / "norgesbank"))
 
     session = SessionLocal()
     outcomes = _CurveRunOutcomes()
@@ -542,6 +567,7 @@ async def _orchestrate_countries(
                     bundesbank=bundesbank,
                     ecb_sdw=ecb_sdw,
                     te=te,
+                    norgesbank=norgesbank,
                 )
                 outcomes.persisted.append(country_upper)
             except InsufficientDataError as exc:
@@ -583,6 +609,7 @@ async def _orchestrate_countries(
         await ecb_sdw.aclose()
         if te is not None:
             await te.aclose()
+        await norgesbank.aclose()
         session.close()
     return outcomes
 

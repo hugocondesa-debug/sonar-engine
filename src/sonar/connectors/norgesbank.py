@@ -20,18 +20,30 @@ X-NO probe + Sprint 7B Commit 2 mid-curve probe 2026-04-26):
   the key dimensions are ``FREQ=B`` (Business), ``INSTRUMENT_TYPE=KPRA``
   (Key policy rate), ``TENOR=SD`` (policy rate), ``UNIT_MEASURE=R``
   (Rate).
-* **``GOVT_GENERIC_RATES`` / ``B.{TENOR}.GBON``** — Generic government
-  bond yields (constant-maturity). Daily cadence. Sprint 7B Commit 2
-  full-flow listing (2026-04-26) confirmed seven live tenor codes:
-  ``3M``, ``6M``, ``12M``, ``3Y``, ``5Y``, ``7Y``, ``10Y``. **The 2Y
-  is empirically absent** from this dataflow (Probe 1+2 returned 404
-  on both literal ``B.2Y.GBON`` and zero-padded ``B.02Y.GBON`` keys);
-  15Y/20Y/30Y also absent. The 10Y series is the M4 FCI NO landing
-  point (CAL-NO-M4-FCI — deferred Sprint X-NO); the 6 mid-curve tenors
-  are Sprint 7B Path C cohort (NSS curves Path 2 native cascade).
-  Per-tenor mapping in :data:`NORGESBANK_GBON_TENOR_KEYS` /
+* **``GOVT_GENERIC_RATES`` / ``B.{TENOR}.{INSTRUMENT_TYPE}``** — Generic
+  government rate yields (constant-maturity). Daily cadence. Sprint 7B
+  Commit 2 full-flow listing (2026-04-26) plus per-key resolution
+  (Commit 4 follow-up 2026-04-26) confirmed seven live tenor codes
+  split across **two INSTRUMENT_TYPE values**:
+
+  - ``GBON`` (government bonds, long end): ``3Y``, ``5Y``, ``7Y``, ``10Y``.
+  - ``TBIL`` (treasury bills, short end): ``3M``, ``6M``, ``12M``.
+
+  **The 2Y is empirically absent** from this dataflow under either
+  instrument type (Probes 1+2 returned 404 on ``B.2Y.GBON`` literal
+  and ``B.02Y.GBON`` zero-padded; explicit per-key probe of
+  ``B.2Y.TBIL`` / ``B.1Y.GBON`` / ``B.12M.GBON`` also 404). 15Y/20Y/
+  30Y also absent. The 10Y series is the M4 FCI NO landing point
+  (CAL-NO-M4-FCI — deferred Sprint X-NO); the six other tenors are
+  Sprint 7B Path C cohort (NSS curves Path 2 native cascade — first
+  non-EA non-TE country to ship via native-CB direct under
+  ADR-0009 v2.3). Per-tenor mapping in
+  :data:`NORGESBANK_GBON_TENOR_KEYS` /
   :data:`NORGESBANK_GBON_TENOR_YEARS`; generic accessor
-  :meth:`NorgesBankConnector.fetch_govt_yield`.
+  :meth:`NorgesBankConnector.fetch_govt_yield`. The ``GBON`` suffix in
+  the constant name is historical (Sprint X-NO 10Y-only naming);
+  the dataflow is the canonical scope and includes both instrument
+  types.
 
 SDMX-JSON shape (both dataflows):
 
@@ -74,7 +86,7 @@ fall back to FRED OECD mirror per the Sprint X-NO cascade (TE primary
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import httpx
@@ -103,6 +115,7 @@ __all__ = [
     "NORGESBANK_GBON_10Y_KEY",
     "NORGESBANK_GBON_FLOW",
     "NORGESBANK_GBON_TENOR_KEYS",
+    "NORGESBANK_GBON_TENOR_TO_CANONICAL_LABEL",
     "NORGESBANK_GBON_TENOR_YEARS",
     "NORGESBANK_POLICY_RATE_FLOW",
     "NORGESBANK_POLICY_RATE_KEY",
@@ -124,14 +137,18 @@ NORGESBANK_GBON_FLOW: Final[str] = "GOVT_GENERIC_RATES"
 NORGESBANK_GBON_10Y_FLOW: Final[str] = NORGESBANK_GBON_FLOW
 
 # Per-tenor SDMX series keys observed live in Sprint 7B Commit 2 full-
-# flow listing (2026-04-26). The 2Y is empirically absent — both
-# ``B.2Y.GBON`` literal and ``B.02Y.GBON`` zero-padded returned 404
-# against this dataflow. 15Y/20Y/30Y also absent. ``fetch_govt_yield``
-# rejects any tenor not in this map.
+# flow listing (2026-04-26) plus Commit 4 per-key resolution. The
+# dataflow ``GOVT_GENERIC_RATES`` exposes two ``INSTRUMENT_TYPE`` values:
+# ``GBON`` (government bonds, long-end 3Y/5Y/7Y/10Y) and ``TBIL``
+# (treasury bills, short-end 3M/6M/12M). The 2Y is empirically absent
+# under either instrument type — ``B.2Y.GBON``, ``B.02Y.GBON``,
+# ``B.2Y.TBIL``, ``B.1Y.GBON``, ``B.12M.GBON`` all returned 404 against
+# this dataflow. 15Y/20Y/30Y also absent. ``fetch_govt_yield`` rejects
+# any tenor not in this map.
 NORGESBANK_GBON_TENOR_KEYS: Final[dict[str, str]] = {
-    "3M": "B.3M.GBON",
-    "6M": "B.6M.GBON",
-    "12M": "B.12M.GBON",
+    "3M": "B.3M.TBIL",
+    "6M": "B.6M.TBIL",
+    "12M": "B.12M.TBIL",
     "3Y": "B.3Y.GBON",
     "5Y": "B.5Y.GBON",
     "7Y": "B.7Y.GBON",
@@ -151,6 +168,22 @@ NORGESBANK_GBON_TENOR_YEARS: Final[dict[str, float]] = {
     "5Y": 5.0,
     "7Y": 7.0,
     "10Y": 10.0,
+}
+
+# Norges Bank SDMX TENOR code → canonical NSS tenor label
+# (:data:`sonar.overlays.nss._TENOR_LABEL_TO_YEARS`). The only divergence
+# is ``12M`` (Norges Bank) ↔ ``1Y`` (canonical); the rest are identity.
+# Used by :meth:`NorgesBankConnector.fetch_yield_curve_nominal` to expose
+# Norges Bank tenors under the canonical label vocabulary the daily-curves
+# dispatch expects.
+NORGESBANK_GBON_TENOR_TO_CANONICAL_LABEL: Final[dict[str, str]] = {
+    "3M": "3M",
+    "6M": "6M",
+    "12M": "1Y",
+    "3Y": "3Y",
+    "5Y": "5Y",
+    "7Y": "7Y",
+    "10Y": "10Y",
 }
 
 # Backwards-compatible 10Y alias (Sprint X-NO regression guard).
@@ -427,6 +460,68 @@ class NorgesBankConnector:
         (CAL-NO-M4-FCI). Equivalent to ``fetch_govt_yield("10Y", ...)``.
         """
         return await self.fetch_govt_yield("10Y", start, end)
+
+    async def fetch_yield_curve_nominal(
+        self,
+        country: str,
+        observation_date: date,
+    ) -> dict[str, Observation]:
+        """NO term-structure yield curve via :data:`NORGESBANK_GBON_FLOW`.
+
+        Returns a dict keyed by **canonical NSS tenor label** (3M, 6M,
+        1Y, 3Y, 5Y, 7Y, 10Y) with the latest non-null Observation per
+        tenor in a 7-day lookback window ending at ``observation_date``.
+        Mirrors the symmetric domain-wrapper signatures on
+        :class:`~sonar.connectors.fred.FredConnector` /
+        :class:`~sonar.connectors.bundesbank.BundesbankConnector` /
+        :class:`~sonar.connectors.te.TEConnector`.
+
+        The Norges Bank SDMX ``12M`` tenor surfaces under the canonical
+        ``1Y`` label per
+        :data:`NORGESBANK_GBON_TENOR_TO_CANONICAL_LABEL`. Tenors absent
+        from the live dataflow window (e.g. weekend gaps) are silently
+        omitted from the returned dict; soft-fail callers in the daily-
+        curves dispatch tolerate that.
+
+        Sprint 7B Path C ship — supports country=NO only. Coverage
+        7 ≥ ``MIN_OBSERVATIONS=6`` → NSS NS-reduced fit (CA precedent).
+        """
+        if country != "NO":
+            msg = f"Norges Bank yield curve only supports country=NO; got {country}"
+            raise ValueError(msg)
+
+        window_days = 7
+        start = observation_date - timedelta(days=window_days)
+        end = observation_date
+        out: dict[str, Observation] = {}
+        for nb_tenor, canonical_label in NORGESBANK_GBON_TENOR_TO_CANONICAL_LABEL.items():
+            try:
+                obs_list = await self.fetch_govt_yield(nb_tenor, start, end)
+            except DataUnavailableError:
+                continue
+            usable = [o for o in obs_list if o.observation_date <= observation_date]
+            if not usable:
+                continue
+            usable.sort(key=lambda o: o.observation_date)
+            out[canonical_label] = usable[-1]
+        return out
+
+    async def fetch_yield_curve_linker(
+        self,
+        country: str,
+        observation_date: date,  # noqa: ARG002 — symmetric signature with nominal
+    ) -> dict[str, Observation]:
+        """Inflation-indexed stub for NO — empty dict (DERIVED-only path).
+
+        Norway publishes no daily inflation-linked govt-bond curve. The
+        real curve falls through to the DERIVED path (nominal minus
+        E[π]) once the expected-inflation overlay wires NO BEI / SURVEY
+        input (CAL-EXPINF-T1-AUDIT).
+        """
+        if country != "NO":
+            msg = f"Norges Bank linker stub only supports country=NO; got {country}"
+            raise ValueError(msg)
+        return {}
 
     async def aclose(self) -> None:
         await self.client.aclose()

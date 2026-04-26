@@ -109,11 +109,13 @@ def test_t1_curves_countries_ordering_stable() -> None:
 
     Sprint H (IT + ES TE cascade, 2026-04-22) appended IT + ES; Sprint I
     (FR TE cascade, 2026-04-22) appended FR; Sprint M (PT TE cascade,
-    2026-04-23) appends PT; Sprint T (AU TE cascade, 2026-04-23) appends
-    AU (first sparse-T1 S1 PASS under ADR-0009 v2.2). The first ten
-    entries remain bit-stable with the Sprint M ordering for
-    journal/tool compatibility. NL + NZ/CH/SE/NO/DK stay deferred (Path 1
-    HALT-0 — per-country ``CAL-CURVES-{X}-PATH-2``).
+    2026-04-23) appended PT; Sprint T (AU TE cascade, 2026-04-23)
+    appended AU (first sparse-T1 S1 PASS under ADR-0009 v2.2). Sprint 7B
+    (Norges Bank Path 2 native cascade, 2026-04-26) appends NO — first
+    non-EA non-TE country to ship via native-CB direct under
+    ADR-0009 v2.3. The first eleven entries remain bit-stable with the
+    Sprint T ordering for journal/tool compatibility. NL + NZ/CH/SE/DK
+    stay deferred (Path 1 HALT-0 — per-country ``CAL-CURVES-{X}-PATH-2``).
     """
     assert T1_CURVES_COUNTRIES == (
         "US",
@@ -127,6 +129,7 @@ def test_t1_curves_countries_ordering_stable() -> None:
         "FR",
         "PT",
         "AU",
+        "NO",
     )
 
 

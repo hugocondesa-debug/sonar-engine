@@ -56,7 +56,9 @@ __all__ = [
 
 
 # Spot+zero+forwards+real backfill cohort. GB excluded — 1 580 spot
-# rows already shipped via Sprint P.2 BoE nominal archive.
+# rows already shipped via Sprint P.2 BoE nominal archive. NO appended
+# Sprint 7B (2026-04-26 Path C pivot — first non-EA non-TE country via
+# native-CB direct cascade, Norges Bank GOVT_GENERIC_RATES).
 T1_SPOT_BACKFILL_COUNTRIES: tuple[str, ...] = (
     "US",
     "DE",
@@ -68,6 +70,7 @@ T1_SPOT_BACKFILL_COUNTRIES: tuple[str, ...] = (
     "CA",
     "AU",
     "PT",
+    "NO",
 )
 
 # Spec §4 step 6 cohort split (Sprint 2 scope; matches

@@ -67,16 +67,24 @@ def test_dataflow_catalogue_canonical() -> None:
 def test_gbon_tenor_catalogue_sprint_7b() -> None:
     """Regression guard — Sprint 7B tenor map must stay stable.
 
-    Sprint 7B Commit 2 full-flow probe (2026-04-26) confirmed seven live
-    tenor codes (3M/6M/12M/3Y/5Y/7Y/10Y); the 2Y is empirically absent
-    and must NOT appear in the supported map (consumer code rejects it
-    with a clear DataUnavailableError pointing at this list).
+    Sprint 7B Commit 2 full-flow probe (2026-04-26) plus Commit 4 per-
+    key resolution confirmed seven live tenor codes split across two
+    INSTRUMENT_TYPE values: GBON (3Y/5Y/7Y/10Y, govt bonds) and TBIL
+    (3M/6M/12M, treasury bills). The 2Y is empirically absent under
+    either instrument type and must NOT appear in the supported map
+    (consumer code rejects it with a clear DataUnavailableError
+    pointing at this list).
     """
     assert set(NORGESBANK_GBON_TENOR_KEYS) == {"3M", "6M", "12M", "3Y", "5Y", "7Y", "10Y"}
     assert "2Y" not in NORGESBANK_GBON_TENOR_KEYS
-    # Each key has the canonical B.{TENOR}.GBON shape.
-    for tenor, key in NORGESBANK_GBON_TENOR_KEYS.items():
-        assert key == f"B.{tenor}.GBON"
+    # Long-end (≥3Y) uses GBON instrument-type; short-end (≤12M) uses TBIL.
+    assert NORGESBANK_GBON_TENOR_KEYS["3M"] == "B.3M.TBIL"
+    assert NORGESBANK_GBON_TENOR_KEYS["6M"] == "B.6M.TBIL"
+    assert NORGESBANK_GBON_TENOR_KEYS["12M"] == "B.12M.TBIL"
+    assert NORGESBANK_GBON_TENOR_KEYS["3Y"] == "B.3Y.GBON"
+    assert NORGESBANK_GBON_TENOR_KEYS["5Y"] == "B.5Y.GBON"
+    assert NORGESBANK_GBON_TENOR_KEYS["7Y"] == "B.7Y.GBON"
+    assert NORGESBANK_GBON_TENOR_KEYS["10Y"] == "B.10Y.GBON"
     # Tenor-years map covers the same keys + uses standard year fractions.
     assert set(NORGESBANK_GBON_TENOR_YEARS) == set(NORGESBANK_GBON_TENOR_KEYS)
     assert NORGESBANK_GBON_TENOR_YEARS["3M"] == 0.25
@@ -384,9 +392,9 @@ class TestFetchGovtYield:
     @pytest.mark.parametrize(
         ("tenor", "expected_key", "expected_years"),
         [
-            ("3M", "B.3M.GBON", 0.25),
-            ("6M", "B.6M.GBON", 0.5),
-            ("12M", "B.12M.GBON", 1.0),
+            ("3M", "B.3M.TBIL", 0.25),
+            ("6M", "B.6M.TBIL", 0.5),
+            ("12M", "B.12M.TBIL", 1.0),
             ("3Y", "B.3Y.GBON", 3.0),
             ("5Y", "B.5Y.GBON", 5.0),
             ("7Y", "B.7Y.GBON", 7.0),

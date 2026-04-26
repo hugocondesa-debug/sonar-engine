@@ -1,14 +1,15 @@
 """Integration tests — daily-curves multi-country dispatch.
 
-Covers the post-Sprint-I curve-fit surface (2026-04-22): US (FRED,
-existing), DE (Bundesbank), EA (ECB SDW), GB/JP/CA/IT/ES/FR (TE). The
-Sprint H TE cascade closed ``CAL-CURVES-IT-BDI`` +
-``CAL-CURVES-ES-BDE``; Sprint I closed ``CAL-CURVES-FR-TE-PROBE`` via
-the same cascade. The remaining EA periphery (PT / NL) + sparse T1
-members (AU/NZ/CH/SE/NO/DK) continue to raise
-:class:`InsufficientDataError` at dispatch — verified by unit tests
-of ``_fetch_nominals_linkers``; integration tests here exercise the
-live cascade end-to-end.
+Covers the post-Sprint-7B curve-fit surface (2026-04-26): US (FRED,
+existing), DE (Bundesbank), EA (ECB SDW), GB/JP/CA/IT/ES/FR/PT/AU (TE),
+**NO (Norges Bank)**. The Sprint H TE cascade closed ``CAL-CURVES-IT-BDI``
++ ``CAL-CURVES-ES-BDE``; Sprint I closed ``CAL-CURVES-FR-TE-PROBE`` via
+the same cascade; Sprint M closed PT; Sprint T graduated AU; Sprint 7B
+ships NO via Norges Bank GOVT_GENERIC_RATES (Path C pivot post 2Y
+empirical absence). The remaining EA periphery (NL) + sparse T1 members
+(NZ/CH/SE/DK) continue to raise :class:`InsufficientDataError` at
+dispatch — verified by unit tests of ``_fetch_nominals_linkers``;
+integration tests here exercise the live cascade end-to-end.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import sonar.db.session  # noqa: F401 — registers SQLite FK pragma listener
 from sonar.config import settings
 from sonar.connectors.bundesbank import BundesbankConnector
 from sonar.connectors.ecb_sdw import EcbSdwConnector
+from sonar.connectors.norgesbank import NorgesBankConnector
 from sonar.connectors.te import TEConnector
 from sonar.db.models import Base, NSSYieldCurveSpot
 from sonar.overlays.exceptions import InsufficientDataError
@@ -92,16 +94,26 @@ async def te(tmp_path: Path) -> AsyncIterator[TEConnector]:
     await conn.aclose()
 
 
+@pytest_asyncio.fixture
+async def norgesbank(tmp_path: Path) -> AsyncIterator[NorgesBankConnector]:
+    cache = tmp_path / "norgesbank"
+    cache.mkdir()
+    conn = NorgesBankConnector(cache_dir=str(cache))
+    yield conn
+    await conn.aclose()
+
+
 # ---------------------------------------------------------------------------
 # Dispatch unit coverage
 # ---------------------------------------------------------------------------
 
 
 def test_t1_curves_tier_constant_matches_expected() -> None:
-    """Sprint T AU TE cascade (2026-04-23): ``--all-t1`` iterates the
-    eleven curve-capable T1 countries. First ten entries preserve the
-    Sprint M ordering (journal/tool compatibility); AU appends at the
-    tail as first sparse-T1 S1 PASS under ADR-0009 v2.2.
+    """Sprint 7B Path C (2026-04-26): ``--all-t1`` iterates the twelve
+    curve-capable T1 countries. First eleven entries preserve the
+    Sprint T ordering (journal/tool compatibility); NO appends at the
+    tail as first non-EA non-TE country to ship via native-CB direct
+    cascade (Norges Bank GOVT_GENERIC_RATES, 7-tenor NS-reduced).
     """
     assert T1_CURVES_COUNTRIES == (
         "US",
@@ -115,17 +127,19 @@ def test_t1_curves_tier_constant_matches_expected() -> None:
         "FR",
         "PT",
         "AU",
+        "NO",
     )
     assert set(T1_CURVES_COUNTRIES) == CURVE_SUPPORTED_COUNTRIES
 
 
-def test_curve_supported_countries_matches_sprint_t_scope() -> None:
-    """Post-Sprint-T ship list: US (FRED) + DE (BB) + EA (ECB) +
+def test_curve_supported_countries_matches_sprint_7b_scope() -> None:
+    """Post-Sprint-7B ship list: US (FRED) + DE (BB) + EA (ECB) +
     GB/JP/CA/IT/ES/FR/PT/AU (TE — 8 countries via Bloomberg-symbol
-    cascade).
+    cascade) + NO (Norges Bank — first Path 2 native ship under
+    ADR-0009 v2.3).
     """
     assert (
-        frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"})
+        frozenset({"US", "DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU", "NO"})
         == CURVE_SUPPORTED_COUNTRIES
     )
 
@@ -155,26 +169,28 @@ async def test_fetch_nominals_raises_for_periphery_with_cal_pointer(
                 bundesbank=bundesbank,
                 ecb_sdw=ecb_sdw,
                 te=None,
+                norgesbank=None,
             )
 
 
 async def test_fetch_nominals_raises_for_sparse_t1_with_cal_pointer(
     bundesbank: BundesbankConnector, ecb_sdw: EcbSdwConnector
 ) -> None:
-    """NZ/CH/SE/NO/DK raise InsufficientDataError pointing to
-    per-country ``CAL-CURVES-{X}-PATH-2``.
+    """NZ/CH/SE/DK raise InsufficientDataError pointing to per-country
+    ``CAL-CURVES-{X}-PATH-2``.
 
-    Sprint T (2026-04-23) superseded the umbrella
-    ``CAL-CURVES-T1-SPARSE`` with 5 per-country Path 2 CALs post
-    empirical S2 HALT-0 classification; AU graduated to shipped-T1 via
-    TE Path 1 ``GACGB`` family (8 tenors, first sparse-T1 S1 PASS
-    under ADR-0009 v2.2) — thus no longer in this test.
+    Sprint T (2026-04-23) superseded the umbrella ``CAL-CURVES-T1-SPARSE``
+    with 5 per-country Path 2 CALs post empirical S2 HALT-0
+    classification; AU graduated to shipped-T1 via TE Path 1 ``GACGB``
+    family (8 tenors, first sparse-T1 S1 PASS under ADR-0009 v2.2);
+    Sprint 7B (2026-04-26) graduated NO via Norges Bank Path 2 native
+    cascade (7 tenors via GOVT_GENERIC_RATES post Path C pivot —
+    closing CAL-CURVES-NO-PATH-2 DONE-FULL). Four S2 residuals remain.
     """
     expected_pointers = {
         "NZ": "CAL-CURVES-NZ-PATH-2",
         "CH": "CAL-CURVES-CH-PATH-2",
         "SE": "CAL-CURVES-SE-PATH-2",
-        "NO": "CAL-CURVES-NO-PATH-2",
         "DK": "CAL-CURVES-DK-PATH-2",
     }
     for country, pointer in expected_pointers.items():
@@ -186,6 +202,7 @@ async def test_fetch_nominals_raises_for_sparse_t1_with_cal_pointer(
                 bundesbank=bundesbank,
                 ecb_sdw=ecb_sdw,
                 te=None,
+                norgesbank=None,
             )
 
 
@@ -365,31 +382,65 @@ async def test_daily_curves_fr_end_to_end(te: TEConnector, db_session: Session) 
 
 
 @pytest.mark.slow
+async def test_daily_curves_no_end_to_end(
+    norgesbank: NorgesBankConnector, db_session: Session
+) -> None:
+    """NO 2024-12-30 via Norges Bank GOVT_GENERIC_RATES → NS-reduced fit persisted.
+
+    Sprint 7B Path C ship (2026-04-26): 7 unique tenors (3M / 6M / 1Y /
+    3Y / 5Y / 7Y / 10Y) ≥ ``MIN_OBSERVATIONS=6`` but <
+    ``MIN_OBSERVATIONS_FOR_SVENSSON=9`` → NS-reduced 4-param fit
+    (CA precedent). The 2Y is empirically absent from this dataflow
+    (Commit 2 probe); 15Y/20Y/30Y also absent — gap operationally
+    tolerable at the 10Y anchor.
+    """
+    obs_date = date(2024, 12, 30)
+    result = await run_country(
+        country="NO",
+        observation_date=obs_date,
+        session=db_session,
+        norgesbank=norgesbank,
+    )
+    spot = db_session.query(NSSYieldCurveSpot).filter_by(country_code="NO", date=obs_date).one()
+    assert spot.fit_id == str(result.fit_id)
+    # 7-tenor coverage clears MIN_OBSERVATIONS=6 but stays below
+    # MIN_OBSERVATIONS_FOR_SVENSSON=9 → NS-reduced (CA precedent).
+    assert 6 <= spot.observations_used < 9
+    assert spot.source_connector == "norgesbank"
+    # NS-reduced + TBIL-heavy short-end yields wider confidence
+    # tolerance vs. Svensson countries; loose RMSE guard only.
+    assert spot.rmse_bps <= 10
+
+
+@pytest.mark.slow
 async def test_daily_curves_all_t1_sparse_inclusion(
     bundesbank: BundesbankConnector,
     ecb_sdw: EcbSdwConnector,
     te: TEConnector,
+    norgesbank: NorgesBankConnector,
     db_session: Session,
 ) -> None:
-    """``--all-t1`` iteration persists ten non-US curves on one date.
+    """``--all-t1`` iteration persists eleven non-US curves on one date.
 
     Sprint E (CAL-CURVES-T1-SPARSE-INCLUSION 2026-04-22) expanded
     ``T1_CURVES_COUNTRIES`` to (US, DE, EA, GB, JP, CA). Sprint H
     (IT + ES TE cascade, 2026-04-22) further expanded to eight. Sprint I
     (FR TE cascade, 2026-04-22) extended to nine. Sprint M (PT TE
     cascade, 2026-04-23) extended to ten. Sprint T (AU TE cascade,
-    2026-04-23) extends to eleven — first sparse-T1 S1 PASS under
-    ADR-0009 v2.2. This canary validates the ten non-US countries
-    (which do not need a FRED key) persist successfully in a single
-    run — mirroring the production ``sonar-daily-curves.service``
-    invocation.
+    2026-04-23) extended to eleven — first sparse-T1 S1 PASS under
+    ADR-0009 v2.2. Sprint 7B (Norges Bank Path 2 native cascade,
+    2026-04-26) extends to twelve — first non-EA non-TE country to
+    ship via native-CB direct under ADR-0009 v2.3. This canary
+    validates the eleven non-US countries (which do not need a FRED
+    key) persist successfully in a single run — mirroring the
+    production ``sonar-daily-curves.service`` invocation.
 
     US is exercised separately in ``test_daily_curves_pipeline.py`` to
     keep this test independent of ``FRED_API_KEY`` presence.
     """
     obs_date = date(2024, 12, 30)
     non_us = [c for c in T1_CURVES_COUNTRIES if c != "US"]
-    assert non_us == ["DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU"]
+    assert non_us == ["DE", "EA", "GB", "JP", "CA", "IT", "ES", "FR", "PT", "AU", "NO"]
 
     for country in non_us:
         await run_country(
@@ -399,6 +450,7 @@ async def test_daily_curves_all_t1_sparse_inclusion(
             bundesbank=bundesbank,
             ecb_sdw=ecb_sdw,
             te=te,
+            norgesbank=norgesbank,
         )
 
     persisted = {
