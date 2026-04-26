@@ -2,7 +2,7 @@
 
 *Auto-updated post-sprint per `governance/WORKFLOW.md` mandate.*
 *Companion to claude.ai Project knowledge `SESSION_CONTEXT.md` (narrative / decisions).*
-*Last updated: 2026-04-26T21:40Z by Sprint A (test-hygiene + SESSION_STATE.md hybrid governance).*
+*Last updated: 2026-04-26T21:50Z by Sprint A (test-hygiene + SESSION_STATE.md hybrid governance).*
 
 ---
 
@@ -16,8 +16,8 @@
 
 - **ID**: Sprint A — test-hygiene + SESSION_STATE.md hybrid governance
 - **Branch**: `sprint-a-test-hygiene-and-session-state`
-- **SHA range**: `daa3e9d..` (HEAD ao fechar)
-- **Outcome**: Issue 1 (`_seed_all` schema mismatch) fixed; Issue 2 NOT-REPRODUCIBLE post-fix; CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL closed; SESSION_STATE.md infra shipped.
+- **SHA range**: `daa3e9d..6de4a1a` (Commits 1-6; retrospective commit pending merge)
+- **Outcome**: Issue 1 (`_seed_all` schema mismatch) fixed; Issue 2 NOT-REPRODUCIBLE post-fix; CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL closed; `docs/SESSION_STATE.md` + `WORKFLOW.md` mandate shipped (this file is the canonical machine-readable companion).
 
 ## Coverage by overlay / layer (T1 = 16 países canonical)
 
@@ -80,7 +80,7 @@
 
 ## Active worktrees + tmux
 
-- `/home/macro/projects/sonar-wt-a-test-hygiene-and-session-state` — Sprint A (closing 2026-04-26)
+- `/home/macro/projects/sonar-wt-a-test-hygiene-and-session-state` — Sprint A (retrospective commit pending; cleanup post-merge)
 - (auto-populated post-update; clear if no active sprint at next refresh)
 
 ## Next sprint candidates
