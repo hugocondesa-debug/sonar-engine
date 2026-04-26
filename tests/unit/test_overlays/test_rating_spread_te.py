@@ -237,13 +237,14 @@ class TestCountryMapping:
         "name", ["Albania", "Botswana", "Vanuatu", "South Korea", "Czech Republic"]
     )
     def test_unmappable_returns_none(self, name: str) -> None:
-        # South Korea + Czech Republic intentionally NOT in TIER1 — Sprint 4
-        # cohort is sovereign Tier 1 only (CAL-RATING-COHORT-EXPANSION).
+        # South Korea + Czech Republic intentionally NOT in TIER1 —
+        # cohort is sovereign Tier 1 only (Sprint 4 + Sprint 6 = 15 países;
+        # CAL-RATING-COHORT-EXPANSION closed Sprint 6).
         assert _te_country_to_iso(name) is None
 
     def test_tier1_cohort_complete(self) -> None:
         assert set(TE_COUNTRY_OVERRIDES_TIER1.values()) == set(TIER1_COUNTRIES)
-        assert len(TIER1_COUNTRIES) == 10
+        assert len(TIER1_COUNTRIES) == 15
 
     @pytest.mark.parametrize(
         ("raw", "code"),

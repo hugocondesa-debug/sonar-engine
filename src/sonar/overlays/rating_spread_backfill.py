@@ -1,4 +1,4 @@
-"""TE-driven rating-spread backfill orchestrator (Sprint 4).
+"""TE-driven rating-spread backfill orchestrator (Sprint 4 + Sprint 6).
 
 Flat sibling of :mod:`sonar.overlays.rating_spread` (compute-only
 module shipped Week 3). Sprint 4 ships the data layer: TE Premium
@@ -8,10 +8,18 @@ module shipped Week 3). Sprint 4 ships the data layer: TE Premium
 ``ratings_consolidated`` + ``ratings_spread_calibration`` seeded from
 the ``APRIL_2026_CALIBRATION`` anchor table.
 
-Sprint 4 cohort scope: 10 sovereign Tier 1 countries
-(US/DE/FR/IT/ES/PT/GB/JP/CA/AU). EA aggregate excluded — sovereign
-ratings agencies rate individual EA members, not the aggregate.
-Future sprint expands cohort (CAL-RATING-COHORT-EXPANSION).
+Cohort scope: 15 sovereign Tier 1 countries.
+
+- Sprint 4 (2026-04-25): 10 países —
+  US / DE / FR / IT / ES / PT / GB / JP / CA / AU.
+- Sprint 6 (2026-04-26): +5 países —
+  NL / NZ / CH / SE / NO (CAL-RATING-COHORT-EXPANSION closed).
+
+EA aggregate excluded — sovereign rating agencies rate individual
+issuers, not currency-union aggregates. DK deferred Phase 5+
+(T2 per ``country_tiers.yaml``; ADR-0010 strict T1-ONLY enforcement
+through Phase 4) — see CAL-RATING-DK-PHASE5 candidate in Sprint 6
+retrospective §9.
 
 Idempotent via UNIQUE constraints on all 3 target tables — re-running
 is safe; rows already persisted are skipped at row level.
@@ -75,10 +83,12 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Tier 1 cohort + TE-name <-> ISO alpha-2 manual mapping (Sprint 4 scope)
+# Tier 1 cohort + TE-name <-> ISO alpha-2 manual mapping
+# (Sprint 4 = 10 países; Sprint 6 = +5 sparse — closes CAL-RATING-COHORT-EXPANSION)
 # ---------------------------------------------------------------------------
 
 TIER1_COUNTRIES: tuple[str, ...] = (
+    # Sprint 4 cohort (2026-04-25)
     "US",
     "DE",
     "FR",
@@ -89,12 +99,22 @@ TIER1_COUNTRIES: tuple[str, ...] = (
     "JP",
     "CA",
     "AU",
+    # Sprint 6 expansion (2026-04-26)
+    "NL",
+    "NZ",
+    "CH",
+    "SE",
+    "NO",
 )
 
-# TE-canonical country name -> ISO alpha-2. Verified empirically against
-# the live ``/ratings`` snapshot 2026-04-25; expand on Tier 2/3/4
-# rollout (CAL-RATING-COHORT-EXPANSION).
+# TE-canonical country name -> ISO alpha-2. Sprint 4 entries verified
+# empirically against the live ``/ratings`` snapshot 2026-04-25.
+# Sprint 6 entries verified 2026-04-26 — TE returns canonical English
+# country names (single word for NL/CH/SE/NO; "New Zealand" 2-word
+# capitalised matching the Sprint 4 ``United States`` /
+# ``United Kingdom`` pattern). DK deferred Phase 5+ per ADR-0010.
 TE_COUNTRY_OVERRIDES_TIER1: dict[str, str] = {
+    # Sprint 4 cohort
     "United States": "US",
     "Germany": "DE",
     "France": "FR",
@@ -105,6 +125,12 @@ TE_COUNTRY_OVERRIDES_TIER1: dict[str, str] = {
     "Japan": "JP",
     "Canada": "CA",
     "Australia": "AU",
+    # Sprint 6 expansion
+    "Netherlands": "NL",
+    "New Zealand": "NZ",
+    "Switzerland": "CH",
+    "Sweden": "SE",
+    "Norway": "NO",
 }
 
 TIER1_ISO_TO_TE_NAME: dict[str, str] = {

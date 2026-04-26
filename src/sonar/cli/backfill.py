@@ -381,7 +381,8 @@ def rating_spread(
         "--countries",
         help=(
             "Comma-separated ISO 3166-1 alpha-2 codes to back-fill. Default = "
-            "Tier 1 cohort (US,DE,FR,IT,ES,PT,GB,JP,CA,AU)."
+            "Tier 1 cohort (US,DE,FR,IT,ES,PT,GB,JP,CA,AU + Sprint 6 "
+            "expansion NL,NZ,CH,SE,NO)."
         ),
     ),
     cache_dir: Path = typer.Option(  # noqa: B008 — Typer convention
@@ -390,7 +391,7 @@ def rating_spread(
         help="Connector disk cache (per-connector subdir).",
     ),
 ) -> None:
-    """Sprint 4: TE-driven rating-spread backfill (Tier 1 sovereigns).
+    """TE-driven rating-spread backfill (Tier 1 sovereigns; Sprint 4 + Sprint 6).
 
     Pipeline:
 
@@ -412,7 +413,7 @@ def rating_spread(
         unknown = [c for c in cohort if c not in RATING_TIER1_COUNTRIES]
         if unknown:
             typer.echo(
-                f"Unknown country code(s) (not in Sprint 4 Tier 1 cohort): "
+                f"Unknown country code(s) (not in Tier 1 cohort): "
                 f"{','.join(unknown)}. Allowed: "
                 f"{','.join(RATING_TIER1_COUNTRIES)}.",
                 err=True,
