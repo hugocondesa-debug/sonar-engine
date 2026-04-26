@@ -2,7 +2,7 @@
 
 *Auto-updated post-sprint per `governance/WORKFLOW.md` mandate.*
 *Companion to claude.ai Project knowledge `SESSION_CONTEXT.md` (narrative / decisions).*
-*Last updated: 2026-04-26T21:50Z by Sprint A (test-hygiene + SESSION_STATE.md hybrid governance).*
+*Last updated: 2026-04-26T22:35Z by Sprint 8 (test pollution root-cause diagnosis).*
 
 ---
 
@@ -14,10 +14,10 @@
 
 ## Last sprint shipped
 
-- **ID**: Sprint A — test-hygiene + SESSION_STATE.md hybrid governance
-- **Branch**: `sprint-a-test-hygiene-and-session-state`
-- **SHA range**: `daa3e9d..6de4a1a` (Commits 1-6; retrospective commit pending merge)
-- **Outcome**: Issue 1 (`_seed_all` schema mismatch) fixed; Issue 2 NOT-REPRODUCIBLE post-fix; CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL closed; `docs/SESSION_STATE.md` + `WORKFLOW.md` mandate shipped (this file is the canonical machine-readable companion).
+- **ID**: Sprint 8 — test pollution root-cause diagnosis (continuation Sprint A)
+- **Branch**: `sprint-8-test-pollution-rootcause`
+- **SHA range**: `7b7cea5..546ceca` (Commits 1-4; retrospective commit pending)
+- **Outcome**: **A** (root cause + single fix). pytest-asyncio orphan event-loop leak diagnosed via PYTHONTRACEMALLOC=10 (`pytest_asyncio/plugin.py:618` + Python 3.12 default policy auto-create). Fix: autouse session-scoped fixture em `tests/conftest.py` (`b37b29e`). Verificação: 5/5 consecutive full-suite PASS clean (was 5/5 fail pre-fix). CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL residuais marcados closed.
 
 ## Coverage by overlay / layer (T1 = 16 países canonical)
 
@@ -53,20 +53,20 @@
 
 ## Test infrastructure
 
-- Pre-push gate: green for Issue 1 + Issue 2 targets post Sprint A
-- `test_us_smoke_end_to_end`: PASS isolated + 5x consecutive full-suite
-- `test_us_full_stack`: PASS 5x consecutive full-suite (Issue 2 NOT-REPRODUCIBLE)
-- Active flakes (out-of-scope, candidatos a CAL filing):
-  - `test_te_indicator.py` cassette tests (CA/SE/EA — TE rate-limit cumulative_calls bleed)
-  - `test_economic_ecs::test_fixture_us_2020_03_23_recession` (intermittent ~1/5)
-  - `test_credit_cccs::TestComputeCccsEndToEnd::test_happy_full_stack` (intermittent ~1/5)
-- Closed CAL: CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL (2026-04-26 via Sprint A)
+- Pre-push gate: **green clean** post Sprint 8 fix (`b37b29e`)
+- Full-suite (`pytest -m "not slow"`): 2322 passed, 0 failed, 5/5 consecutive runs clean
+- Targeted subset (`tests/unit/test_cycles/ tests/unit/test_connectors/test_te_indicator.py`): 304 passed, 3/3 consecutive clean
+- Coverage: 83.44 % TOTAL post-fix
+- Active flakes: **none known** (all Sprint A residuais resolvidos por Sprint 8)
+- Closed CAL (residuais incluídos): CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL (2026-04-26 via Sprint A + Sprint 8)
+- Test-infra fix: `tests/conftest.py` autouse session-scoped fixture defines `policy._local._set_called = True` para suprimir asyncio default policy auto-create branch (Python 3.12 + pytest-asyncio 1.3.0 + filterwarnings=error interaction)
 
 ## TE quota
 
 - Tier: 5000 / mês
 - Consumption Week 11 post-Sprint 7B: ~41-42 %
 - Sprint A delta: 0 (governance + test-only sprint, sem live calls)
+- Sprint 8 delta: 0 (test infrastructure fix, sem live calls)
 
 ## Pipelines production (systemd timers, 06:00-07:30 WEST)
 
@@ -80,7 +80,7 @@
 
 ## Active worktrees + tmux
 
-- `/home/macro/projects/sonar-wt-a-test-hygiene-and-session-state` — Sprint A (retrospective commit pending; cleanup post-merge)
+- `/home/macro/projects/sonar-wt-8-test-pollution-rootcause` — Sprint 8 (retrospective commit pending; cleanup post-merge)
 - (auto-populated post-update; clear if no active sprint at next refresh)
 
 ## Next sprint candidates
@@ -88,4 +88,4 @@
 - CAL-EXPINF-T1-AUDIT (HIGH priority — closes biggest L2 gap)
 - CAL-M3-T1-EXPANSION (curves-derived; 12 curves available)
 - L4 cross-country composites (MSC + CCCS + ECS + FCS first cross-country runs)
-- Pre-existing test flakes consolidation (TE cassettes + cycles intermittents) — separate CAL filing if persisting
+- (Pre-existing test flakes consolidation — RESOLVED Sprint 8; sem follow-up necessário)
