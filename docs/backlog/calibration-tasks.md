@@ -3508,3 +3508,18 @@ as sub-bullets below when it differs materially from peer countries.
 - **Related:** ADR-0011 Principle 6 (canonical pattern);
   CAL-136 precedent (BIS live-canary teardown fix — same pattern,
   narrower scope).
+
+### CAL-EXPINF-T1-AUDIT — Expected Inflation T1 coverage audit
+- **Priority:** MEDIUM — gating L2 100% Phase 2 T1 declaration; bottleneck identified during Sprint 5 prep gap-to-100% review.
+- **Trigger:** Phase 2 status review 2026-04-26 revealed coverage uncertain for 12/16 T1 countries. Confirmed live: US (BEI FRED), DE (BEI Bundesbank), EA (BEI ECB SDW), PT (DERIVED). Unconfirmed/sparse: FR, IT, ES, NL, GB, JP, CA, AU, NZ, CH, SE, NO, DK.
+- **Required work:**
+  1. Audit `expected_inflation_*` tables per spec hierarchy `BEI > SWAP > DERIVED > SURVEY` for each T1 country.
+  2. Document active method per country in audit table (BEI/SWAP/DERIVED/SURVEY/MISSING + source).
+  3. For DERIVED-eligible EA members (FR/IT/ES/NL): verify `EA + diff` path operational; ship if absent.
+  4. For GB: probe BEI via BoE inflation-linked gilts before SURVEY DMP fallback.
+  5. For JP: validate `boj_tankan` connector status (currently scaffold per Week 10); ship SURVEY path or escalate connector sprint.
+  6. For CA/AU/NZ/CH/SE/NO/DK: probe TE Path 1 BEI/SWAP availability per ADR-0009 v2; SURVEY fallback if exhausted.
+  7. Update `docs/specs/overlays/expected-inflation.md` country scope table with audit findings.
+- **Impact if unresolved:** Expected Inflation Phase 2 T1 coverage % uncertain — blocks honest L2 100% milestone declaration. Downstream nominal-real conversions for cross-country MSC/FCS may quietly fall through to NULL flags.
+- **Estimate:** 1-2 sprints CC (audit + DERIVED expansion ~1 sprint; SURVEY connector sprint potentially +1).
+- **Related:** CAL-042 (per-tenor PT-EA differential, Phase 2 deferral); CAL-043 (boe_dmp/boj_tankan connector validation, Week 4+ deferral); ADR-0009 v2 (TE Path 1 mandatory probe discipline).
