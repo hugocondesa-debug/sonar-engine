@@ -3596,16 +3596,20 @@ as sub-bullets below when it differs materially from peer countries.
 - **Estimate:** 1-2 sprints CC (audit + DERIVED expansion ~1 sprint; SURVEY connector sprint potentially +1).
 - **Related:** CAL-042 (per-tenor PT-EA differential, Phase 2 deferral); CAL-043 (boe_dmp/boj_tankan connector validation, Week 4+ deferral); ADR-0009 v2 (TE Path 1 mandatory probe discipline).
 
-### CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL — Cycles US tests inconsistent
-- **Priority:** LOW — does not affect production pipeline; pre-existing.
+### CAL-TEST-CYCLES-FIXTURE-FLAKE-AND-FAIL — Cycles US tests inconsistent (CLOSED 2026-04-26 via Sprint A)
+- **Priority:** LOW → **CLOSED 2026-04-26** via Sprint A test-hygiene + SESSION_STATE.md hybrid governance.
 - **Trigger:** Sprint 7B Commit 1 pre-push gate 2026-04-26 surfaced 2 issues. Supersedes preliminary CAL-TEST-CYCLES-FIXTURE-SEED-REGRESSION (filed 3f95f34, replaced after Hugo verified diagnosis split issue into genuine-failure + flake).
-- **Issue 1 (genuine failure):** `tests/integration/test_cycles_composites.py::TestOrchestratorSmoke::test_us_smoke_end_to_end` fails consistently on main + branches. Error: `cycles.msc.skipped error="Composite requires >= 3 sub-indices; got 0 (missing: ['CS', 'M1', 'M2', 'M3', 'M4'])"`. Root cause: `_seed_all` seed function not populating in-memory test session for US monetary subindices. Schema canonical: `monetary_m1_effective_rates` / `monetary_m2_taylor_gaps` / `monetary_m4_fci`.
-- **Issue 2 (flake):** `tests/unit/test_cycles/test_financial_fcs.py::TestComputeFcsHappy::test_us_full_stack` passes isolated (`pytest path::test_id`) but fails in full-suite run. Order-dependent test pollution / shared fixture interaction.
-- **Required work:**
-  1. Audit `_seed_all` (`test_cycles_composites.py`) seed function vs canonical schema names.
-  2. Audit `_seed_f_rows` (`test_financial_fcs.py`) for shared state with sibling tests.
-  3. Add per-test session isolation (function-scoped fixtures) where needed.
-  4. Verify composite readers (`compute_all_cycles`, `compute_fcs`) match seed naming.
-- **Impact if unresolved:** Pre-push gate continues to surface 2 failures every sprint; option-2 push-and-track pattern repeats. Test reliability degraded; CI false-positives.
-- **Estimate:** 2-3h dedicated test-hygiene sprint.
-- **Related:** Sprint 7B Commit 1 (defer-and-track precedent); Week 10 schema consolidation potential origin.
+- **Issue 1 (genuine failure) — FIXED:** `tests/integration/test_cycles_composites.py::TestOrchestratorSmoke::test_us_smoke_end_to_end` fails consistently on main + branches. Error: `cycles.msc.skipped error="Composite requires >= 3 sub-indices; got 0 (missing: ['CS', 'M1', 'M2', 'M3', 'M4'])"`. Root cause: `_seed_all` seed function not populating in-memory test session for US monetary subindices. Schema canonical: `monetary_m1_effective_rates` / `monetary_m2_taylor_gaps` / `monetary_m4_fci`. **Fix shipped Commit 2 c5810c8**: `_seed_all` extended with `_seed_monetary_subindices` (M1+M2+M4 dedicated tables + M3 IndexValue) + `_seed_economic_subindices` (E1+E3+E4 dedicated tables + E2 IndexValue). Verified isolated PASS + full-suite PASS x5 consecutive.
+- **Issue 2 (flake) — NOT-REPRODUCIBLE post-Issue 1 fix:** `tests/unit/test_cycles/test_financial_fcs.py::TestComputeFcsHappy::test_us_full_stack` passes isolated (`pytest path::test_id`) but fails in full-suite run. Order-dependent test pollution / shared fixture interaction. **Investigation outcome (Commit 3 49805c0)**: 5x consecutive full-suite runs post-Issue 1 fix → 0/5 falhas. Diagnóstico: Issue 2 era sintoma de Issue 1 (knock-on effect via pytest collect/order pollution apparente quando smoke test falhava). Sem patch defensiva adicional ao `_seed_f_rows` / `db_session` fixture (function-scoped + `expire_on_commit=False` + explicit teardown já são best-practice).
+- **Required work — DONE:**
+  1. ✅ Audit `_seed_all` (`test_cycles_composites.py`) seed function vs canonical schema names — Commit 1 audit doc `docs/planning/week11-sprint-a-pre-flight-audit.md`.
+  2. ✅ Audit `_seed_f_rows` (`test_financial_fcs.py`) for shared state with sibling tests — same audit doc §4.
+  3. ✅ Add per-test session isolation (function-scoped fixtures) where needed — confirmed already function-scoped; sem patch necessária.
+  4. ✅ Verify composite readers (`compute_all_cycles`, `compute_fcs`) match seed naming — audit doc §2: zero divergence.
+- **Test runs evidence (post-fix Commit 2 c5810c8 + Commit 3 49805c0):**
+  - `test_us_smoke_end_to_end`: PASS isolated (1/1, 0.62s); PASS full-suite x5 (5/5).
+  - `test_us_full_stack`: PASS full-suite x5 (5/5) — Issue 2 NOT-REPRODUCIBLE.
+- **Pre-existing flakes surfaced (out-of-scope):** `test_te_indicator.py` cassette tests (CA / SE / EA various — TE rate-limit cumulative_calls bleed); `test_economic_ecs::test_fixture_us_2020_03_23_recession` (1/5 intermittent); `test_credit_cccs::TestComputeCccsEndToEnd::test_happy_full_stack` (1/5 intermittent). Confirmed pré-existentes em main baseline. Candidatos a CAL filing separado post-Sprint A.
+- **Impact resolved:** Pre-push gate consistent failure pattern eliminado para os 2 testes alvo; option-2 push-and-track pattern não mais necessário para estes 2 testes específicos.
+- **Estimate vs actual:** 2-3h estimate → ~2h wall-clock single CC (Track 1 Commits 1-4).
+- **Related:** Sprint 7B Commit 1 (defer-and-track precedent); Sprint A brief `docs/planning/week11-sprint-a-test-hygiene-and-session-state-brief.md`; pre-flight audit `docs/planning/week11-sprint-a-pre-flight-audit.md`; Issue 2 investigation `docs/planning/week11-sprint-a-issue-2-investigation.md`.
